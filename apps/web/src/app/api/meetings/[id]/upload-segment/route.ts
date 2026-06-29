@@ -1,6 +1,5 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
-import { uploadAudio, buildSegmentKey } from '@/lib/r2';
 
 export async function POST(
   request: Request,
@@ -31,10 +30,17 @@ export async function POST(
     return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
   }
 
-  const r2Key = buildSegmentKey(meeting.org_id, params.id, segmentIndex);
-  const buffer = Buffer.from(await audioFile.arrayBuffer());
+  const r2Key = `${meeting.org_id || 'default'}/${params.id}/segment_${segmentIndex}.webm`;
 
-  await uploadAudio(r2Key, buffer, 'audio/webm');
+  const { error: uploadError } = await supabase.storage
+    .from('meeting-audio')
+    .upload(r2Key, audioFile, {
+      contentType: 'audio/webm',
+    });
+
+  if (uploadError) {
+    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+  }
 
   const segments = meeting.audio_segments || [];
   segments.push({
