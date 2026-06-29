@@ -1,5 +1,6 @@
 {
   "name": "zrnote",
+  "version": "0.0.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,8 +13,7 @@
     "react-dom": "^18.3.1",
     "@supabase/supabase-js": "^2.45.0",
     "@supabase/ssr": "^0.5.0",
-    "zod": "^3.23.8",
-    "zustand": "^4.5.4"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
