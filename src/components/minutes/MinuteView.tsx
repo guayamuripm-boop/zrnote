@@ -1,5 +1,14 @@
-import type { Minute } from '@zrnote/types';
 import ActionItemsTable from './ActionItemsTable';
+
+interface Minute {
+  id: string;
+  title: string;
+  summary: string;
+  topics: string[];
+  decisions: string[];
+  changes: string[];
+  next_steps: string[];
+}
 
 interface MinuteViewProps {
   minute: Minute;

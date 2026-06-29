@@ -1,4 +1,11 @@
-import type { ActionItem } from '@zrnote/types';
+interface ActionItem {
+  id: string;
+  assignee_name: string;
+  description: string;
+  due_date: string | null;
+  priority: string;
+  status: string;
+}
 
 interface ActionItemsTableProps {
   items: ActionItem[];
