@@ -1,0 +1,25 @@
+{
+  "name": "@zrnote/worker",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "bullmq": "^5.12.0",
+    "resend": "^3.5.0",
+    "@zrnote/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}

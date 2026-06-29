@@ -1,0 +1,15 @@
+{
+  "name": "zrnote",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @zrnote/web dev",
+    "dev:worker": "pnpm --filter @zrnote/worker dev",
+    "build": "pnpm --filter @zrnote/web build",
+    "start": "pnpm --filter @zrnote/web start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

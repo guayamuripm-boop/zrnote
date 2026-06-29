@@ -1,0 +1,9 @@
+{
+  "project_id": "tu-project-id",
+  "extensions": {
+    "smtp": {
+      "function": "smtp_send",
+      "verify_emails": false
+    }
+  }
+}
