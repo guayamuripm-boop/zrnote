@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&family=Raleway:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --zr-navy: #21284F;
+  --zr-blue: #1E4D96;
+  --zr-blue-mid: #3869B1;
+  --zr-blue-light: #6590CB;
+  --zr-blue-pale: #98BAE3;
+  --zr-white: #FFFFFF;
+  --foreground: #21284F;
+  --background: #FFFFFF;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: 'Roboto', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Raleway', sans-serif;
+}
+
+@layer utilities {
+  .pulse-recording {
+    animation: pulse-recording 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  .bg-zr-pattern {
+    background-color: var(--zr-blue);
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M15 10 Q30 10 30 25 Q30 40 15 40 Q0 40 0 25 Q0 10 15 10Z M45 10 Q60 10 60 25 Q60 40 45 40 Q30 40 30 25 Q30 10 45 10Z M30 25 Q30 10 45 10 M30 25 Q30 40 45 40 M30 25 Q30 10 15 10 M30 25 Q30 40 15 40' fill='none' stroke='%23ffffff' stroke-width='1.5' opacity='0.15'/%3E%3C/svg%3E");
+  }
+}
+
+@keyframes pulse-recording {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
