@@ -14,7 +14,7 @@ export default async function MeetingsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Reuniones</h1>
         <Link
-          href="/dashboard/meetings/new"
+          href="/meetings/new"
           className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition"
         >
           + Nueva Reunión
@@ -26,7 +26,7 @@ export default async function MeetingsPage() {
           {meetings.map((meeting) => (
             <Link
               key={meeting.id}
-              href={`/dashboard/meetings/${meeting.id}`}
+              href={`/meetings/${meeting.id}`}
               className="block p-4 hover:bg-gray-50 transition"
             >
               <div className="flex items-center justify-between">

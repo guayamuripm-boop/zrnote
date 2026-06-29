@@ -22,7 +22,7 @@ export default function NewMeetingPage() {
 
     if (response.ok) {
       const { id } = await response.json();
-      router.push(`/dashboard/meetings/${id}`);
+      router.push(`/meetings/${id}`);
     } else {
       setLoading(false);
       alert('Error al crear reunión');

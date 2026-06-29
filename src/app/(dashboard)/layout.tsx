@@ -17,17 +17,17 @@ export default async function DashboardLayout({
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-zr-navy border-b border-zr-blue px-4 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <a href="/dashboard" className="flex items-center gap-2">
+          <a href="/" className="flex items-center gap-2">
             <div className="bg-zr-blue text-white font-bold text-sm px-2 py-1 rounded font-raleway">
               ZR
             </div>
             <span className="text-white font-raleway font-bold text-lg">ZRNote</span>
           </a>
           <div className="flex items-center gap-4">
-            <a href="/dashboard/meetings" className="text-sm text-zr-blue-pale hover:text-white transition">
+            <a href="/meetings" className="text-sm text-zr-blue-pale hover:text-white transition">
               Reuniones
             </a>
-            <a href="/dashboard/action-items" className="text-sm text-zr-blue-pale hover:text-white transition">
+            <a href="/action-items" className="text-sm text-zr-blue-pale hover:text-white transition">
               Mis Tareas
             </a>
             <form action="/api/auth/signout" method="post">
