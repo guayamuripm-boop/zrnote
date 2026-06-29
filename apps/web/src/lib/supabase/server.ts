@@ -30,11 +30,3 @@ export function createServerSupabase() {
     }
   );
 }
-
-export function createServiceClient() {
-  const { createClient } = require('@supabase/supabase-js');
-  return createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!
-  );
-}

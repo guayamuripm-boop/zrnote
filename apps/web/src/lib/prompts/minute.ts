@@ -1,7 +1,5 @@
-import type { MinuteJSON } from '@zrnote/types';
-
 export const MINUTE_PROMPT = (transcript: string): string => `
-Eres ZRNote, sistema de minutas de Academia ZR.
+Eres ZRNote, sistema de minutas de ZR Mecacademy.
 Analiza la transcripción y responde SOLO con un JSON válido, sin texto adicional.
 
 ESTRUCTURA JSON REQUERIDA:
