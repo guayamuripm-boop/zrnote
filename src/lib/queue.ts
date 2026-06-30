@@ -6,11 +6,13 @@ export async function triggerProcessing(meetingId: string): Promise<void> {
     process.env.SUPABASE_SERVICE_KEY!
   );
 
-  const { error } = await supabase.functions.invoke('process-meeting', {
+  const { data, error } = await supabase.functions.invoke('process-meeting', {
     body: { meetingId },
   });
 
   if (error) {
-    throw new Error(`Error triggering processing: ${error.message}`);
+    const detail = data ? JSON.stringify(data) : error.message;
+    console.error('Edge Function error:', detail);
+    throw new Error(`Edge Function error: ${detail}`);
   }
 }
