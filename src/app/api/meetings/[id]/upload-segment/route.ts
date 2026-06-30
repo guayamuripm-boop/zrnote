@@ -1,4 +1,5 @@
 import { createServerSupabase } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 export async function POST(
@@ -32,7 +33,13 @@ export async function POST(
 
   const r2Key = `${meeting.org_id || 'default'}/${params.id}/segment_${segmentIndex}.webm`;
 
-  const { error: uploadError } = await supabase.storage
+  // Use service role for storage to bypass RLS on upsert (INSERT+UPDATE)
+  const serviceClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  );
+
+  const { error: uploadError } = await serviceClient.storage
     .from('meeting-audio')
     .upload(r2Key, audioFile, {
       contentType: 'audio/webm',
@@ -44,16 +51,18 @@ export async function POST(
   }
 
   const segments = meeting.audio_segments || [];
-  segments.push({
+  // Remove existing entry for this segment index (if re-uploading)
+  const filtered = segments.filter((s: any) => s.segment_index !== segmentIndex);
+  filtered.push({
     r2_key: r2Key,
     segment_index: segmentIndex,
     duration_s: 0,
-    status: 'uploading',
+    status: 'uploaded',
   });
 
   await supabase
     .from('meetings')
-    .update({ audio_segments: segments })
+    .update({ audio_segments: filtered })
     .eq('id', params.id);
 
   return NextResponse.json({ ok: true, r2Key });
