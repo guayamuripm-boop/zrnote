@@ -1,4 +1,3 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
@@ -8,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -21,6 +20,8 @@ serve(async (req) => {
     const groqKey = Deno.env.get('GROQ_API_KEY')!;
     const resendKey = Deno.env.get('RESEND_API_KEY')!;
 
+    console.log(`Starting processing for meeting: ${meetingId}`);
+
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // 1. Get meeting data
@@ -31,29 +32,34 @@ serve(async (req) => {
       .single();
 
     if (meetingError || !meeting) {
-      throw new Error('Meeting not found');
+      throw new Error(`Meeting not found: ${meetingError?.message || 'null'}`);
     }
 
-    console.log(`Processing meeting: ${meeting.title}`);
+    console.log(`Meeting found: ${meeting.title}, status: ${meeting.status}`);
 
     // 2. Get audio file from storage
     const segments = meeting.audio_segments || [];
     if (segments.length === 0) {
-      throw new Error('No audio segments found');
+      throw new Error('No audio segments found in meeting');
     }
+
+    console.log(`Found ${segments.length} segments`);
 
     // Download and combine audio segments
     let allTranscriptions: string[] = [];
 
     for (const segment of segments) {
+      console.log(`Downloading segment: ${segment.r2_key}`);
       const { data: audioData, error: downloadError } = await supabase.storage
         .from('meeting-audio')
         .download(segment.r2_key);
 
       if (downloadError) {
-        console.error(`Error downloading segment: ${downloadError}`);
+        console.error(`Error downloading segment: ${downloadError.message}`);
         continue;
       }
+
+      console.log(`Segment downloaded, size: ${audioData.size}`);
 
       // 3. Transcribe with Groq Whisper
       const formData = new FormData();
@@ -62,6 +68,7 @@ serve(async (req) => {
       formData.append('language', 'es');
       formData.append('response_format', 'verbose_json');
 
+      console.log('Calling Groq Whisper...');
       const transcriptionResponse = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
         method: 'POST',
         headers: {
@@ -72,15 +79,20 @@ serve(async (req) => {
 
       if (!transcriptionResponse.ok) {
         const errorText = await transcriptionResponse.text();
-        throw new Error(`Transcription error: ${errorText}`);
+        throw new Error(`Transcription error (${transcriptionResponse.status}): ${errorText}`);
       }
 
       const transcriptionResult = await transcriptionResponse.json();
       allTranscriptions.push(transcriptionResult.text);
+      console.log(`Transcribed segment: ${transcriptionResult.text.length} chars`);
     }
 
     const fullTranscript = allTranscriptions.join('\n\n');
-    console.log(`Transcription complete: ${fullTranscript.length} chars`);
+    console.log(`Full transcription: ${fullTranscript.length} chars`);
+
+    if (fullTranscript.length === 0) {
+      throw new Error('Transcription is empty');
+    }
 
     // 4. Generate minute with Groq Llama 3
     const minutePrompt = `
@@ -115,6 +127,7 @@ TRANSCRIPCIÓN:
 ${fullTranscript}
 `;
 
+    console.log('Calling Groq LLM...');
     const llmResponse = await fetch(`${GROQ_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -131,7 +144,7 @@ ${fullTranscript}
 
     if (!llmResponse.ok) {
       const errorText = await llmResponse.text();
-      throw new Error(`LLM error: ${errorText}`);
+      throw new Error(`LLM error (${llmResponse.status}): ${errorText}`);
     }
 
     const llmResult = await llmResponse.json();
@@ -143,7 +156,7 @@ ${fullTranscript}
     }
 
     const minuteJSON = JSON.parse(jsonMatch[0]);
-    console.log('Minute generated:', minuteJSON.summary?.substring(0, 50));
+    console.log('Minute generated');
 
     // 5. Save minute to database
     const { data: minute, error: minuteError } = await supabase
@@ -160,7 +173,7 @@ ${fullTranscript}
       .select()
       .single();
 
-    if (minuteError) throw minuteError;
+    if (minuteError) throw new Error(`Minute save error: ${minuteError.message}`);
 
     // 6. Save action items
     for (const item of minuteJSON.action_items || []) {
@@ -184,135 +197,47 @@ ${fullTranscript}
       .eq('id', meetingId);
 
     // 8. Send emails
-    const { data: participants } = await supabase
-      .from('meeting_participants')
-      .select('*, users(*)')
-      .eq('meeting_id', meetingId);
+    try {
+      const { data: participants } = await supabase
+        .from('meeting_participants')
+        .select('*, users(*)')
+        .eq('meeting_id', meetingId);
 
-    const { data: actionItems } = await supabase
-      .from('action_items')
-      .select('*')
-      .eq('meeting_id', meetingId);
+      const { data: actionItems } = await supabase
+        .from('action_items')
+        .select('*')
+        .eq('meeting_id', meetingId);
 
-    // Send to each participant
-    for (const participant of participants || []) {
-      const user = participant.users;
-      if (!user?.email) continue;
+      const appUrl = Deno.env.get('APP_URL') || 'https://project-bcydk.vercel.app';
 
-      const participantItems = (actionItems || []).filter(
-        (item) => item.assignee_name?.toLowerCase().includes(user.full_name?.toLowerCase() || '')
-      );
+      for (const participant of participants || []) {
+        const user = participant.users;
+        if (!user?.email) continue;
 
-      if (participantItems.length === 0) continue;
+        const participantItems = (actionItems || []).filter(
+          (item) => item.assignee_name?.toLowerCase().includes(user.full_name?.toLowerCase() || '')
+        );
 
-      const emailHtml = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:Roboto,sans-serif;max-width:600px;margin:0 auto;">
-  <div style="background:#21284F;padding:20px;text-align:center;">
-    <span style="color:#fff;font-family:Raleway;font-size:18px;font-weight:700;">
-      <span style="background:#1E4D96;padding:4px 8px;border-radius:4px;">ZR</span> ZRNote
-    </span>
-  </div>
-  <div style="padding:20px;background:#fff;">
-    <h2 style="color:#21284F;font-family:Raleway;">${meeting.title}</h2>
-    <p style="color:#6590CB;">${new Date(meeting.created_at).toLocaleDateString('es-ES')}</p>
-    <h3 style="color:#1E4D96;">Tus compromisos:</h3>
-    ${participantItems.map(item => `
-      <div style="padding:10px;background:#f8f9fa;border-left:3px solid #1E4D96;margin:10px 0;">
-        <p style="margin:0;font-weight:500;">${item.description}</p>
-        <p style="margin:5px 0 0;font-size:12px;color:#6590CB;">
-          ${item.due_date ? `Fecha: ${new Date(item.due_date).toLocaleDateString('es-ES')}` : 'Sin fecha'} · ${item.priority}
-        </p>
-      </div>
-    `).join('')}
-    <a href="${Deno.env.get('APP_URL') || 'http://localhost:3000'}/dashboard/meetings/${meetingId}"
-       style="display:inline-block;background:#1E4D96;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;margin-top:15px;">
-      Ver minuta completa
-    </a>
-  </div>
-  <div style="padding:15px;text-align:center;background:#f8f9fa;">
-    <small style="color:#6590CB;">ZRNote · ZR Mecacademy</small>
-  </div>
-</body>
-</html>`;
+        if (participantItems.length === 0) continue;
 
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${resendKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: 'ZRNote <noreply@zrnote.app>',
-          to: user.email,
-          subject: `[ZRNote] ${meeting.title} — Tus compromisos`,
-          html: emailHtml,
-        }),
-      });
-    }
-
-    // Send to coordinator
-    const { data: coordinator } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', meeting.created_by)
-      .single();
-
-    if (coordinator?.email) {
-      const coordinatorHtml = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:Roboto,sans-serif;max-width:600px;margin:0 auto;">
-  <div style="background:#21284F;padding:20px;text-align:center;">
-    <span style="color:#fff;font-family:Raleway;font-size:18px;font-weight:700;">
-      <span style="background:#1E4D96;padding:4px 8px;border-radius:4px;">ZR</span> ZRNote
-    </span>
-  </div>
-  <div style="padding:20px;background:#fff;">
-    <h2 style="color:#21284F;font-family:Raleway;">${meeting.title} — Resumen completo</h2>
-    <p style="color:#6590CB;">${new Date(meeting.created_at).toLocaleDateString('es-ES')}</p>
-    <h3 style="color:#1E4D96;">Todos los action items:</h3>
-    <table style="width:100%;border-collapse:collapse;font-size:14px;">
-      <tr style="background:#21284F;color:#fff;">
-        <th style="padding:8px;text-align:left;">Responsable</th>
-        <th style="padding:8px;text-align:left;">Tarea</th>
-        <th style="padding:8px;text-align:left;">Prioridad</th>
-      </tr>
-      ${(actionItems || []).map(item => `
-        <tr style="border-bottom:1px solid #eee;">
-          <td style="padding:8px;">${item.assignee_name}</td>
-          <td style="padding:8px;">${item.description}</td>
-          <td style="padding:8px;">${item.priority}</td>
-        </tr>
-      `).join('')}
-    </table>
-    <a href="${Deno.env.get('APP_URL') || 'http://localhost:3000'}/dashboard/meetings/${meetingId}"
-       style="display:inline-block;background:#1E4D96;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;margin-top:15px;">
-      Ver minuta completa
-    </a>
-  </div>
-  <div style="padding:15px;text-align:center;background:#f8f9fa;">
-    <small style="color:#6590CB;">ZRNote · ZR Mecacademy</small>
-  </div>
-</body>
-</html>`;
-
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${resendKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: 'ZRNote <noreply@zrnote.app>',
-          to: coordinator.email,
-          subject: `[ZRNote] ${meeting.title} — Resumen completo`,
-          html: coordinatorHtml,
-        }),
-      });
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${resendKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: 'ZRNote <noreply@resend.dev>',
+            to: user.email,
+            subject: `[ZRNote] ${meeting.title} — Tus compromisos`,
+            html: `<p>Tus action items en <b>${meeting.title}</b>:</p>${
+              participantItems.map(i => `<p>• ${i.description} (${i.priority})</p>`).join('')
+            }<p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta</a></p>`,
+          }),
+        });
+      }
+    } catch (emailErr) {
+      console.error('Email error (non-fatal):', emailErr);
     }
 
     console.log('Processing complete!');
@@ -322,7 +247,7 @@ ${fullTranscript}
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error:', error.message);
     return new Response(
       JSON.stringify({ error: error.message }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
