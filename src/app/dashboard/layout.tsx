@@ -1,35 +1,30 @@
-import { createServerSupabase } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
+import Link from 'next/link';
 
-export default async function DashboardLayout({
+export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createServerSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect('/login');
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-zr-navy border-b border-zr-blue px-4 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2">
             <div className="bg-zr-blue text-white font-bold text-sm px-2 py-1 rounded font-raleway">
               ZR
             </div>
             <span className="text-white font-raleway font-bold text-lg">ZRNote</span>
-          </a>
+          </Link>
           <div className="flex items-center gap-4">
-            <a href="/meetings" className="text-sm text-zr-blue-pale hover:text-white transition">
+            <Link href="/dashboard" className="text-sm text-zr-blue-pale hover:text-white transition">
+              Inicio
+            </Link>
+            <Link href="/dashboard/meetings" className="text-sm text-zr-blue-pale hover:text-white transition">
               Reuniones
-            </a>
-            <a href="/action-items" className="text-sm text-zr-blue-pale hover:text-white transition">
+            </Link>
+            <Link href="/dashboard/action-items" className="text-sm text-zr-blue-pale hover:text-white transition">
               Mis Tareas
-            </a>
+            </Link>
             <form action="/api/auth/signout" method="post">
               <button type="submit" className="text-sm text-zr-blue-pale hover:text-white transition">
                 Salir

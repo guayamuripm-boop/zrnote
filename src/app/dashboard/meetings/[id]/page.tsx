@@ -59,7 +59,7 @@ export default async function MeetingDetailPage({
           </span>
           {meeting.status === 'scheduled' && (
             <Link
-              href={`/meetings/${meeting.id}/record`}
+              href={`/dashboard/meetings/${meeting.id}/record`}
               className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition"
             >
               Grabar

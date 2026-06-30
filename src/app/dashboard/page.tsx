@@ -26,7 +26,7 @@ export default async function DashboardHome() {
           <p className="text-zr-blue-mid text-sm">Bienvenido, {user?.email}</p>
         </div>
         <Link
-          href="/meetings/new"
+          href="/dashboard/meetings/new"
           className="bg-zr-blue text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-zr-navy transition font-raleway"
         >
           + Nueva Reunión
@@ -40,7 +40,7 @@ export default async function DashboardHome() {
             {meetings.map((meeting) => (
               <Link
                 key={meeting.id}
-                href={`/meetings/${meeting.id}`}
+                href={`/dashboard/meetings/${meeting.id}`}
                 className="block p-4 hover:bg-zr-blue-pale/10 transition"
               >
                 <div className="flex items-center justify-between">
@@ -71,7 +71,7 @@ export default async function DashboardHome() {
           <div className="bg-white rounded-lg border border-zr-blue-pale/30 p-8 text-center">
             <p className="text-zr-blue-mid">No hay reuniones aún.</p>
             <Link
-              href="/meetings/new"
+              href="/dashboard/meetings/new"
               className="inline-block mt-3 bg-zr-blue text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-zr-navy transition"
             >
               Crear primera reunión

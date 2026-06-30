@@ -22,7 +22,7 @@ export default function NewMeetingPage() {
 
     if (response.ok) {
       const { id } = await response.json();
-      router.push(`/meetings/${id}`);
+      router.push(`/dashboard/meetings/${id}`);
     } else {
       setLoading(false);
       alert('Error al crear reunión');
@@ -69,7 +69,7 @@ export default function NewMeetingPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-black text-white py-2 rounded-lg font-medium hover:bg-gray-800 transition disabled:opacity-50"
+          className="w-full bg-zr-blue text-white py-2 rounded-lg font-medium hover:bg-zr-navy transition disabled:opacity-50"
         >
           {loading ? 'Creando...' : 'Crear Reunión'}
         </button>
