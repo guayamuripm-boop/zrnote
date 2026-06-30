@@ -61,6 +61,12 @@ Deno.serve(async (req) => {
 
       console.log(`Segment downloaded, size: ${audioData.size}`);
 
+      // Skip segments too small (< 50KB) — likely invalid/corrupt webm
+      if (audioData.size < 50000) {
+        console.log(`Skipping segment ${segment.segment_index}: too small (${audioData.size} bytes)`);
+        continue;
+      }
+
       // 3. Transcribe with Groq Whisper
       const formData = new FormData();
       formData.append('file', audioData, 'audio.webm');
@@ -79,19 +85,24 @@ Deno.serve(async (req) => {
 
       if (!transcriptionResponse.ok) {
         const errorText = await transcriptionResponse.text();
-        throw new Error(`Transcription error (${transcriptionResponse.status}): ${errorText}`);
+        console.error(`Transcription error for segment ${segment.segment_index}: ${errorText}`);
+        continue;
       }
 
       const transcriptionResult = await transcriptionResponse.json();
-      allTranscriptions.push(transcriptionResult.text);
-      console.log(`Transcribed segment: ${transcriptionResult.text.length} chars`);
+      if (transcriptionResult.text && transcriptionResult.text.trim().length > 0) {
+        allTranscriptions.push(transcriptionResult.text);
+        console.log(`Transcribed segment: ${transcriptionResult.text.length} chars`);
+      } else {
+        console.log(`Segment ${segment.segment_index} produced empty transcription, skipping`);
+      }
     }
 
     const fullTranscript = allTranscriptions.join('\n\n');
     console.log(`Full transcription: ${fullTranscript.length} chars`);
 
-    if (fullTranscript.length === 0) {
-      throw new Error('Transcription is empty');
+    if (fullTranscript.trim().length === 0) {
+      throw new Error('No se pudo transcribir ningún segmento. Verifica que el audio no esté vacío.');
     }
 
     // 4. Generate minute with Groq Llama 3
@@ -135,7 +146,7 @@ ${fullTranscript}
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama3-70b-8192',
+        model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: minutePrompt }],
         temperature: 0.3,
         max_tokens: 4096,
@@ -209,32 +220,85 @@ ${fullTranscript}
         .eq('meeting_id', meetingId);
 
       const appUrl = Deno.env.get('APP_URL') || 'https://project-bcydk.vercel.app';
+      const allItems = actionItems || [];
 
-      for (const participant of participants || []) {
-        const user = participant.users;
-        if (!user?.email) continue;
+      // Helper: match action items to a person by name
+      const matchItems = (name: string) => {
+        if (!name) return [];
+        const lower = name.toLowerCase();
+        return allItems.filter((item) => {
+          const assignee = (item.assignee_name || '').toLowerCase();
+          return assignee.includes(lower) || lower.includes(assignee);
+        });
+      };
 
-        const participantItems = (actionItems || []).filter(
-          (item) => item.assignee_name?.toLowerCase().includes(user.full_name?.toLowerCase() || '')
-        );
-
-        if (participantItems.length === 0) continue;
-
-        await fetch('https://api.resend.com/emails', {
+      // Helper: send email via Resend
+      const sendEmail = async (to: string, subject: string, html: string) => {
+        const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${resendKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            from: 'ZRNote <noreply@resend.dev>',
-            to: user.email,
-            subject: `[ZRNote] ${meeting.title} — Tus compromisos`,
-            html: `<p>Tus action items en <b>${meeting.title}</b>:</p>${
-              participantItems.map(i => `<p>• ${i.description} (${i.priority})</p>`).join('')
-            }<p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta</a></p>`,
-          }),
+          body: JSON.stringify({ from: 'ZRNote <noreply@resend.dev>', to, subject, html }),
         });
+        if (!res.ok) {
+          const err = await res.text();
+          console.error(`Email send failed to ${to}: ${err}`);
+        } else {
+          console.log(`Email sent to ${to}`);
+        }
+      };
+
+      // Send personal email to each participant
+      for (const participant of participants || []) {
+        const userEmail = participant.users?.email || participant.email_override;
+        if (!userEmail) continue;
+
+        const userName = participant.users?.full_name || 'Participante';
+        const myItems = matchItems(userName);
+
+        if (myItems.length === 0) {
+          // Send summary email even without action items
+          await sendEmail(
+            userEmail,
+            `[ZRNote] ${meeting.title} — Resumen de reunión`,
+            `<p>Hola ${userName},</p><p>Tu reunión <b>${meeting.title}</b> ha sido procesada.</p><p><b>Resumen:</b> ${minuteJSON.summary || 'No disponible'}</p>${
+              allItems.length > 0
+                ? `<p><b>Acciones generales:</b></p><ul>${allItems.map((i: any) => `<li>${i.description} (${i.priority})</li>`).join('')}</ul>`
+                : ''
+            }<p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta completa</a></p>`
+          );
+        } else {
+          await sendEmail(
+            userEmail,
+            `[ZRNote] ${meeting.title} — Tus compromisos`,
+            `<p>Hola ${userName},</p><p>Tus action items en <b>${meeting.title}</b>:</p><ul>${
+              myItems.map((i: any) => `<li><b>${i.description}</b> — Prioridad: ${i.priority}${i.due_date ? `, Fecha: ${i.due_date}` : ''}</li>`).join('')
+            }</ul><p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta completa</a></p>`
+          );
+        }
+      }
+
+      // Send coordinator email with ALL action items
+      const { data: coordinator } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', meeting.created_by)
+        .single();
+
+      if (coordinator?.email) {
+        const itemsHtml = allItems.length > 0
+          ? `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%"><thead><tr><th>Responsable</th><th>Tarea</th><th>Prioridad</th><th>Fecha</th></tr></thead><tbody>${
+              allItems.map((i: any) => `<tr><td>${i.assignee_name || 'Sin asignar'}</td><td>${i.description}</td><td>${i.priority}</td><td>${i.due_date || '—'}</td></tr>`).join('')
+            }</tbody></table>`
+          : '<p>No se generaron action items.</p>';
+
+        await sendEmail(
+          coordinator.email,
+          `[ZRNote] ${meeting.title} — Resumen completo`,
+          `<p>Reunión <b>${meeting.title}</b> procesada.</p><p><b>Resumen:</b> ${minuteJSON.summary || 'No disponible'}</p>${itemsHtml}<p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta completa</a></p>`
+        );
       }
     } catch (emailErr) {
       console.error('Email error (non-fatal):', emailErr);

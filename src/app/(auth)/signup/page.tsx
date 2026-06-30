@@ -38,7 +38,7 @@ export default function SignupPage() {
         id: data.user.id,
         full_name: fullName,
         email: email,
-        role: 'participant',
+        role: 'coordinator',
       });
 
       if (insertError) {

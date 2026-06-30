@@ -7,6 +7,7 @@ export default function NewMeetingPage() {
   const [title, setTitle] = useState('');
   const [coordination, setCoordination] = useState('');
   const [type, setType] = useState<'presencial' | 'virtual' | 'llamada'>('presencial');
+  const [participants, setParticipants] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -14,10 +15,15 @@ export default function NewMeetingPage() {
     e.preventDefault();
     setLoading(true);
 
+    const participantEmails = participants
+      .split(/[,;\n]+/)
+      .map((e) => e.trim())
+      .filter((e) => e.includes('@'));
+
     const response = await fetch('/api/meetings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, coordination, type }),
+      body: JSON.stringify({ title, coordination, type, participants: participantEmails }),
     });
 
     if (response.ok) {
@@ -65,6 +71,17 @@ export default function NewMeetingPage() {
             <option value="virtual">Virtual</option>
             <option value="llamada">Llamada</option>
           </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Participantes (emails)</label>
+          <textarea
+            value={participants}
+            onChange={(e) => setParticipants(e.target.value)}
+            placeholder="juan@correo.com, maria@correo.com, ana@correo.com"
+            rows={3}
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-gray-400 mt-1">Separados por coma, punto y coma o salto de línea</p>
         </div>
         <button
           type="submit"

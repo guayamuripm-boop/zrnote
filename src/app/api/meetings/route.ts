@@ -6,6 +6,7 @@ const createMeetingSchema = z.object({
   title: z.string().min(1),
   coordination: z.string().optional().default(''),
   type: z.enum(['presencial', 'virtual', 'llamada']).default('presencial'),
+  participants: z.array(z.string().email()).optional().default([]),
 });
 
 export async function GET() {
@@ -60,6 +61,33 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Auto-add creator as participant
+  const { data: creatorProfile } = await supabase
+    .from('users')
+    .select('id, email, full_name')
+    .eq('id', user.id)
+    .single();
+
+  if (creatorProfile) {
+    await supabase.from('meeting_participants').insert({
+      meeting_id: meeting.id,
+      user_id: user.id,
+      email_override: creatorProfile.email,
+    });
+  }
+
+  // Add invited participants by email
+  for (const email of parsed.data.participants) {
+    // Skip if it's the creator's own email
+    if (creatorProfile?.email && email.toLowerCase() === creatorProfile.email.toLowerCase()) continue;
+
+    await supabase.from('meeting_participants').insert({
+      meeting_id: meeting.id,
+      user_id: null,
+      email_override: email,
+    });
   }
 
   return NextResponse.json({ id: meeting.id }, { status: 201 });
