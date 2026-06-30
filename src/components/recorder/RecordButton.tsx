@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-type RecordingState = 'idle' | 'recording' | 'uploading_segment' | 'finalizing';
+type RecordingState = 'idle' | 'recording' | 'paused' | 'uploading_segment' | 'finalizing';
 
 interface RecordButtonProps {
   meetingId: string;
@@ -13,35 +13,19 @@ export default function RecordButton({ meetingId, onFinalized }: RecordButtonPro
   const [state, setState] = useState<RecordingState>('idle');
   const [elapsed, setElapsed] = useState(0);
   const [segmentCount, setSegmentCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const segmentTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const pendingUploadRef = useRef<Promise<void>>(Promise.resolve());
+  const segmentCountRef = useRef(0);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const requestWakeLock = async () => {
-    try {
-      if ('wakeLock' in navigator) {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
-      }
-    } catch (err) {
-      console.warn('Wake Lock not supported');
-    }
-  };
-
-  const releaseWakeLock = async () => {
-    if (wakeLockRef.current) {
-      await wakeLockRef.current.release();
-      wakeLockRef.current = null;
-    }
   };
 
   const uploadSegment = async (blob: Blob, index: number) => {
@@ -55,53 +39,30 @@ export default function RecordButton({ meetingId, onFinalized }: RecordButtonPro
     });
 
     if (!response.ok) {
-      throw new Error('Upload failed');
+      const data = await response.json();
+      throw new Error(data.error || 'Upload failed');
     }
   };
 
-  const saveSegmentToIndexedDB = async (blob: Blob, index: number) => {
-    const db = await openDB();
-    const tx = db.transaction('pending-segments', 'readwrite');
-    tx.objectStore('pending-segments').put({
-      meetingId,
-      segmentIndex: index,
-      blob,
-      timestamp: Date.now(),
-    });
-  };
-
-  const openDB = (): Promise<IDBDatabase> => {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('zrnote-offline', 1);
-      request.onupgradeneeded = () => {
-        request.result.createObjectStore('pending-segments', {
-          keyPath: ['meetingId', 'segmentIndex'],
-        });
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  };
-
   const handleDataAvailable = useCallback(
-    async (event: BlobEvent) => {
+    (event: BlobEvent) => {
       if (event.data.size > 0) {
         chunksRef.current.push(event.data);
         const blob = new Blob(chunksRef.current, { type: 'audio/webm;codecs=opus' });
         chunksRef.current = [];
 
-        setState('uploading_segment');
-        try {
-          await uploadSegment(blob, segmentCount);
-          setSegmentCount((prev) => prev + 1);
-        } catch {
-          await saveSegmentToIndexedDB(blob, segmentCount);
-          setSegmentCount((prev) => prev + 1);
-        }
-        setState('recording');
+        const currentSegment = segmentCountRef.current;
+        segmentCountRef.current += 1;
+        setSegmentCount((prev) => prev + 1);
+
+        const uploadPromise = uploadSegment(blob, currentSegment).catch((err) => {
+          console.error('Segment upload error:', err);
+        });
+
+        pendingUploadRef.current = uploadPromise;
       }
     },
-    [segmentCount, meetingId]
+    [meetingId]
   );
 
   const startRecording = async () => {
@@ -113,80 +74,162 @@ export default function RecordButton({ meetingId, onFinalized }: RecordButtonPro
 
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
+      segmentCountRef.current = 0;
+      setSegmentCount(0);
+      setElapsed(0);
+      setError(null);
 
       mediaRecorder.ondataavailable = handleDataAvailable;
-      mediaRecorder.start();
+      mediaRecorder.start(1000);
 
       setState('recording');
-      await requestWakeLock();
 
       timerRef.current = setInterval(() => {
         setElapsed((prev) => prev + 1);
       }, 1000);
-
-      segmentTimerRef.current = setInterval(() => {
-        if (mediaRecorder.state === 'recording') {
-          mediaRecorder.requestData();
-        }
-      }, 60 * 60 * 1000);
     } catch (err) {
       console.error('Error starting recording:', err);
+      setError('No se pudo acceder al micrófono');
     }
   };
 
-  const stopRecording = async () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
-
+  const pauseRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      mediaRecorderRef.current.pause();
+      if (timerRef.current) clearInterval(timerRef.current);
+      setState('paused');
+    }
+  };
+
+  const resumeRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      mediaRecorderRef.current.resume();
+      timerRef.current = setInterval(() => {
+        setElapsed((prev) => prev + 1);
+      }, 1000);
+      setState('recording');
+    }
+  };
+
+  const finalizeRecording = async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current.state === 'recording' || mediaRecorderRef.current.state === 'paused') {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      }
     }
 
-    await releaseWakeLock();
+    setState('uploading_segment');
+    await pendingUploadRef.current;
 
     setState('finalizing');
     try {
-      await fetch(`/api/meetings/${meetingId}/finalize`, { method: 'POST' });
+      const res = await fetch(`/api/meetings/${meetingId}/finalize`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || 'Error al finalizar');
+        setState('idle');
+        return;
+      }
       onFinalized?.();
     } catch (err) {
       console.error('Error finalizing:', err);
+      setError('Error al finalizar');
+      setState('idle');
     }
   };
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
-      releaseWakeLock();
     };
   }, []);
 
   return (
-    <div className="flex flex-col items-center gap-4">
-      <button
-        onClick={state === 'idle' ? startRecording : state === 'recording' ? stopRecording : undefined}
-        disabled={state === 'uploading_segment' || state === 'finalizing'}
-        className={`w-32 h-32 rounded-full flex items-center justify-center text-white font-bold text-lg transition ${
-          state === 'recording'
-            ? 'bg-red-600 pulse-recording'
-            : state === 'idle'
-            ? 'bg-gray-800 hover:bg-gray-700'
-            : state === 'uploading_segment'
-            ? 'bg-yellow-500'
-            : 'bg-blue-600'
-        }`}
-      >
-        {state === 'idle' && 'Iniciar Reunión'}
-        {state === 'recording' && 'Grabando...'}
-        {state === 'uploading_segment' && 'Guardando...'}
-        {state === 'finalizing' && 'Procesando...'}
-      </button>
+    <div className="flex flex-col items-center gap-6">
+      {error && (
+        <p className="text-red-600 text-sm text-center bg-red-50 px-4 py-2 rounded-lg">{error}</p>
+      )}
 
       {state !== 'idle' && (
         <div className="text-center">
-          <p className="text-2xl font-mono">{formatTime(elapsed)}</p>
-          <p className="text-sm text-gray-500">Segmentos: {segmentCount}</p>
+          <p className="text-3xl font-mono text-zr-navy">{formatTime(elapsed)}</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {state === 'paused' ? 'En pausa' : 'Grabando'} · Segmentos: {segmentCount}
+          </p>
+        </div>
+      )}
+
+      {state === 'idle' && (
+        <button
+          onClick={startRecording}
+          className="w-36 h-36 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold text-lg transition flex flex-col items-center justify-center gap-1 shadow-lg"
+        >
+          <svg className="w-10 h-10" fill="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8" />
+          </svg>
+          Grabar
+        </button>
+      )}
+
+      {state === 'recording' && (
+        <div className="flex items-center gap-4">
+          <button
+            onClick={pauseRecording}
+            className="w-20 h-20 rounded-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold transition flex flex-col items-center justify-center gap-1 shadow-lg"
+          >
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <rect x="6" y="5" width="4" height="14" rx="1" />
+              <rect x="14" y="5" width="4" height="14" rx="1" />
+            </svg>
+            Pausa
+          </button>
+          <button
+            onClick={finalizeRecording}
+            className="w-36 h-36 rounded-full bg-zr-navy hover:bg-zr-blue text-white font-bold text-lg transition flex flex-col items-center justify-center gap-1 shadow-lg"
+          >
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+            </svg>
+            Finalizar
+          </button>
+        </div>
+      )}
+
+      {state === 'paused' && (
+        <div className="flex items-center gap-4">
+          <button
+            onClick={resumeRecording}
+            className="w-20 h-20 rounded-full bg-green-600 hover:bg-green-700 text-white font-bold transition flex flex-col items-center justify-center gap-1 shadow-lg"
+          >
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            Reanudar
+          </button>
+          <button
+            onClick={finalizeRecording}
+            className="w-36 h-36 rounded-full bg-zr-navy hover:bg-zr-blue text-white font-bold text-lg transition flex flex-col items-center justify-center gap-1 shadow-lg"
+          >
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+            </svg>
+            Finalizar
+          </button>
+        </div>
+      )}
+
+      {(state === 'uploading_segment' || state === 'finalizing') && (
+        <div className="w-36 h-36 rounded-full bg-blue-600 text-white font-bold text-lg flex flex-col items-center justify-center gap-2 shadow-lg animate-pulse">
+          <svg className="w-8 h-8 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          {state === 'uploading_segment' ? 'Guardando...' : 'Procesando...'}
         </div>
       )}
     </div>
