@@ -36,6 +36,7 @@ export async function POST(
     .from('meeting-audio')
     .upload(r2Key, audioFile, {
       contentType: 'audio/webm',
+      upsert: true,
     });
 
   if (uploadError) {

@@ -19,6 +19,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const segmentTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pendingUploadRef = useRef<Promise<void>>(Promise.resolve());
   const segmentCountRef = useRef(0);
 
@@ -45,25 +46,31 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   };
 
+  const SEGMENT_DURATION_MS = 60 * 60 * 1000; // 60 minutes
+
+  const flushSegment = useCallback(async () => {
+    if (chunksRef.current.length === 0) return;
+    const blob = new Blob(chunksRef.current, { type: 'audio/webm;codecs=opus' });
+    chunksRef.current = [];
+
+    const currentSegment = segmentCountRef.current;
+    segmentCountRef.current += 1;
+    setSegmentCount((prev) => prev + 1);
+
+    const uploadPromise = uploadSegment(blob, currentSegment).catch((err) => {
+      console.error('Segment upload error:', err);
+    });
+
+    pendingUploadRef.current = uploadPromise;
+  }, [meetingId]);
+
   const handleDataAvailable = useCallback(
     (event: BlobEvent) => {
       if (event.data.size > 0) {
         chunksRef.current.push(event.data);
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm;codecs=opus' });
-        chunksRef.current = [];
-
-        const currentSegment = segmentCountRef.current;
-        segmentCountRef.current += 1;
-        setSegmentCount((prev) => prev + 1);
-
-        const uploadPromise = uploadSegment(blob, currentSegment).catch((err) => {
-          console.error('Segment upload error:', err);
-        });
-
-        pendingUploadRef.current = uploadPromise;
       }
     },
-    [meetingId]
+    []
   );
 
   const startRecording = async () => {
@@ -88,6 +95,10 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       timerRef.current = setInterval(() => {
         setElapsed((prev) => prev + 1);
       }, 1000);
+
+      segmentTimerRef.current = setInterval(() => {
+        flushSegment();
+      }, SEGMENT_DURATION_MS);
     } catch (err) {
       console.error('Error starting recording:', err);
       setError('No se pudo acceder al micrófono. Verifica los permisos.');
@@ -98,6 +109,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.pause();
       if (timerRef.current) clearInterval(timerRef.current);
+      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
       setState('paused');
     }
   };
@@ -108,12 +120,16 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       timerRef.current = setInterval(() => {
         setElapsed((prev) => prev + 1);
       }, 1000);
+      segmentTimerRef.current = setInterval(() => {
+        flushSegment();
+      }, SEGMENT_DURATION_MS);
       setState('recording');
     }
   };
 
   const finalizeRecording = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
 
     if (mediaRecorderRef.current) {
       if (mediaRecorderRef.current.state === 'recording' || mediaRecorderRef.current.state === 'paused') {
@@ -123,6 +139,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
 
     setState('uploading');
+    await flushSegment();
     await pendingUploadRef.current;
 
     setState('finalizing');
@@ -145,6 +162,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
     };
   }, []);
 
