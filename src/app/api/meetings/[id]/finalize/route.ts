@@ -35,8 +35,19 @@ export async function POST(
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  // Trigger processing via Supabase Edge Function (FREE)
-  await triggerProcessing(params.id);
+  try {
+    await triggerProcessing(params.id);
+  } catch (err: any) {
+    await supabase
+      .from('meetings')
+      .update({ status: 'scheduled' })
+      .eq('id', params.id);
+
+    return NextResponse.json(
+      { error: err.message || 'Error al procesar' },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }
