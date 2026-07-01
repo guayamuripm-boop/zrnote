@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import AssignActionItems from '@/components/minutes/AssignActionItems';
 
 export default async function MeetingDetailPage({
   params,
@@ -28,6 +29,16 @@ export default async function MeetingDetailPage({
     .select('*')
     .eq('meeting_id', params.id)
     .order('priority', { ascending: true });
+
+  const { data: participantsRaw } = await supabase
+    .from('meeting_participants')
+    .select('*')
+    .eq('meeting_id', params.id);
+
+  const participants = (participantsRaw || []).map((p: any) => ({
+    name: p.name || p.email_override?.split('@')[0] || 'Participante',
+    email: p.email_override || '',
+  })).filter((p) => p.email);
 
   return (
     <div className="space-y-8">
@@ -146,6 +157,27 @@ export default async function MeetingDetailPage({
                   </span>
                 </div>
               </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {meeting.status === 'completed' && actionItems && actionItems.length > 0 && participants.length > 0 && (
+        <AssignActionItems
+          meetingId={meeting.id}
+          actionItems={actionItems}
+          participants={participants}
+        />
+      )}
+
+      {meeting.status === 'completed' && participants.length > 0 && (
+        <section className="bg-white rounded-lg border p-6 space-y-4">
+          <h2 className="text-lg font-semibold">Participantes</h2>
+          <div className="flex flex-wrap gap-2">
+            {participants.map((p) => (
+              <span key={p.email} className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm">
+                {p.name} <span className="text-gray-400">·</span> {p.email}
+              </span>
             ))}
           </div>
         </section>

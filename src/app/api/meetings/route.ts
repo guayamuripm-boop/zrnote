@@ -6,7 +6,7 @@ const createMeetingSchema = z.object({
   title: z.string().min(1),
   coordination: z.string().optional().default(''),
   type: z.enum(['presencial', 'virtual', 'llamada']).default('presencial'),
-  participants: z.array(z.string().email()).optional().default([]),
+  participants: z.array(z.object({ name: z.string(), email: z.string().email() })).optional().default([]),
 });
 
 export async function GET() {
@@ -79,14 +79,15 @@ export async function POST(request: Request) {
   }
 
   // Add invited participants by email
-  for (const email of parsed.data.participants) {
+  for (const p of parsed.data.participants) {
     // Skip if it's the creator's own email
-    if (creatorProfile?.email && email.toLowerCase() === creatorProfile.email.toLowerCase()) continue;
+    if (creatorProfile?.email && p.email.toLowerCase() === creatorProfile.email.toLowerCase()) continue;
 
     await supabase.from('meeting_participants').insert({
       meeting_id: meeting.id,
       user_id: null,
-      email_override: email,
+      name: p.name,
+      email_override: p.email,
     });
   }
 

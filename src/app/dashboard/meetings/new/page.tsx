@@ -15,15 +15,28 @@ export default function NewMeetingPage() {
     e.preventDefault();
     setLoading(true);
 
-    const participantEmails = participants
+    // Parse "Nombre <email>" or just "email"
+    const parsed = participants
       .split(/[,;\n]+/)
-      .map((e) => e.trim())
-      .filter((e) => e.includes('@'));
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .map((entry) => {
+        const angleMatch = entry.match(/^(.+?)\s*<(.+?)>$/);
+        if (angleMatch) {
+          return { name: angleMatch[1].trim(), email: angleMatch[2].trim() };
+        }
+        if (entry.includes('@')) {
+          const name = entry.split('@')[0].replace(/[._-]/g, ' ').trim();
+          return { name, email: entry };
+        }
+        return null;
+      })
+      .filter(Boolean);
 
     const response = await fetch('/api/meetings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, coordination, type, participants: participantEmails }),
+      body: JSON.stringify({ title, coordination, type, participants: parsed }),
     });
 
     if (response.ok) {
@@ -77,11 +90,11 @@ export default function NewMeetingPage() {
           <textarea
             value={participants}
             onChange={(e) => setParticipants(e.target.value)}
-            placeholder="juan@correo.com, maria@correo.com, ana@correo.com"
+            placeholder={'Juan Pérez <juan@mail.com>\nMaría López <maria@mail.com>\no solo: ana@mail.com'}
             rows={3}
             className="w-full border rounded-lg px-3 py-2 text-sm"
           />
-          <p className="text-xs text-gray-400 mt-1">Separados por coma, punto y coma o salto de línea</p>
+          <p className="text-xs text-gray-400 mt-1">Formato: Nombre &lt;email&gt; — separados por coma o salto de línea</p>
         </div>
         <button
           type="submit"

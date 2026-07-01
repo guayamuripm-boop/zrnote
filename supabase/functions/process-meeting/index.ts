@@ -207,13 +207,8 @@ ${fullTranscript}
       })
       .eq('id', meetingId);
 
-    // 8. Send emails
+    // 8. Send coordinator email
     try {
-      const { data: participants } = await supabase
-        .from('meeting_participants')
-        .select('*, users(*)')
-        .eq('meeting_id', meetingId);
-
       const { data: actionItems } = await supabase
         .from('action_items')
         .select('*')
@@ -222,65 +217,6 @@ ${fullTranscript}
       const appUrl = Deno.env.get('APP_URL') || 'https://project-bcydk.vercel.app';
       const allItems = actionItems || [];
 
-      // Helper: match action items to a person by name
-      const matchItems = (name: string) => {
-        if (!name) return [];
-        const lower = name.toLowerCase();
-        return allItems.filter((item) => {
-          const assignee = (item.assignee_name || '').toLowerCase();
-          return assignee.includes(lower) || lower.includes(assignee);
-        });
-      };
-
-      // Helper: send email via Resend
-      const sendEmail = async (to: string, subject: string, html: string) => {
-        const res = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${resendKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ from: 'ZRNote <noreply@resend.dev>', to, subject, html }),
-        });
-        if (!res.ok) {
-          const err = await res.text();
-          console.error(`Email send failed to ${to}: ${err}`);
-        } else {
-          console.log(`Email sent to ${to}`);
-        }
-      };
-
-      // Send personal email to each participant
-      for (const participant of participants || []) {
-        const userEmail = participant.users?.email || participant.email_override;
-        if (!userEmail) continue;
-
-        const userName = participant.users?.full_name || 'Participante';
-        const myItems = matchItems(userName);
-
-        if (myItems.length === 0) {
-          // Send summary email even without action items
-          await sendEmail(
-            userEmail,
-            `[ZRNote] ${meeting.title} — Resumen de reunión`,
-            `<p>Hola ${userName},</p><p>Tu reunión <b>${meeting.title}</b> ha sido procesada.</p><p><b>Resumen:</b> ${minuteJSON.summary || 'No disponible'}</p>${
-              allItems.length > 0
-                ? `<p><b>Acciones generales:</b></p><ul>${allItems.map((i: any) => `<li>${i.description} (${i.priority})</li>`).join('')}</ul>`
-                : ''
-            }<p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta completa</a></p>`
-          );
-        } else {
-          await sendEmail(
-            userEmail,
-            `[ZRNote] ${meeting.title} — Tus compromisos`,
-            `<p>Hola ${userName},</p><p>Tus action items en <b>${meeting.title}</b>:</p><ul>${
-              myItems.map((i: any) => `<li><b>${i.description}</b> — Prioridad: ${i.priority}${i.due_date ? `, Fecha: ${i.due_date}` : ''}</li>`).join('')
-            }</ul><p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta completa</a></p>`
-          );
-        }
-      }
-
-      // Send coordinator email with ALL action items
       const { data: coordinator } = await supabase
         .from('users')
         .select('email')
@@ -294,11 +230,20 @@ ${fullTranscript}
             }</tbody></table>`
           : '<p>No se generaron action items.</p>';
 
-        await sendEmail(
-          coordinator.email,
-          `[ZRNote] ${meeting.title} — Resumen completo`,
-          `<p>Reunión <b>${meeting.title}</b> procesada.</p><p><b>Resumen:</b> ${minuteJSON.summary || 'No disponible'}</p>${itemsHtml}<p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta completa</a></p>`
-        );
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${resendKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: 'ZRNote <noreply@resend.dev>',
+            to: coordinator.email,
+            subject: `[ZRNote] ${meeting.title} — Resumen completo`,
+            html: `<p>Reunión <b>${meeting.title}</b> procesada.</p><p><b>Resumen:</b> ${minuteJSON.summary || 'No disponible'}</p>${itemsHtml}<p>Asigna los action items y envía correos desde la minuta.</p><p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta</a></p>`,
+          }),
+        });
+        console.log(`Coordinator email sent to ${coordinator.email}`);
       }
     } catch (emailErr) {
       console.error('Email error (non-fatal):', emailErr);
