@@ -12,6 +12,11 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  if (!RESEND_API_KEY) {
+    return NextResponse.json({ error: 'RESEND_API_KEY not configured on server' }, { status: 500 });
+  }
+
   const { data: meeting } = await supabase
     .from('meetings')
     .select('*')
@@ -33,7 +38,6 @@ export async function POST(
     .eq('meeting_id', params.id)
     .single();
 
-  const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://project-bcydk.vercel.app';
   const allItems = actionItems || [];
 
@@ -53,23 +57,28 @@ export async function POST(
   for (const [email, items] of grouped) {
     const name = items[0]?.assignee_name || email.split('@')[0];
 
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'ZRNote <noreply@resend.dev>',
-        to: email,
-        subject: `[ZRNote] ${meeting.title} — Tus compromisos`,
-        html: `<p>Hola ${name},</p><p>Tus action items en <b>${meeting.title}</b>:</p><ul>${
-          items.map((i) => `<li><b>${i.description}</b> — Prioridad: ${i.priority}${i.due_date ? `, Fecha: ${i.due_date}` : ''}</li>`).join('')
-        }</ul><p><a href="${appUrl}/dashboard/meetings/${params.id}">Ver minuta completa</a></p>`,
-      }),
-    });
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: 'ZRNote <noreply@resend.dev>',
+          to: email,
+          subject: `[ZRNote] ${meeting.title} — Tus compromisos`,
+          html: `<p>Hola ${name},</p><p>Tus action items en <b>${meeting.title}</b>:</p><ul>${
+            items.map((i) => `<li><b>${i.description}</b> — Prioridad: ${i.priority}${i.due_date ? `, Fecha: ${i.due_date}` : ''}</li>`).join('')
+          }</ul><p><a href="${appUrl}/dashboard/meetings/${params.id}">Ver minuta completa</a></p>`,
+        }),
+      });
 
-    results.push(`${email}: ${res.ok ? 'enviado' : 'error'}`);
+      const resText = await res.text();
+      results.push(`${email}: ${res.ok ? 'enviado' : `error ${res.status}: ${resText}`}`);
+    } catch (err: any) {
+      results.push(`${email}: exception: ${err.message}`);
+    }
   }
 
   // Send coordinator email with ALL items
@@ -86,21 +95,26 @@ export async function POST(
         }</tbody></table>`
       : '<p>No se generaron action items.</p>';
 
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'ZRNote <noreply@resend.dev>',
-        to: coordinator.email,
-        subject: `[ZRNote] ${meeting.title} — Resumen completo`,
-        html: `<p>Reunión <b>${meeting.title}</b> procesada.</p><p><b>Resumen:</b> ${minute?.summary || 'No disponible'}</p>${itemsHtml}<p><a href="${appUrl}/dashboard/meetings/${params.id}">Ver minuta completa</a></p>`,
-      }),
-    });
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: 'ZRNote <noreply@resend.dev>',
+          to: coordinator.email,
+          subject: `[ZRNote] ${meeting.title} — Resumen completo`,
+          html: `<p>Reunión <b>${meeting.title}</b> procesada.</p><p><b>Resumen:</b> ${minute?.summary || 'No disponible'}</p>${itemsHtml}<p><a href="${appUrl}/dashboard/meetings/${params.id}">Ver minuta completa</a></p>`,
+        }),
+      });
 
-    results.push(`coordinator (${coordinator.email}): enviado`);
+      const resText = await res.text();
+      results.push(`coordinator (${coordinator.email}): ${res.ok ? 'enviado' : `error ${res.status}: ${resText}`}`);
+    } catch (err: any) {
+      results.push(`coordinator: exception: ${err.message}`);
+    }
   }
 
   return NextResponse.json({ ok: true, results });

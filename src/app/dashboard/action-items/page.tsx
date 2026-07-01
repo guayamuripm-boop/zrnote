@@ -16,14 +16,14 @@ export default async function ActionItemsPage() {
       {actionItems && actionItems.length > 0 ? (
         <div className="bg-white rounded-lg border divide-y">
           {actionItems.map((item) => (
-            <div key={item.id} className="p-4 flex items-center justify-between">
-              <div>
+            <div key={item.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="min-w-0">
                 <p className="font-medium">{item.description}</p>
                 <p className="text-sm text-gray-500">
                   {item.due_date && `Fecha: ${new Date(item.due_date).toLocaleDateString('es-ES')}`}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <span
                   className={`px-2 py-1 rounded text-xs font-medium ${
                     item.priority === 'alta'

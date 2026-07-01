@@ -29,9 +29,9 @@ export default async function MeetingsPage() {
               href={`/dashboard/meetings/${meeting.id}`}
               className="block p-4 hover:bg-gray-50 transition"
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{meeting.title}</p>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{meeting.title}</p>
                   <p className="text-sm text-gray-500">
                     {meeting.coordination && `${meeting.coordination} · `}
                     {new Date(meeting.created_at).toLocaleDateString('es-ES', {
@@ -41,8 +41,8 @@ export default async function MeetingsPage() {
                     })}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-gray-500">{meeting.type}</span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-xs text-gray-500 hidden sm:inline">{meeting.type}</span>
                   <span
                     className={`px-2 py-1 rounded text-xs font-medium ${
                       meeting.status === 'completed'

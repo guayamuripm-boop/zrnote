@@ -99,13 +99,13 @@ export default function NewMeetingPage() {
           <label className="block text-sm font-semibold">Participantes</label>
 
           {/* Add participant form */}
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="text"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               placeholder="Nombre"
-              className="flex-1 border rounded-lg px-3 py-2 text-sm"
+              className="flex-1 border rounded-lg px-3 py-2 text-sm min-w-0"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
             />
             <input
@@ -113,7 +113,7 @@ export default function NewMeetingPage() {
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
               placeholder="correo@ejemplo.com"
-              className="flex-[2] border rounded-lg px-3 py-2 text-sm"
+              className="flex-1 sm:flex-[2] border rounded-lg px-3 py-2 text-sm min-w-0"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
             />
             <button

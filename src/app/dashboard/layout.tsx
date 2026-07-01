@@ -26,31 +26,31 @@ export default async function DashboardLayout({
             </Link>
 
             {/* Nav Links */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 sm:gap-1">
               <Link
                 href="/dashboard"
-                className="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-zr-navy hover:bg-gray-100 transition"
+                className="px-2 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium text-gray-600 hover:text-zr-navy hover:bg-gray-100 transition"
               >
                 Inicio
               </Link>
               <Link
                 href="/dashboard/meetings"
-                className="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-zr-navy hover:bg-gray-100 transition"
+                className="px-2 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium text-gray-600 hover:text-zr-navy hover:bg-gray-100 transition"
               >
                 Reuniones
               </Link>
               <Link
                 href="/dashboard/action-items"
-                className="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-zr-navy hover:bg-gray-100 transition"
+                className="px-2 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium text-gray-600 hover:text-zr-navy hover:bg-gray-100 transition"
               >
                 Tareas
               </Link>
 
               {/* Divider */}
-              <div className="w-px h-6 bg-gray-200 mx-2" />
+              <div className="w-px h-6 bg-gray-200 mx-1 sm:mx-2" />
 
               {/* User */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <div className="w-8 h-8 bg-zr-blue/10 rounded-full flex items-center justify-center">
                   <span className="text-zr-blue text-xs font-bold">
                     {user?.email?.charAt(0).toUpperCase() || '?'}
@@ -59,7 +59,7 @@ export default async function DashboardLayout({
                 <form action="/api/auth/signout" method="post">
                   <button
                     type="submit"
-                    className="text-sm text-gray-400 hover:text-red-500 transition"
+                    className="text-xs sm:text-sm text-gray-400 hover:text-red-500 transition"
                   >
                     Salir
                   </button>

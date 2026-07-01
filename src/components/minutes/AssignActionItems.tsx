@@ -32,7 +32,7 @@ export default function AssignActionItems({
     () => Object.fromEntries(actionItems.map((i) => [i.id, '']))
   );
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
 
   const handleAssign = (itemId: string, participantKey: string) => {
     setAssignments((prev) => ({ ...prev, [itemId]: participantKey }));
@@ -40,6 +40,7 @@ export default function AssignActionItems({
 
   const handleSave = async () => {
     setSaving(true);
+    setResult(null);
 
     const assignmentList = Object.entries(assignments)
       .filter(([_, email]) => email !== '')
@@ -54,48 +55,59 @@ export default function AssignActionItems({
 
     // Save assignments
     if (assignmentList.length > 0) {
-      await fetch(`/api/meetings/${meetingId}/assign`, {
+      const assignRes = await fetch(`/api/meetings/${meetingId}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assignments: assignmentList }),
       });
+      if (!assignRes.ok) {
+        setResult('Error al guardar asignaciones');
+        setSaving(false);
+        return;
+      }
     }
 
     // Send emails
-    await fetch(`/api/meetings/${meetingId}/send-emails`, {
+    const emailRes = await fetch(`/api/meetings/${meetingId}/send-emails`, {
       method: 'POST',
     });
+    const emailData = await emailRes.json();
+
+    if (emailRes.ok && emailData.results) {
+      const sent = emailData.results.filter((r: string) => r.includes('enviado')).length;
+      const failed = emailData.results.filter((r: string) => r.includes('error')).length;
+      setResult(
+        failed > 0
+          ? `${sent} enviados, ${failed} fallaron`
+          : `${sent} correo${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''}`
+      );
+    } else {
+      setResult(`Error: ${emailData.error || 'desconocido'}`);
+    }
 
     setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
     onAssigned?.();
   };
 
   const unassignedCount = Object.values(assignments).filter((v) => v === '').length;
 
   return (
-    <div className="bg-white rounded-lg border p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">Asignar Responsables</h3>
-          <p className="text-sm text-gray-500">
-            Selecciona quién se encarga de cada tarea
-          </p>
-        </div>
-        {saved && (
-          <span className="text-green-600 text-sm font-medium">Guardado</span>
-        )}
+    <div className="bg-white rounded-lg border p-4 sm:p-6 space-y-4">
+      <div>
+        <h3 className="text-lg font-semibold">Asignar Responsables</h3>
+        <p className="text-sm text-gray-500">
+          Selecciona quién se encarga de cada tarea
+        </p>
       </div>
 
       <div className="space-y-3">
         {actionItems.map((item) => (
           <div
             key={item.id}
-            className="flex items-center gap-3 p-3 rounded-lg bg-gray-50"
+            className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 rounded-lg bg-gray-50"
           >
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm truncate">{item.description}</p>
+              <p className="font-medium text-sm">{item.description}</p>
               <p className="text-xs text-gray-400">
                 {item.priority}
                 {item.due_date && ` · ${new Date(item.due_date).toLocaleDateString('es-ES')}`}
@@ -104,7 +116,7 @@ export default function AssignActionItems({
             <select
               value={assignments[item.id] || ''}
               onChange={(e) => handleAssign(item.id, e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm min-w-[180px]"
+              className="border rounded-lg px-3 py-2 text-sm w-full sm:w-auto sm:min-w-[180px]"
             >
               <option value="">Sin asignar</option>
               {participants.map((p) => (
@@ -117,7 +129,7 @@ export default function AssignActionItems({
         ))}
       </div>
 
-      <div className="flex items-center justify-between pt-2">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
         <p className="text-xs text-gray-400">
           {unassignedCount > 0
             ? `${unassignedCount} tarea${unassignedCount !== 1 ? 's' : ''} sin asignar`
@@ -131,6 +143,12 @@ export default function AssignActionItems({
           {saving ? 'Guardando...' : 'Guardar y enviar correos'}
         </button>
       </div>
+
+      {result && (
+        <p className={`text-sm font-medium ${result.includes('Error') || result.includes('fallaron') ? 'text-red-600' : 'text-green-600'}`}>
+          {result}
+        </p>
+      )}
     </div>
   );
 }
