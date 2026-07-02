@@ -46,8 +46,9 @@ export default function NewMeetingPage() {
       const { id } = await response.json();
       router.push(`/dashboard/meetings/${id}`);
     } else {
+      const err = await response.json();
       setLoading(false);
-      alert('Error al crear reunión');
+      alert('Error al crear reunión: ' + (err.error || 'desconocido'));
     }
   };
 

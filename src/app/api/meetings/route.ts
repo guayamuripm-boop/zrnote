@@ -40,11 +40,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { data: userRecord } = await supabase
+  const { data: userRecord, error: userError } = await supabase
     .from('users')
     .select('org_id')
     .eq('id', user.id)
     .single();
+
+  if (userError || !userRecord) {
+    const { error: insertError } = await supabase
+      .from('users')
+      .upsert({
+        id: user.id,
+        full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuario',
+        email: user.email || '',
+        role: 'coordinator',
+      }, { onConflict: 'id' });
+
+    if (insertError) {
+      return NextResponse.json({ error: `No se pudo crear perfil: ${insertError.message}` }, { status: 500 });
+    }
+  }
 
   const { data: meeting, error } = await supabase
     .from('meetings')
@@ -53,7 +68,7 @@ export async function POST(request: Request) {
       coordination: parsed.data.coordination,
       type: parsed.data.type,
       created_by: user.id,
-      org_id: userRecord?.org_id,
+      org_id: userRecord?.org_id || null,
       status: 'scheduled',
     })
     .select()
@@ -63,7 +78,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Auto-add creator as participant
   const { data: creatorProfile } = await supabase
     .from('users')
     .select('id, email, full_name')
@@ -75,12 +89,11 @@ export async function POST(request: Request) {
       meeting_id: meeting.id,
       user_id: user.id,
       email_override: creatorProfile.email,
+      name: creatorProfile.full_name,
     });
   }
 
-  // Add invited participants by email
   for (const p of parsed.data.participants) {
-    // Skip if it's the creator's own email
     if (creatorProfile?.email && p.email.toLowerCase() === creatorProfile.email.toLowerCase()) continue;
 
     await supabase.from('meeting_participants').insert({
