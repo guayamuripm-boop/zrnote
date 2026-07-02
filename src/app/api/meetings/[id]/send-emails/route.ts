@@ -27,6 +27,10 @@ export async function POST(
     return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
   }
 
+  if (meeting.created_by !== user.id) {
+    return NextResponse.json({ error: 'Solo el creador puede enviar correos' }, { status: 403 });
+  }
+
   const { data: actionItems } = await supabase
     .from('action_items')
     .select('*')
@@ -66,13 +70,14 @@ export async function POST(
     results.push(`${email}: ${ok ? 'enviado' : `error: ${error}`}`);
   }
 
-  const { data: coordinator } = await supabase
-    .from('users')
-    .select('email')
-    .eq('id', meeting.created_by)
+  const { data: creatorParticipant } = await supabase
+    .from('meeting_participants')
+    .select('email_override')
+    .eq('meeting_id', params.id)
+    .eq('user_id', meeting.created_by)
     .single();
 
-  if (coordinator?.email) {
+  if (creatorParticipant?.email_override) {
     const itemsHtml = allItems.length > 0
       ? `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%"><thead><tr><th>Responsable</th><th>Tarea</th><th>Prioridad</th><th>Fecha</th></tr></thead><tbody>${
           allItems.map((i) => `<tr><td>${i.assignee_name || 'Sin asignar'}</td><td>${i.description}</td><td>${i.priority}</td><td>${i.due_date || '—'}</td></tr>`).join('')
@@ -80,12 +85,12 @@ export async function POST(
       : '<p>No se generaron action items.</p>';
 
     const { ok, error } = await sendMail({
-      to: coordinator.email,
+      to: creatorParticipant.email_override,
       subject: `[ZRNote] ${meeting.title} — Resumen completo`,
       html: `<p>Reunión <b>${meeting.title}</b> procesada.</p><p><b>Resumen:</b> ${minute?.summary || 'No disponible'}</p>${itemsHtml}<p><a href="${appUrl}/dashboard/meetings/${params.id}">Ver minuta completa</a></p>`,
     });
 
-    results.push(`coordinator (${coordinator.email}): ${ok ? 'enviado' : `error: ${error}`}`);
+    results.push(`coordinator (${creatorParticipant.email_override}): ${ok ? 'enviado' : `error: ${error}`}`);
   }
 
   return NextResponse.json({ ok: true, results });

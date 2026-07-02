@@ -18,7 +18,6 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const groqKey = Deno.env.get('GROQ_API_KEY')!;
-    const resendKey = Deno.env.get('RESEND_API_KEY')!;
 
     console.log(`Starting processing for meeting: ${meetingId}`);
 
@@ -207,47 +206,7 @@ ${fullTranscript}
       })
       .eq('id', meetingId);
 
-    // 8. Send coordinator email
-    try {
-      const { data: actionItems } = await supabase
-        .from('action_items')
-        .select('*')
-        .eq('meeting_id', meetingId);
-
-      const appUrl = Deno.env.get('APP_URL') || 'https://project-bcydk.vercel.app';
-      const allItems = actionItems || [];
-
-      const { data: coordinator } = await supabase
-        .from('users')
-        .select('email')
-        .eq('id', meeting.created_by)
-        .single();
-
-      if (coordinator?.email) {
-        const itemsHtml = allItems.length > 0
-          ? `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%"><thead><tr><th>Responsable</th><th>Tarea</th><th>Prioridad</th><th>Fecha</th></tr></thead><tbody>${
-              allItems.map((i: any) => `<tr><td>${i.assignee_name || 'Sin asignar'}</td><td>${i.description}</td><td>${i.priority}</td><td>${i.due_date || '—'}</td></tr>`).join('')
-            }</tbody></table>`
-          : '<p>No se generaron action items.</p>';
-
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${resendKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: 'ZRNote <noreply@resend.dev>',
-            to: coordinator.email,
-            subject: `[ZRNote] ${meeting.title} — Resumen completo`,
-            html: `<p>Reunión <b>${meeting.title}</b> procesada.</p><p><b>Resumen:</b> ${minuteJSON.summary || 'No disponible'}</p>${itemsHtml}<p>Asigna los action items y envía correos desde la minuta.</p><p><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver minuta</a></p>`,
-          }),
-        });
-        console.log(`Coordinator email sent to ${coordinator.email}`);
-      }
-    } catch (emailErr) {
-      console.error('Email error (non-fatal):', emailErr);
-    }
+    // 8. Done — emails are sent via the Next.js send-emails route (Gmail SMTP)
 
     console.log('Processing complete!');
 
