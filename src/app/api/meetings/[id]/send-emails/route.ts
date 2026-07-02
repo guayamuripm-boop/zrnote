@@ -1,5 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { sendMail } from '@/lib/smtp';
 
 export async function POST(
   request: Request,
@@ -12,9 +13,8 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  if (!RESEND_API_KEY) {
-    return NextResponse.json({ error: 'RESEND_API_KEY not configured on server' }, { status: 500 });
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    return NextResponse.json({ error: 'Gmail SMTP not configured on server' }, { status: 500 });
   }
 
   const { data: meeting } = await supabase
@@ -41,7 +41,6 @@ export async function POST(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://project-bcydk.vercel.app';
   const allItems = actionItems || [];
 
-  // Group action items by assignee_email
   const grouped = new Map<string, typeof allItems>();
   for (const item of allItems) {
     if (item.assignee_email) {
@@ -53,35 +52,20 @@ export async function POST(
 
   const results: string[] = [];
 
-  // Send personal email to each assignee
   for (const [email, items] of grouped) {
     const name = items[0]?.assignee_name || email.split('@')[0];
 
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: 'ZRNote <noreply@resend.dev>',
-          to: email,
-          subject: `[ZRNote] ${meeting.title} — Tus compromisos`,
-          html: `<p>Hola ${name},</p><p>Tus action items en <b>${meeting.title}</b>:</p><ul>${
-            items.map((i) => `<li><b>${i.description}</b> — Prioridad: ${i.priority}${i.due_date ? `, Fecha: ${i.due_date}` : ''}</li>`).join('')
-          }</ul><p><a href="${appUrl}/dashboard/meetings/${params.id}">Ver minuta completa</a></p>`,
-        }),
-      });
+    const { ok, error } = await sendMail({
+      to: email,
+      subject: `[ZRNote] ${meeting.title} — Tus compromisos`,
+      html: `<p>Hola ${name},</p><p>Tus action items en <b>${meeting.title}</b>:</p><ul>${
+        items.map((i) => `<li><b>${i.description}</b> — Prioridad: ${i.priority}${i.due_date ? `, Fecha: ${i.due_date}` : ''}</li>`).join('')
+      }</ul><p><a href="${appUrl}/dashboard/meetings/${params.id}">Ver minuta completa</a></p>`,
+    });
 
-      const resText = await res.text();
-      results.push(`${email}: ${res.ok ? 'enviado' : `error ${res.status}: ${resText}`}`);
-    } catch (err: any) {
-      results.push(`${email}: exception: ${err.message}`);
-    }
+    results.push(`${email}: ${ok ? 'enviado' : `error: ${error}`}`);
   }
 
-  // Send coordinator email with ALL items
   const { data: coordinator } = await supabase
     .from('users')
     .select('email')
@@ -95,26 +79,13 @@ export async function POST(
         }</tbody></table>`
       : '<p>No se generaron action items.</p>';
 
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: 'ZRNote <noreply@resend.dev>',
-          to: coordinator.email,
-          subject: `[ZRNote] ${meeting.title} — Resumen completo`,
-          html: `<p>Reunión <b>${meeting.title}</b> procesada.</p><p><b>Resumen:</b> ${minute?.summary || 'No disponible'}</p>${itemsHtml}<p><a href="${appUrl}/dashboard/meetings/${params.id}">Ver minuta completa</a></p>`,
-        }),
-      });
+    const { ok, error } = await sendMail({
+      to: coordinator.email,
+      subject: `[ZRNote] ${meeting.title} — Resumen completo`,
+      html: `<p>Reunión <b>${meeting.title}</b> procesada.</p><p><b>Resumen:</b> ${minute?.summary || 'No disponible'}</p>${itemsHtml}<p><a href="${appUrl}/dashboard/meetings/${params.id}">Ver minuta completa</a></p>`,
+    });
 
-      const resText = await res.text();
-      results.push(`coordinator (${coordinator.email}): ${res.ok ? 'enviado' : `error ${res.status}: ${resText}`}`);
-    } catch (err: any) {
-      results.push(`coordinator: exception: ${err.message}`);
-    }
+    results.push(`coordinator (${coordinator.email}): ${ok ? 'enviado' : `error: ${error}`}`);
   }
 
   return NextResponse.json({ ok: true, results });
