@@ -1,5 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
+import DeleteMeetingButton from '@/components/DeleteMeetingButton';
 
 export default async function MeetingsPage() {
   const supabase = createServerSupabase();
@@ -56,6 +57,7 @@ export default async function MeetingsPage() {
                   >
                     {meeting.status}
                   </span>
+                  <DeleteMeetingButton meetingId={meeting.id} />
                 </div>
               </div>
             </Link>

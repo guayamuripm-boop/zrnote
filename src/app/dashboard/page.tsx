@@ -1,5 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
+import DeleteMeetingButton from '@/components/DeleteMeetingButton';
 
 export default async function DashboardHome() {
   const supabase = createServerSupabase();
@@ -50,19 +51,22 @@ export default async function DashboardHome() {
                       {new Date(meeting.created_at).toLocaleDateString('es-ES')}
                     </p>
                   </div>
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      meeting.status === 'completed'
-                        ? 'bg-green-100 text-green-700'
-                        : meeting.status === 'processing'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : meeting.status === 'failed'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-zr-blue-pale/30 text-zr-navy'
-                    }`}
-                  >
-                    {meeting.status}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-medium ${
+                        meeting.status === 'completed'
+                          ? 'bg-green-100 text-green-700'
+                          : meeting.status === 'processing'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : meeting.status === 'failed'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-zr-blue-pale/30 text-zr-navy'
+                      }`}
+                    >
+                      {meeting.status}
+                    </span>
+                    <DeleteMeetingButton meetingId={meeting.id} />
+                  </div>
                 </div>
               </Link>
             ))}

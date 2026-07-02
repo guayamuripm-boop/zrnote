@@ -2,6 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import AssignActionItems from '@/components/minutes/AssignActionItems';
+import DeleteMeetingButton from '@/components/DeleteMeetingButton';
 
 export default async function MeetingDetailPage({
   params,
@@ -76,6 +77,7 @@ export default async function MeetingDetailPage({
               Grabar
             </Link>
           )}
+          <DeleteMeetingButton meetingId={meeting.id} />
         </div>
       </div>
 
