@@ -82,43 +82,102 @@ export default async function MeetingDetailPage({
       </div>
 
       {minute && (
-        <section className="bg-white rounded-lg border p-6 space-y-4">
-          <h2 className="text-lg font-semibold">Minuta</h2>
-          <div>
-            <h3 className="font-medium text-sm text-gray-500 mb-1">Resumen</h3>
-            <p>{minute.summary}</p>
-          </div>
-          {minute.decisions && minute.decisions.length > 0 && (
+        <>
+          <section className="bg-white rounded-lg border p-6 space-y-4">
+            <h2 className="text-lg font-semibold">Minuta</h2>
             <div>
-              <h3 className="font-medium text-sm text-gray-500 mb-1">Decisiones</h3>
+              <h3 className="font-medium text-sm text-gray-500 mb-1">Resumen</h3>
+              <p className="whitespace-pre-wrap">{minute.summary}</p>
+            </div>
+          </section>
+
+          {minute.discussion && (minute.discussion as any[]).length > 0 && (
+            <section className="bg-white rounded-lg border p-6 space-y-4">
+              <h2 className="text-lg font-semibold">Temas Discutidos</h2>
+              <div className="space-y-4">
+                {(minute.discussion as any[]).map((d, i) => (
+                  <div key={i} className="border-l-4 border-zr-blue pl-4">
+                    <h3 className="font-medium">{d.topic}</h3>
+                    {d.speaker && <p className="text-xs text-gray-400 mb-1">Liderado por: {d.speaker}</p>}
+                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{d.details}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {minute.decisions && (minute.decisions as string[]).length > 0 && (
+            <section className="bg-white rounded-lg border p-6 space-y-4">
+              <h2 className="text-lg font-semibold">Decisiones</h2>
               <ul className="list-disc list-inside space-y-1">
                 {(minute.decisions as string[]).map((d, i) => (
                   <li key={i}>{d}</li>
                 ))}
               </ul>
-            </div>
+            </section>
           )}
-          {minute.changes && minute.changes.length > 0 && (
-            <div>
-              <h3 className="font-medium text-sm text-gray-500 mb-1">Cambios</h3>
+
+          {minute.project_statuses && (minute.project_statuses as any[]).length > 0 && (
+            <section className="bg-white rounded-lg border p-6 space-y-4">
+              <h2 className="text-lg font-semibold">Estados de Proyectos</h2>
+              <div className="space-y-3">
+                {(minute.project_statuses as any[]).map((p, i) => (
+                  <div key={i} className="bg-gray-50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-medium">{p.project}</h3>
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">{p.status}</span>
+                    </div>
+                    <p className="text-sm text-gray-600">{p.details}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {minute.blockers && (minute.blockers as any[]).length > 0 && (
+            <section className="bg-white rounded-lg border p-6 space-y-4">
+              <h2 className="text-lg font-semibold">Bloqueos / Problemas</h2>
+              <div className="space-y-3">
+                {(minute.blockers as any[]).map((b, i) => (
+                  <div key={i} className="bg-red-50 rounded-lg p-3">
+                    <h3 className="font-medium text-red-800">{b.issue}</h3>
+                    <p className="text-sm text-red-600">Impacto: {b.impact}</p>
+                    {b.owner && <p className="text-xs text-gray-500">Responsable: {b.owner}</p>}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {minute.ideas && (minute.ideas as string[]).length > 0 && (
+            <section className="bg-white rounded-lg border p-6 space-y-4">
+              <h2 className="text-lg font-semibold">Ideas / Brainstorming</h2>
               <ul className="list-disc list-inside space-y-1">
-                {(minute.changes as string[]).map((c, i) => (
-                  <li key={i}>{c}</li>
+                {(minute.ideas as string[]).map((idea, i) => (
+                  <li key={i}>{idea}</li>
                 ))}
               </ul>
-            </div>
+            </section>
           )}
-          {minute.next_steps && minute.next_steps.length > 0 && (
-            <div>
-              <h3 className="font-medium text-sm text-gray-500 mb-1">Próximos pasos</h3>
+
+          {minute.next_steps && (minute.next_steps as string[]).length > 0 && (
+            <section className="bg-white rounded-lg border p-6 space-y-4">
+              <h2 className="text-lg font-semibold">Próximos Pasos</h2>
               <ul className="list-disc list-inside space-y-1">
                 {(minute.next_steps as string[]).map((n, i) => (
                   <li key={i}>{n}</li>
                 ))}
               </ul>
-            </div>
+            </section>
           )}
-        </section>
+
+          {meeting.transcript_raw && (
+            <details className="bg-white rounded-lg border p-6 space-y-4">
+              <summary className="text-lg font-semibold cursor-pointer">Transcripción completa</summary>
+              <pre className="text-sm text-gray-600 whitespace-pre-wrap mt-2">{meeting.transcript_raw}</pre>
+            </details>
+          )}
+        </>
       )}
 
       {actionItems && actionItems.length > 0 && (

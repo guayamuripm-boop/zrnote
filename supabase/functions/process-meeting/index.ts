@@ -107,30 +107,67 @@ Deno.serve(async (req) => {
     // 4. Generate minute with Groq Llama 3
     const minutePrompt = `
 Eres ZRNote, sistema de minutas de ZR Mecacademy.
-Analiza la transcripción y responde SOLO con un JSON válido, sin texto adicional.
+Analiza la transcripción COMPLETA y responde SOLO con un JSON válido, sin texto adicional.
+
+Tu objetivo es crear una minuta que sirva como RESPALDO HISTÓRICO de todo lo hablado. No omitas nada importante. Si se mencionó un proyecto, un estatus, un problema, una idea, un acuerdo, debe quedar registrado.
 
 ESTRUCTURA JSON REQUERIDA:
 {
-  "summary": "string — resumen ejecutivo 3-5 oraciones",
-  "topics": ["string"],
-  "decisions": ["string"],
-  "changes": ["string — qué cambia respecto a qué"],
+  "summary": "string — resumen ejecutivo detallado (5-8 oraciones que cubran los puntos principales)",
+  "discussion": [
+    {
+      "topic": "string — tema o subtema discutido",
+      "details": "string — TODO lo que se dijo sobre este tema, incluyendo opiniones, argumentos, contexto. Mínimo 2-3 oraciones.",
+      "speaker": "string — quién lideró o principal contribuyente de este tema"
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "string — qué se decidió",
+      "context": "string — por qué o bajo qué condiciones"
+    }
+  ],
+  "project_statuses": [
+    {
+      "project": "string — nombre del proyecto o initiative",
+      "status": "string — estado actual (ej: en progreso, retrasado, completado, pendiente)",
+      "details": "string — detalles del estado, qué se avanzó, qué falta"
+    }
+  ],
+  "blockers": [
+    {
+      "issue": "string — problema o bloqueo identificado",
+      "impact": "string — qué afecta o retrasa",
+      "owner": "string — quién es responsable de resolverlo o null"
+    }
+  ],
+  "ideas": ["string — ideas mencionadas que no son decisiones finales ni tareas"],
   "action_items": [
     {
       "assignee_name": "string — nombre del responsable",
-      "description": "string — tarea específica",
+      "description": "string — tarea específica y clara",
       "due_date": "YYYY-MM-DD o null",
-      "priority": "alta|media|baja"
+      "priority": "alta|media|baja",
+      "context": "string — por qué es necesario o qué conecta"
     }
   ],
-  "next_steps": ["string"]
+  "next_steps": [
+    {
+      "step": "string — próximo paso o follow-up",
+      "owner": "string — quién lo hace o null"
+    }
+  ]
 }
 
 REGLAS:
 - Si un hablante no tiene nombre, usa el label de la transcripción (ej: "Speaker 1")
-- Solo extrae action items que sean compromisos reales (no sugerencias vagas)
-- decisions = acuerdos oficiales tomados (afirmativo: "Se aprueba...", "Se decide...")
-- changes = modificaciones a algo que ya existía
+- NO omitas información. Si alguien mencionó un proyecto, un bloqueo, una idea, un cambio de estatus, DEBE aparecer.
+- Si se discutió el estado de un proyecto, inclúyelo en project_statuses con todos los detalles
+- Si hay un problema/bloqueo, inclúyelo en blockers con el impacto y quién es responsable
+- decisions = acuerdos oficiales tomados ("se aprueba", "se decide", "quedamos en que...")
+- ideas = cosas mencionadas que son brainstorming o sugerencias, no compromisos
+- action_items = compromisos REALES con persona responsable. El campo "contexto" explica por qué es necesario
+- Sé lo más fiel posible a lo que se dijo. No inventes ni infieras cosas no mencionadas.
 - Responde SOLO JSON. Cero texto fuera del JSON.
 
 TRANSCRIPCIÓN:
@@ -148,7 +185,7 @@ ${fullTranscript}
         model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: minutePrompt }],
         temperature: 0.3,
-        max_tokens: 4096,
+        max_tokens: 8192,
       }),
     });
 
@@ -174,10 +211,14 @@ ${fullTranscript}
       .insert({
         meeting_id: meetingId,
         summary: minuteJSON.summary,
-        topics: minuteJSON.topics,
-        decisions: minuteJSON.decisions,
-        changes: minuteJSON.changes,
-        next_steps: minuteJSON.next_steps,
+        topics: (minuteJSON.discussion || []).map((d: any) => d.topic || d),
+        decisions: (minuteJSON.decisions || []).map((d: any) => typeof d === 'string' ? d : `${d.decision}${d.context ? ` (${d.context})` : ''}`),
+        changes: [],
+        next_steps: (minuteJSON.next_steps || []).map((n: any) => typeof n === 'string' ? n : `${n.step}${n.owner ? ` — ${n.owner}` : ''}`),
+        discussion: minuteJSON.discussion || [],
+        project_statuses: minuteJSON.project_statuses || [],
+        blockers: minuteJSON.blockers || [],
+        ideas: minuteJSON.ideas || [],
         raw_llm_output: JSON.stringify(minuteJSON),
       })
       .select()
