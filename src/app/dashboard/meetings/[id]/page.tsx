@@ -70,12 +70,20 @@ export default async function MeetingDetailPage({
             {meeting.status}
           </span>
           {meeting.status === 'scheduled' && (
-            <Link
-              href={`/dashboard/meetings/${meeting.id}/record`}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition"
-            >
-              Grabar
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/dashboard/meetings/${meeting.id}/record`}
+                className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition"
+              >
+                Grabar
+              </Link>
+              <Link
+                href={`/dashboard/meetings/${meeting.id}/upload`}
+                className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
+              >
+                Subir Audio
+              </Link>
+            </div>
           )}
           <DeleteMeetingButton meetingId={meeting.id} />
         </div>

@@ -60,15 +60,23 @@ Deno.serve(async (req) => {
 
       console.log(`Segment downloaded, size: ${audioData.size}`);
 
-      // Skip segments too small (< 50KB) — likely invalid/corrupt webm
+      // Skip segments too small (< 50KB) — likely invalid/corrupt
       if (audioData.size < 50000) {
         console.log(`Skipping segment ${segment.segment_index}: too small (${audioData.size} bytes)`);
         continue;
       }
 
+      // Detect file extension from r2_key
+      const ext = segment.r2_key.split('.').pop() || 'webm';
+      const mimeMap: Record<string, string> = {
+        webm: 'audio/webm', mp3: 'audio/mpeg', m4a: 'audio/mp4',
+        ogg: 'audio/ogg', wav: 'audio/wav', '3gp': 'audio/3gpp',
+      };
+      const mime = mimeMap[ext] || 'audio/webm';
+
       // 3. Transcribe with Groq Whisper
       const formData = new FormData();
-      formData.append('file', audioData, 'audio.webm');
+      formData.append('file', audioData, `audio.${ext}`);
       formData.append('model', 'whisper-large-v3');
       formData.append('language', 'es');
       formData.append('response_format', 'verbose_json');

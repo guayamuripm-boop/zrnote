@@ -2,6 +2,20 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
+const ALLOWED_TYPES: Record<string, string> = {
+  'audio/webm': 'webm',
+  'audio/mp3': 'mp3',
+  'audio/mpeg': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/ogg': 'ogg',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/3gpp': '3gp',
+};
+
+const MAX_SIZE = 25 * 1024 * 1024; // 25MB Groq Whisper limit
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
@@ -21,6 +35,12 @@ export async function POST(
     return NextResponse.json({ error: 'Missing audio or segmentIndex' }, { status: 400 });
   }
 
+  if (audioFile.size > MAX_SIZE) {
+    return NextResponse.json({ error: `Archivo muy grande (${(audioFile.size / 1024 / 1024).toFixed(1)}MB). Máximo 25MB.` }, { status: 400 });
+  }
+
+  const ext = ALLOWED_TYPES[audioFile.type] || audioFile.name.split('.').pop() || 'webm';
+
   const { data: meeting } = await supabase
     .from('meetings')
     .select('org_id, audio_segments')
@@ -31,9 +51,8 @@ export async function POST(
     return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
   }
 
-  const r2Key = `${meeting.org_id || 'default'}/${params.id}/segment_${segmentIndex}.webm`;
+  const r2Key = `${meeting.org_id || 'default'}/${params.id}/segment_${segmentIndex}.${ext}`;
 
-  // Use service role for storage to bypass RLS on upsert (INSERT+UPDATE)
   const serviceClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_KEY!
@@ -42,7 +61,7 @@ export async function POST(
   const { error: uploadError } = await serviceClient.storage
     .from('meeting-audio')
     .upload(r2Key, audioFile, {
-      contentType: 'audio/webm',
+      contentType: audioFile.type || 'audio/webm',
       upsert: true,
     });
 
@@ -51,7 +70,6 @@ export async function POST(
   }
 
   const segments = meeting.audio_segments || [];
-  // Remove existing entry for this segment index (if re-uploading)
   const filtered = segments.filter((s: any) => s.segment_index !== segmentIndex);
   filtered.push({
     r2_key: r2Key,
