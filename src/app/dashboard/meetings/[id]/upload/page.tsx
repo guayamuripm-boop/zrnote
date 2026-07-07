@@ -79,14 +79,14 @@ export default function UploadAudioPage() {
   return (
     <div className="max-w-lg mx-auto space-y-6">
       <div>
-        <Link href={`/dashboard/meetings/${meetingId}`} className="inline-flex items-center gap-1 text-sm text-zr-blue-mid/50 hover:text-zr-blue transition mb-4">
+        <Link href={`/dashboard/meetings/${meetingId}`} className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition mb-4">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
           Volver
         </Link>
-        <h1 className="text-2xl sm:text-3xl font-bold text-zr-navy dark:text-zr-blue-pale">Subir Audio</h1>
-        <p className="text-zr-blue-mid/50 text-sm mt-1">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Subir Audio</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
           Formatos: MP3, M4A, WAV, OGG, WebM — Máximo 25MB
         </p>
       </div>
@@ -95,15 +95,15 @@ export default function UploadAudioPage() {
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}
-        className="glass-strong rounded-2xl p-8 sm:p-12 text-center cursor-pointer hover:shadow-elevated transition-all duration-300 border-2 border-dashed border-zr-blue-pale/50 hover:border-zr-blue-mid/30 group"
+        className="glass-strong rounded-2xl p-8 sm:p-12 text-center cursor-pointer hover:shadow-elevated transition-all duration-300 border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 group"
       >
         <div className="w-14 h-14 gradient-primary rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
           <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
           </svg>
         </div>
-        <p className="font-semibold text-zr-navy dark:text-zr-blue-pale">Toca para seleccionar archivos</p>
-        <p className="text-xs text-zr-blue-mid/40 mt-1">o arrastra archivos aquí</p>
+        <p className="font-semibold text-slate-900 dark:text-slate-100">Toca para seleccionar archivos</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">o arrastra archivos aquí</p>
         <input
           ref={inputRef}
           type="file"
@@ -124,31 +124,31 @@ export default function UploadAudioPage() {
                 </svg>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-zr-navy dark:text-zr-blue-pale truncate">{f.file.name}</p>
-                <p className="text-xs text-zr-blue-mid/40">
+                <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{f.file.name}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
                   {(f.file.size / 1024 / 1024).toFixed(1)} MB
-                  {f.status === 'error' && <span className="text-indigo-700 ml-2">{f.error}</span>}
+                  {f.status === 'error' && <span className="text-rose-600 dark:text-rose-400 ml-2">{f.error}</span>}
                 </p>
               </div>
               {f.status === 'uploading' && (
-                <div className="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
               )}
               {f.status === 'done' && (
-                <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-6 h-6 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center">
+                  <svg className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
               )}
               {f.status === 'error' && (
-                <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5 text-indigo-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-6 h-6 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center">
+                  <svg className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </div>
               )}
               {f.status === 'pending' && (
-                <button onClick={() => removeFile(i)} className="text-zr-blue-mid/30 hover:text-indigo-500 transition">
+                <button onClick={() => removeFile(i)} className="text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 transition">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -161,18 +161,18 @@ export default function UploadAudioPage() {
 
       {files.length > 0 && !processing && (
         <div className="space-y-3">
-          <p className="text-xs text-zr-blue-mid/40 text-center">
+          <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
             {doneCount > 0 && `${doneCount} subido(s)`}
             {errorCount > 0 && ` · ${errorCount} error(es)`}
           </p>
           <button
             onClick={handleUpload}
             disabled={uploading || files.every((f) => f.status !== 'pending')}
-            className="w-full gradient-primary text-white py-3.5 rounded-xl font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-300 disabled:opacity-50"
+            className="w-full gradient-primary text-white py-3.5 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 disabled:opacity-50"
           >
             {uploading ? 'Subiendo...' : files.every((f) => f.status === 'done') ? 'Procesando...' : `Subir ${files.filter((f) => f.status === 'pending').length} archivo(s)`}
           </button>
-          <button onClick={() => router.back()} className="w-full text-zr-blue-mid/40 py-2 text-sm hover:text-zr-navy dark:hover:text-zr-blue-pale transition">
+          <button onClick={() => router.back()} className="w-full text-slate-400 dark:text-slate-500 py-2 text-sm hover:text-slate-900 dark:hover:text-slate-100 transition">
             Cancelar
           </button>
         </div>
@@ -180,9 +180,9 @@ export default function UploadAudioPage() {
 
       {processing && (
         <div className="glass-strong rounded-2xl p-8 text-center">
-          <div className="w-12 h-12 border-4 border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="font-medium text-zr-navy dark:text-zr-blue-pale">Procesando audio y generando minuta...</p>
-          <p className="text-xs text-zr-blue-mid/40 mt-1">Esto puede tomar unos minutos</p>
+          <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="font-medium text-slate-900 dark:text-slate-100">Procesando audio y generando minuta...</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Esto puede tomar unos minutos</p>
         </div>
       )}
     </div>

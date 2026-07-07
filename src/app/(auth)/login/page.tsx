@@ -37,8 +37,8 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen gradient-mesh relative overflow-hidden flex items-center justify-center p-4">
-      <div className="absolute top-20 left-10 w-72 h-72 bg-indigo-400/20 rounded-full blur-3xl animate-float" />
-      <div className="absolute bottom-20 right-10 w-96 h-96 bg-indigo-300/15 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }} />
+      <div className="absolute top-20 left-10 w-72 h-72 bg-blue-400/15 rounded-full blur-3xl animate-float" />
+      <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-300/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }} />
 
       <div className="relative z-10 w-full max-w-md">
         <div className="glass-strong rounded-3xl p-8 sm:p-10 shadow-float">
@@ -46,27 +46,27 @@ export default function LoginPage() {
             <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center shadow-lg">
               <span className="text-white font-bold text-sm">ZR</span>
             </div>
-            <span className="text-zr-navy dark:text-zr-blue-pale font-bold text-lg">ZRNote</span>
+            <span className="text-slate-900 dark:text-slate-100 font-bold text-lg">ZRNote</span>
           </Link>
 
-          <h1 className="text-2xl font-bold text-zr-navy dark:text-zr-blue-pale mb-1">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-1">
             Bienvenido
           </h1>
-          <p className="text-zr-blue-mid/70 text-sm mb-8">
+          <p className="text-slate-600 dark:text-slate-300 text-sm mb-8">
             Inicia sesión para continuar
           </p>
 
           {error && (
-            <div className="bg-indigo-50/80 border border-indigo-100 rounded-xl p-3 mb-6">
-              <p className="text-indigo-700 text-sm">{error}</p>
+            <div className="bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/40 rounded-xl p-3 mb-6">
+              <p className="text-rose-600 dark:text-rose-400 text-sm">{error}</p>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-zr-navy dark:text-zr-blue-pale mb-1.5">Email</label>
+              <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-1.5">Email</label>
               <div className="relative">
-                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-zr-blue-mid/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
                 </svg>
                 <input
@@ -75,15 +75,15 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   placeholder="tu@email.com"
-                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-zr-blue-pale/50 bg-white/80 dark:bg-white/5 text-zr-navy dark:text-zr-blue-pale placeholder-zr-blue-mid/30 focus:outline-none focus:ring-2 focus:ring-zr-blue-mid/30 focus:border-zr-blue-mid transition text-sm"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-sm"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-zr-navy dark:text-zr-blue-pale mb-1.5">Contraseña</label>
+              <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-1.5">Contraseña</label>
               <div className="relative">
-                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-zr-blue-mid/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
                 <input
@@ -92,12 +92,12 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   placeholder="••••••••"
-                  className="w-full pl-11 pr-11 py-3 rounded-xl border border-zr-blue-pale/50 bg-white/80 dark:bg-white/5 text-zr-navy dark:text-zr-blue-pale placeholder-zr-blue-mid/30 focus:outline-none focus:ring-2 focus:ring-zr-blue-mid/30 focus:border-zr-blue-mid transition text-sm"
+                  className="w-full pl-11 pr-11 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-sm"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zr-blue-mid/40 hover:text-zr-blue-mid transition"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition"
                 >
                   {showPassword ? (
                     <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -116,7 +116,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full gradient-primary text-white py-3.5 rounded-xl font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0"
+              className="w-full gradient-primary text-white py-3.5 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0"
             >
               {loading ? (
                 <span className="inline-flex items-center gap-2">
@@ -130,9 +130,9 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="text-center text-sm text-zr-blue-mid/60 mt-8">
+          <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-8">
             ¿No tienes cuenta?{' '}
-            <Link href="/signup" className="text-zr-blue font-medium hover:text-zr-navy dark:hover:text-zr-blue-pale transition">
+            <Link href="/signup" className="text-blue-600 dark:text-blue-400 font-medium hover:text-slate-900 dark:hover:text-slate-100 transition">
               Crear cuenta
             </Link>
           </p>

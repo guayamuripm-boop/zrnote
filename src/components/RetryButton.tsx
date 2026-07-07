@@ -23,7 +23,7 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
     <button
       onClick={handleRetry}
       disabled={loading}
-      className="gradient-primary text-white px-6 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-300 disabled:opacity-50 inline-flex items-center gap-2"
+      className="gradient-primary text-white px-6 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 disabled:opacity-50 inline-flex items-center gap-2"
     >
       {loading ? (
         <>

@@ -14,8 +14,8 @@ export default async function ActionItemsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-zr-navy dark:text-zr-blue-pale">Mis Tareas</h1>
-        <p className="text-zr-blue-mid/50 text-sm mt-0.5">{actionItems?.length || 0} tareas asignadas</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Mis Tareas</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">{actionItems?.length || 0} tareas asignadas</p>
       </div>
 
       {actionItems && actionItems.length > 0 ? (
@@ -24,21 +24,21 @@ export default async function ActionItemsPage() {
             <div key={item.id} className="glass-strong rounded-2xl p-4 sm:p-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-zr-navy dark:text-zr-blue-pale">{item.description}</p>
+                  <p className="font-medium text-slate-900 dark:text-slate-100">{item.description}</p>
                   <div className="flex items-center gap-2 mt-1.5">
                     {item.meetings && (
-                      <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium">
+                      <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full font-medium">
                         {item.meetings.title}
                       </span>
                     )}
                     {item.meetings?.created_at && (
-                      <span className="text-xs text-zr-blue-mid/40">
+                      <span className="text-xs text-slate-400 dark:text-slate-500">
                         {new Date(item.meetings.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </span>
                     )}
                   </div>
                   {item.due_date && (
-                    <p className="text-sm text-zr-blue-mid/50 mt-1">
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                       Fecha límite: {new Date(item.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}
                     </p>
                   )}
@@ -48,10 +48,10 @@ export default async function ActionItemsPage() {
                   <span
                     className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                       item.status === 'completado'
-                        ? 'bg-indigo-50 text-indigo-600'
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                         : item.status === 'en_progreso'
-                        ? 'bg-indigo-100/50 text-indigo-700'
-                        : 'bg-indigo-50/50 text-indigo-400'
+                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
                     }`}
                   >
                     {item.status === 'completado' ? 'completado' : item.status === 'en_progreso' ? 'en progreso' : 'pendiente'}
@@ -68,8 +68,8 @@ export default async function ActionItemsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <p className="text-zr-blue-mid/50 text-lg">No tienes tareas pendientes</p>
-          <p className="text-zr-blue-mid/30 text-sm mt-1">¡Todo al día!</p>
+          <p className="text-slate-500 dark:text-slate-400 text-lg">No tienes tareas pendientes</p>
+          <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">¡Todo al día!</p>
         </div>
       )}
     </div>

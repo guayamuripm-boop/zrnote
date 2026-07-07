@@ -31,14 +31,14 @@ export default function SpeakersPage() {
   return (
     <div className="max-w-lg mx-auto space-y-6">
       <div>
-        <Link href={`/dashboard/meetings/${params.id}`} className="inline-flex items-center gap-1 text-sm text-zr-blue-mid/50 hover:text-zr-blue transition mb-4">
+        <Link href={`/dashboard/meetings/${params.id}`} className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition mb-4">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
           Volver
         </Link>
-        <h1 className="text-2xl sm:text-3xl font-bold text-zr-navy dark:text-zr-blue-pale">Identificar Participantes</h1>
-        <p className="text-zr-blue-mid/50 text-sm mt-1">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Identificar Participantes</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
           Asocia nombres con etiquetas para la transcripción
         </p>
       </div>
@@ -50,7 +50,7 @@ export default function SpeakersPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Nombre"
-            className="flex-1 border border-zr-blue-pale/50 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-zr-navy dark:text-zr-blue-pale placeholder-zr-blue-mid/30 focus:outline-none focus:ring-2 focus:ring-zr-blue-mid/30 transition text-sm min-w-0"
+            className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm min-w-0"
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSpeaker())}
           />
           <input
@@ -58,12 +58,12 @@ export default function SpeakersPage() {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="Etiqueta (ej: Director)"
-            className="flex-1 border border-zr-blue-pale/50 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-zr-navy dark:text-zr-blue-pale placeholder-zr-blue-mid/30 focus:outline-none focus:ring-2 focus:ring-zr-blue-mid/30 transition text-sm min-w-0"
+            className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm min-w-0"
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSpeaker())}
           />
           <button
             onClick={addSpeaker}
-            className="gradient-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all shrink-0"
+            className="gradient-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all shrink-0"
           >
             +
           </button>
@@ -79,13 +79,13 @@ export default function SpeakersPage() {
                   <span className="text-white text-xs font-bold">{s.name.charAt(0)}</span>
                 </div>
                 <div>
-                  <p className="font-medium text-sm text-zr-navy dark:text-zr-blue-pale">{s.name}</p>
-                  <p className="text-xs text-zr-blue-mid/40">{s.label}</p>
+                  <p className="font-medium text-sm text-slate-900 dark:text-slate-100">{s.name}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">{s.label}</p>
                 </div>
               </div>
               <button
                 onClick={() => setSpeakers(speakers.filter((_, j) => j !== i))}
-                className="text-zr-blue-mid/30 hover:text-indigo-500 transition"
+                className="text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 transition"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -95,7 +95,7 @@ export default function SpeakersPage() {
           ))}
           <button
             onClick={saveSpeakers}
-            className="w-full gradient-primary text-white py-3 rounded-xl font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all"
+            className="w-full gradient-primary text-white py-3 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all"
           >
             {saved ? '✓ Guardado' : 'Guardar Participantes'}
           </button>

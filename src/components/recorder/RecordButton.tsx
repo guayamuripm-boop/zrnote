@@ -274,16 +274,16 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     <div className="flex flex-col items-center gap-8">
       {/* Error */}
       {error && (
-        <div className="w-full max-w-md glass-strong rounded-2xl p-4 flex items-start gap-3">
-          <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center shrink-0">
+        <div className="w-full max-w-md bg-rose-100 dark:bg-rose-900/30 rounded-xl p-4 flex items-start gap-3">
+          <div className="w-8 h-8 gradient-error rounded-lg flex items-center justify-center shrink-0">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
             </svg>
           </div>
           <div className="flex-1">
-            <p className="text-indigo-700 text-sm font-medium">{error}</p>
+            <p className="text-rose-600 dark:text-rose-400 text-sm font-medium">{error}</p>
           </div>
-          <button onClick={() => setError(null)} className="text-indigo-400 hover:text-indigo-600 transition">
+          <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-600 transition">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -296,24 +296,24 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         <div className="text-center space-y-3">
           <div className="flex items-center justify-center gap-3">
             {(state === 'recording' || state === 'paused') && (
-              <span className={`w-3 h-3 rounded-full ${state === 'recording' ? 'bg-indigo-500 animate-pulse' : 'bg-indigo-300'}`} />
+              <span className={`w-3 h-3 rounded-full ${state === 'recording' ? 'bg-rose-500 animate-pulse dark:bg-rose-400' : 'bg-amber-400 dark:bg-amber-500'}`} />
             )}
             {(state === 'uploading' || state === 'finalizing') && (
-              <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
             )}
-            <span className="text-4xl sm:text-5xl font-light text-zr-navy dark:text-zr-blue-pale tracking-wider tabular-nums">
+            <span className="text-4xl sm:text-5xl font-light text-slate-900 dark:text-slate-100 tracking-wider tabular-nums">
               {formatTime(elapsed)}
             </span>
           </div>
           <div className="space-y-1">
-            <p className="text-sm text-zr-blue-mid/50">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               {state === 'recording' && `${segmentCount} segmento${segmentCount !== 1 ? 's' : ''}`}
               {state === 'paused' && 'En pausa'}
               {state === 'uploading' && 'Guardando...'}
               {state === 'finalizing' && 'Procesando...'}
             </p>
             {state === 'recording' && wakeLockActive && (
-              <p className="text-xs text-indigo-500 flex items-center justify-center gap-1">
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
@@ -329,9 +329,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         {state === 'idle' && (
           <button
             onClick={startRecording}
-            className="group relative w-40 h-40 sm:w-48 sm:h-48 rounded-full gradient-primary hover:shadow-2xl hover:shadow-indigo-500/30 text-white font-semibold transition-all duration-300 hover:scale-105 flex flex-col items-center justify-center gap-2"
+            className="group relative w-40 h-40 sm:w-48 sm:h-48 rounded-full gradient-primary hover:shadow-2xl hover:shadow-blue-500/30 text-white font-semibold transition-all duration-300 hover:scale-105 flex flex-col items-center justify-center gap-2"
           >
-            <div className="absolute inset-0 rounded-full bg-indigo-400/20 animate-ping" style={{ animationDuration: '2s' }} />
+            <div className="absolute inset-0 rounded-full bg-blue-400/20 animate-ping" style={{ animationDuration: '2s' }} />
             <svg className="w-12 h-12 sm:w-14 sm:h-14 relative z-10" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
               <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
@@ -344,7 +344,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           <div className="flex items-center gap-4 sm:gap-6">
             <button
               onClick={pauseRecording}
-              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 hover:from-indigo-500 hover:to-indigo-700 text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 flex flex-col items-center justify-center gap-1"
+              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 flex flex-col items-center justify-center gap-1"
             >
               <svg className="w-6 h-6 sm:w-7 sm:h-7" fill="currentColor" viewBox="0 0 24 24">
                 <rect x="6" y="5" width="4" height="14" rx="1" />
@@ -354,7 +354,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
             </button>
             <button
               onClick={finalizeRecording}
-              className="w-32 h-32 sm:w-36 sm:h-36 rounded-full gradient-primary hover:shadow-2xl hover:shadow-indigo-500/30 text-white font-semibold transition-all duration-300 hover:scale-105 flex flex-col items-center justify-center gap-2"
+              className="w-32 h-32 sm:w-36 sm:h-36 rounded-full gradient-primary hover:shadow-2xl hover:shadow-blue-500/30 text-white font-semibold transition-all duration-300 hover:scale-105 flex flex-col items-center justify-center gap-2"
             >
               <svg className="w-10 h-10 sm:w-12 sm:h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -369,7 +369,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           <div className="flex items-center gap-4 sm:gap-6">
             <button
               onClick={resumeRecording}
-              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full gradient-primary hover:shadow-lg hover:shadow-indigo-500/25 text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 flex flex-col items-center justify-center gap-1"
+              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 flex flex-col items-center justify-center gap-1"
             >
               <svg className="w-6 h-6 sm:w-7 sm:h-7" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z" />
@@ -378,7 +378,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
             </button>
             <button
               onClick={finalizeRecording}
-              className="w-32 h-32 sm:w-36 sm:h-36 rounded-full gradient-primary hover:shadow-2xl hover:shadow-indigo-500/30 text-white font-semibold transition-all duration-300 hover:scale-105 flex flex-col items-center justify-center gap-2"
+              className="w-32 h-32 sm:w-36 sm:h-36 rounded-full gradient-primary hover:shadow-2xl hover:shadow-blue-500/30 text-white font-semibold transition-all duration-300 hover:scale-105 flex flex-col items-center justify-center gap-2"
             >
               <svg className="w-10 h-10 sm:w-12 sm:h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -400,7 +400,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       {/* Progress hint */}
       {state === 'finalizing' && (
         <div className="w-full max-w-sm space-y-2">
-          <div className="flex justify-between text-xs text-zr-blue-mid/40">
+          <div className="flex justify-between text-xs text-slate-400 dark:text-slate-500">
             <span>Transcribiendo audio...</span>
             <span>~30s</span>
           </div>

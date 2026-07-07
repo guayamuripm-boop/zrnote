@@ -26,7 +26,7 @@ export default function DeleteMeetingButton({ meetingId, className = '' }: { mee
     <button
       onClick={handleDelete}
       disabled={loading}
-      className={`text-zr-blue-mid/30 hover:text-indigo-500 transition disabled:opacity-50 ${className}`}
+      className={`text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 transition disabled:opacity-50 ${className}`}
     >
       {loading ? (
         <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">

@@ -56,45 +56,45 @@ export default function NewMeetingPage() {
   return (
     <div className="max-w-lg mx-auto space-y-6">
       <div>
-        <Link href="/dashboard/meetings" className="inline-flex items-center gap-1 text-sm text-zr-blue-mid/50 hover:text-zr-blue transition mb-4">
+        <Link href="/dashboard/meetings" className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition mb-4">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
           Reuniones
         </Link>
-        <h1 className="text-2xl sm:text-3xl font-bold text-zr-navy dark:text-zr-blue-pale">Nueva Reunión</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Nueva Reunión</h1>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated space-y-4">
           <div>
-            <label className="block text-sm font-medium text-zr-navy dark:text-zr-blue-pale mb-1.5">Título *</label>
+            <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-1.5">Título *</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
               placeholder="Ej: Reunión semanal de equipo"
-              className="w-full border border-zr-blue-pale/50 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-zr-navy dark:text-zr-blue-pale placeholder-zr-blue-mid/30 focus:outline-none focus:ring-2 focus:ring-zr-blue-mid/30 focus:border-zr-blue-mid transition text-sm"
+              className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-sm"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-zr-navy dark:text-zr-blue-pale mb-1.5">Coordinación</label>
+              <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-1.5">Coordinación</label>
               <input
                 type="text"
                 value={coordination}
                 onChange={(e) => setCoordination(e.target.value)}
                 placeholder="Dirección Académica"
-                className="w-full border border-zr-blue-pale/50 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-zr-navy dark:text-zr-blue-pale placeholder-zr-blue-mid/30 focus:outline-none focus:ring-2 focus:ring-zr-blue-mid/30 focus:border-zr-blue-mid transition text-sm"
+                className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-zr-navy dark:text-zr-blue-pale mb-1.5">Tipo</label>
+              <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-1.5">Tipo</label>
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value as typeof type)}
-                className="w-full border border-zr-blue-pale/50 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-zr-navy dark:text-zr-blue-pale focus:outline-none focus:ring-2 focus:ring-zr-blue-mid/30 focus:border-zr-blue-mid transition text-sm"
+                className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-sm"
               >
                 <option value="presencial">Presencial</option>
                 <option value="virtual">Virtual</option>
@@ -105,7 +105,7 @@ export default function NewMeetingPage() {
         </div>
 
         <div className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated space-y-4">
-          <label className="block text-sm font-semibold text-zr-navy dark:text-zr-blue-pale">Participantes</label>
+          <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100">Participantes</label>
 
           <div className="flex flex-col sm:flex-row gap-2">
             <input
@@ -113,7 +113,7 @@ export default function NewMeetingPage() {
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               placeholder="Nombre"
-              className="flex-1 border border-zr-blue-pale/50 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-zr-navy dark:text-zr-blue-pale placeholder-zr-blue-mid/30 focus:outline-none focus:ring-2 focus:ring-zr-blue-mid/30 transition text-sm min-w-0"
+              className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm min-w-0"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
             />
             <input
@@ -121,13 +121,13 @@ export default function NewMeetingPage() {
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
               placeholder="correo@ejemplo.com"
-              className="flex-1 sm:flex-[2] border border-zr-blue-pale/50 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-zr-navy dark:text-zr-blue-pale placeholder-zr-blue-mid/30 focus:outline-none focus:ring-2 focus:ring-zr-blue-mid/30 transition text-sm min-w-0"
+              className="flex-1 sm:flex-[2] border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm min-w-0"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
             />
             <button
               type="button"
               onClick={addParticipant}
-              className="gradient-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all shrink-0"
+              className="gradient-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all shrink-0"
             >
               + Agregar
             </button>
@@ -142,14 +142,14 @@ export default function NewMeetingPage() {
                       <span className="text-white text-xs font-bold">{p.name.charAt(0).toUpperCase()}</span>
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium text-sm text-zr-navy dark:text-zr-blue-pale truncate">{p.name}</p>
-                      <p className="text-xs text-zr-blue-mid/40 truncate">{p.email}</p>
+                      <p className="font-medium text-sm text-slate-900 dark:text-slate-100 truncate">{p.name}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 truncate">{p.email}</p>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => removeParticipant(p.email)}
-                    className="text-zr-blue-mid/30 hover:text-indigo-500 transition shrink-0 ml-2"
+                    className="text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 transition shrink-0 ml-2"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -159,7 +159,7 @@ export default function NewMeetingPage() {
               ))}
             </div>
           ) : (
-            <p className="text-xs text-zr-blue-mid/30 text-center py-3">
+            <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-3">
               Agrega participantes para que reciban sus action items por correo
             </p>
           )}
@@ -168,7 +168,7 @@ export default function NewMeetingPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full gradient-primary text-white py-3.5 rounded-xl font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0"
+          className="w-full gradient-primary text-white py-3.5 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0"
         >
           {loading ? (
             <span className="inline-flex items-center gap-2">

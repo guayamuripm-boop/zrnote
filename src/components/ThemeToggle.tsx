@@ -27,7 +27,7 @@ export default function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="w-9 h-9 rounded-xl glass flex items-center justify-center text-zr-blue-mid/60 hover:text-zr-navy dark:text-zr-blue-pale dark:hover:text-white transition-all"
+      className="w-9 h-9 rounded-xl glass flex items-center justify-center text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-all"
       aria-label="Toggle dark mode"
     >
       {dark ? (

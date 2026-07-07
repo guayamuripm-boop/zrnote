@@ -30,12 +30,12 @@ export default async function DashboardHome() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-zr-navy dark:text-zr-blue-pale">Dashboard</h1>
-          <p className="text-zr-blue-mid/60 text-sm mt-0.5">Bienvenido, {user?.email}</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">Bienvenido, {user?.email}</p>
         </div>
         <Link
           href="/dashboard/meetings/new"
-          className="gradient-primary text-white px-4 sm:px-5 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-300 hover:-translate-y-0.5 hidden sm:inline-flex items-center gap-2"
+          className="gradient-primary text-white px-4 sm:px-5 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 hover:-translate-y-0.5 hidden sm:inline-flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -52,43 +52,43 @@ export default async function DashboardHome() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-zr-navy dark:text-zr-blue-pale">{meetings.length}</p>
-          <p className="text-xs text-zr-blue-mid/50">Reuniones</p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{meetings.length}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Reuniones</p>
         </div>
         <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
-          <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center mb-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl flex items-center justify-center mb-3">
             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-zr-navy dark:text-zr-blue-pale">{actionItems.length}</p>
-          <p className="text-xs text-zr-blue-mid/50">Tareas pendientes</p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{actionItems.length}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Tareas pendientes</p>
         </div>
         <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
-          <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center mb-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center mb-3">
             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-zr-navy dark:text-zr-blue-pale">{meetings.filter(m => m.status === 'completed').length}</p>
-          <p className="text-xs text-zr-blue-mid/50">Completadas</p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{meetings.filter(m => m.status === 'completed').length}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Completadas</p>
         </div>
         <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
-          <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center mb-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-500 rounded-xl flex items-center justify-center mb-3">
             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-zr-navy dark:text-zr-blue-pale">{meetings.filter(m => m.status === 'processing').length}</p>
-          <p className="text-xs text-zr-blue-mid/50">Procesando</p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{meetings.filter(m => m.status === 'processing').length}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Procesando</p>
         </div>
       </div>
 
       {/* Recent Meetings */}
       <section>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale">Reuniones Recientes</h2>
-          <Link href="/dashboard/meetings" className="text-sm text-zr-blue font-medium hover:text-zr-navy dark:hover:text-zr-blue-pale transition">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Reuniones Recientes</h2>
+          <Link href="/dashboard/meetings" className="text-sm text-blue-600 dark:text-blue-400 font-medium hover:text-slate-900 dark:hover:text-slate-100 transition">
             Ver todas
           </Link>
         </div>
@@ -102,8 +102,8 @@ export default async function DashboardHome() {
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-zr-navy dark:text-zr-blue-pale truncate group-hover:text-zr-blue transition">{meeting.title}</p>
-                    <p className="text-sm text-zr-blue-mid/50 mt-0.5">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">{meeting.title}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
                       {meeting.coordination && `${meeting.coordination} · `}
                       {new Date(meeting.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </p>
@@ -120,7 +120,7 @@ export default async function DashboardHome() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
               </svg>
             </div>
-            <p className="text-zr-blue-mid/50">No hay reuniones aún</p>
+            <p className="text-slate-500 dark:text-slate-400">No hay reuniones aún</p>
             <Link
               href="/dashboard/meetings/new"
               className="inline-flex items-center gap-2 mt-3 gradient-primary text-white px-4 py-2 rounded-xl text-sm font-medium hover:shadow-lg transition"
@@ -134,8 +134,8 @@ export default async function DashboardHome() {
       {/* Pending Tasks */}
       <section>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale">Mis Tareas Pendientes</h2>
-          <Link href="/dashboard/action-items" className="text-sm text-zr-blue font-medium hover:text-zr-navy dark:hover:text-zr-blue-pale transition">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Mis Tareas Pendientes</h2>
+          <Link href="/dashboard/action-items" className="text-sm text-blue-600 dark:text-blue-400 font-medium hover:text-slate-900 dark:hover:text-slate-100 transition">
             Ver todas
           </Link>
         </div>
@@ -144,11 +144,11 @@ export default async function DashboardHome() {
             {actionItems.map((item) => (
               <div key={item.id} className="glass-strong rounded-2xl p-4 sm:p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="font-medium text-zr-navy dark:text-zr-blue-pale truncate">{item.description}</p>
+                  <p className="font-medium text-slate-900 dark:text-slate-100 truncate">{item.description}</p>
                   <PriorityBadge priority={item.priority} />
                 </div>
                 {item.due_date && (
-                  <p className="text-sm text-zr-blue-mid/50 mt-1">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                     Fecha límite: {new Date(item.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
                   </p>
                 )}
@@ -157,7 +157,7 @@ export default async function DashboardHome() {
           </div>
         ) : (
           <div className="glass-strong rounded-2xl p-8 text-center">
-            <p className="text-zr-blue-mid/50">No tienes tareas pendientes</p>
+            <p className="text-slate-500 dark:text-slate-400">No tienes tareas pendientes</p>
           </div>
         )}
       </section>
