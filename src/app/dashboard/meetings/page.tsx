@@ -16,12 +16,12 @@ export default async function MeetingsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-zr-navy font-poppins">Reuniones</h1>
-          <p className="text-zr-blue-mid/50 font-poppins text-sm mt-0.5">{meetings?.length || 0} reuniones</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-zr-navy dark:text-zr-blue-pale">Reuniones</h1>
+          <p className="text-zr-blue-mid/50 text-sm mt-0.5">{meetings?.length || 0} reuniones</p>
         </div>
         <Link
           href="/dashboard/meetings/new"
-          className="gradient-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-300 font-poppins inline-flex items-center gap-2"
+          className="gradient-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-300 inline-flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -40,18 +40,18 @@ export default async function MeetingsPage() {
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-zr-navy font-poppins truncate group-hover:text-zr-blue transition">{meeting.title}</p>
+                  <p className="font-semibold text-zr-navy dark:text-zr-blue-pale truncate group-hover:text-zr-blue transition">{meeting.title}</p>
                   <div className="flex items-center gap-2 mt-1">
                     {meeting.coordination && (
-                      <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-poppins">{meeting.coordination}</span>
+                      <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{meeting.coordination}</span>
                     )}
-                    <span className="text-xs text-zr-blue-mid/40 font-poppins">
+                    <span className="text-xs text-zr-blue-mid/40">
                       {new Date(meeting.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-zr-blue-mid/30 font-poppins hidden sm:inline">{meeting.type}</span>
+                  <span className="text-xs text-zr-blue-mid/30 hidden sm:inline">{meeting.type}</span>
                   <StatusBadge status={meeting.status} />
                 </div>
               </div>
@@ -65,8 +65,8 @@ export default async function MeetingsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </div>
-          <p className="text-zr-blue-mid/50 font-poppins text-lg">No hay reuniones</p>
-          <p className="text-zr-blue-mid/30 font-poppins text-sm mt-1">Crea una para empezar</p>
+          <p className="text-zr-blue-mid/50 text-lg">No hay reuniones</p>
+          <p className="text-zr-blue-mid/30 text-sm mt-1">Crea una para empezar</p>
         </div>
       )}
     </div>

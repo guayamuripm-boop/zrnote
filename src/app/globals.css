@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -15,16 +13,21 @@
   --background: #f8fafc;
 }
 
+.dark {
+  --foreground: #e0e7ff;
+  --background: #0f0d2e;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
 }
 
 @layer utilities {
@@ -53,11 +56,21 @@ h1, h2, h3, h4, h5, h6 {
     border: 1px solid rgba(255, 255, 255, 0.3);
   }
 
+  .dark .glass {
+    background: rgba(15, 13, 46, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
   .glass-strong {
     background: rgba(255, 255, 255, 0.88);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid rgba(255, 255, 255, 0.5);
+  }
+
+  .dark .glass-strong {
+    background: rgba(15, 13, 46, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .glass-dark {
@@ -72,23 +85,31 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .gradient-warm {
-    background: linear-gradient(135deg, #f43f5e 0%, #fb923c 100%);
+    background: linear-gradient(135deg, #4338ca 0%, #818cf8 100%);
   }
 
   .gradient-cool {
-    background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+    background: linear-gradient(135deg, #6366f1 0%, #c7d2fe 100%);
   }
 
   .gradient-success {
-    background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+    background: linear-gradient(135deg, #312e81 0%, #4338ca 100%);
   }
 
   .gradient-mesh {
     background: 
       radial-gradient(at 20% 80%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
-      radial-gradient(at 80% 20%, rgba(244, 63, 94, 0.1) 0%, transparent 50%),
+      radial-gradient(at 80% 20%, rgba(99, 102, 241, 0.1) 0%, transparent 50%),
       radial-gradient(at 50% 50%, rgba(6, 182, 212, 0.08) 0%, transparent 50%),
       linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+  }
+
+  .dark .gradient-mesh {
+    background: 
+      radial-gradient(at 20% 80%, rgba(99, 102, 241, 0.2) 0%, transparent 50%),
+      radial-gradient(at 80% 20%, rgba(99, 102, 241, 0.12) 0%, transparent 50%),
+      radial-gradient(at 50% 50%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+      linear-gradient(135deg, #0f0d2e 0%, #1a1744 100%);
   }
 
   .shadow-glass {

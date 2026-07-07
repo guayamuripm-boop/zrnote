@@ -45,8 +45,8 @@ export default async function MeetingDetailPage({
       <div className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl sm:text-2xl font-bold text-zr-navy font-poppins truncate">{meeting.title}</h1>
-            <p className="text-zr-blue-mid/50 font-poppins text-sm mt-0.5">
+            <h1 className="text-xl sm:text-2xl font-bold text-zr-navy dark:text-zr-blue-pale truncate">{meeting.title}</h1>
+            <p className="text-zr-blue-mid/50 text-sm mt-0.5">
               {meeting.coordination && `${meeting.coordination} · `}
               {new Date(meeting.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
@@ -57,7 +57,7 @@ export default async function MeetingDetailPage({
               <div className="flex items-center gap-2">
                 <Link
                   href={`/dashboard/meetings/${meeting.id}/record`}
-                  className="gradient-warm text-white px-4 py-2 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-rose-500/25 transition-all font-poppins inline-flex items-center gap-2"
+                  className="gradient-primary text-white px-4 py-2 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all inline-flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
@@ -66,7 +66,7 @@ export default async function MeetingDetailPage({
                 </Link>
                 <Link
                   href={`/dashboard/meetings/${meeting.id}/upload`}
-                  className="glass border-zr-blue-pale/50 text-zr-navy px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/80 transition-all font-poppins"
+                  className="glass border-zr-blue-pale/50 text-zr-navy dark:text-zr-blue-pale px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/80 dark:hover:bg-white/5 transition-all"
                 >
                   Subir Audio
                 </Link>
@@ -81,7 +81,7 @@ export default async function MeetingDetailPage({
       {minute && (
         <>
           <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-            <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale mb-3 flex items-center gap-2">
               <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -90,15 +90,15 @@ export default async function MeetingDetailPage({
               Minuta
             </h2>
             <div>
-              <h3 className="font-medium text-sm text-zr-blue-mid/50 mb-1 font-poppins">Resumen</h3>
-              <p className="text-zr-navy/80 font-poppins leading-relaxed whitespace-pre-wrap">{minute.summary}</p>
+              <h3 className="font-medium text-sm text-zr-blue-mid/50 mb-1">Resumen</h3>
+              <p className="text-zr-navy/80 dark:text-zr-blue-pale/80 leading-relaxed whitespace-pre-wrap">{minute.summary}</p>
             </div>
           </section>
 
           {minute.discussion && (minute.discussion as any[]).length > 0 && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-4 flex items-center gap-2">
-                <div className="w-8 h-8 gradient-cool rounded-lg flex items-center justify-center">
+              <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale mb-4 flex items-center gap-2">
+                <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
                   <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
                   </svg>
@@ -108,9 +108,9 @@ export default async function MeetingDetailPage({
               <div className="space-y-4">
                 {(minute.discussion as any[]).map((d, i) => (
                   <div key={i} className="border-l-4 border-indigo-400 pl-4 py-1">
-                    <h3 className="font-semibold text-zr-navy font-poppins">{d.topic}</h3>
-                    {d.speaker && <p className="text-xs text-zr-blue-mid/40 font-poppins mt-0.5">Liderado por: {d.speaker}</p>}
-                    <p className="text-sm text-zr-navy/70 font-poppins mt-1 whitespace-pre-wrap leading-relaxed">{d.details}</p>
+                    <h3 className="font-semibold text-zr-navy dark:text-zr-blue-pale">{d.topic}</h3>
+                    {d.speaker && <p className="text-xs text-zr-blue-mid/40 mt-0.5">Liderado por: {d.speaker}</p>}
+                    <p className="text-sm text-zr-navy/70 dark:text-zr-blue-pale/70 mt-1 whitespace-pre-wrap leading-relaxed">{d.details}</p>
                   </div>
                 ))}
               </div>
@@ -119,7 +119,7 @@ export default async function MeetingDetailPage({
 
           {minute.decisions && (minute.decisions as string[]).length > 0 && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale mb-3 flex items-center gap-2">
                 <div className="w-8 h-8 gradient-success rounded-lg flex items-center justify-center">
                   <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -129,9 +129,9 @@ export default async function MeetingDetailPage({
               </h2>
               <ul className="space-y-2">
                 {(minute.decisions as string[]).map((d, i) => (
-                  <li key={i} className="flex items-start gap-2 text-zr-navy/80 font-poppins text-sm">
-                    <span className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
-                      <svg className="w-3 h-3 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <li key={i} className="flex items-start gap-2 text-zr-navy/80 dark:text-zr-blue-pale/80 text-sm">
+                    <span className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5">
+                      <svg className="w-3 h-3 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     </span>
@@ -144,8 +144,8 @@ export default async function MeetingDetailPage({
 
           {minute.project_statuses && (minute.project_statuses as any[]).length > 0 && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
-                <div className="w-8 h-8 gradient-cool rounded-lg flex items-center justify-center">
+              <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale mb-3 flex items-center gap-2">
+                <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
                   <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
@@ -156,10 +156,10 @@ export default async function MeetingDetailPage({
                 {(minute.project_statuses as any[]).map((p, i) => (
                   <div key={i} className="glass rounded-xl p-4">
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-zr-navy font-poppins text-sm">{p.project}</h3>
-                      <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full text-xs font-medium font-poppins">{p.status}</span>
+                      <h3 className="font-semibold text-zr-navy dark:text-zr-blue-pale text-sm">{p.project}</h3>
+                      <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full text-xs font-medium">{p.status}</span>
                     </div>
-                    <p className="text-sm text-zr-navy/60 font-poppins">{p.details}</p>
+                    <p className="text-sm text-zr-navy/60 dark:text-zr-blue-pale/60">{p.details}</p>
                   </div>
                 ))}
               </div>
@@ -168,8 +168,8 @@ export default async function MeetingDetailPage({
 
           {minute.blockers && (minute.blockers as any[]).length > 0 && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
-                <div className="w-8 h-8 gradient-warm rounded-lg flex items-center justify-center">
+              <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale mb-3 flex items-center gap-2">
+                <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
                   <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                   </svg>
@@ -178,10 +178,10 @@ export default async function MeetingDetailPage({
               </h2>
               <div className="space-y-3">
                 {(minute.blockers as any[]).map((b, i) => (
-                  <div key={i} className="bg-rose-50/80 border border-rose-100 rounded-xl p-4">
-                    <h3 className="font-semibold text-rose-800 font-poppins text-sm">{b.issue}</h3>
-                    <p className="text-sm text-rose-600 font-poppins mt-0.5">Impacto: {b.impact}</p>
-                    {b.owner && <p className="text-xs text-zr-blue-mid/40 font-poppins mt-1">Responsable: {b.owner}</p>}
+                  <div key={i} className="bg-indigo-50/80 border border-indigo-100 rounded-xl p-4">
+                    <h3 className="font-semibold text-indigo-800 text-sm">{b.issue}</h3>
+                    <p className="text-sm text-indigo-600 mt-0.5">Impacto: {b.impact}</p>
+                    {b.owner && <p className="text-xs text-zr-blue-mid/40 mt-1">Responsable: {b.owner}</p>}
                   </div>
                 ))}
               </div>
@@ -190,8 +190,8 @@ export default async function MeetingDetailPage({
 
           {minute.ideas && (minute.ideas as string[]).length > 0 && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
-                <div className="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center">
+              <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale mb-3 flex items-center gap-2">
+                <div className="w-8 h-8 bg-indigo-300 rounded-lg flex items-center justify-center">
                   <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                   </svg>
@@ -200,8 +200,8 @@ export default async function MeetingDetailPage({
               </h2>
               <ul className="space-y-2">
                 {(minute.ideas as string[]).map((idea, i) => (
-                  <li key={i} className="flex items-start gap-2 text-zr-navy/70 font-poppins text-sm">
-                    <span className="text-amber-400 mt-1">💡</span>
+                  <li key={i} className="flex items-start gap-2 text-zr-navy/70 dark:text-zr-blue-pale/70 text-sm">
+                    <span className="text-indigo-400 mt-1">💡</span>
                     {idea}
                   </li>
                 ))}
@@ -211,7 +211,7 @@ export default async function MeetingDetailPage({
 
           {minute.next_steps && (minute.next_steps as string[]).length > 0 && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale mb-3 flex items-center gap-2">
                 <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
                   <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -221,8 +221,8 @@ export default async function MeetingDetailPage({
               </h2>
               <ul className="space-y-2">
                 {(minute.next_steps as string[]).map((n, i) => (
-                  <li key={i} className="flex items-start gap-2 text-zr-navy/70 font-poppins text-sm">
-                    <span className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold text-indigo-600 font-poppins">{i + 1}</span>
+                  <li key={i} className="flex items-start gap-2 text-zr-navy/70 dark:text-zr-blue-pale/70 text-sm">
+                    <span className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold text-indigo-600">{i + 1}</span>
                     {n}
                   </li>
                 ))}
@@ -232,13 +232,13 @@ export default async function MeetingDetailPage({
 
           {meeting.transcript_raw && (
             <details className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <summary className="text-lg font-semibold text-zr-navy font-poppins cursor-pointer select-none flex items-center gap-2">
+              <summary className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale cursor-pointer select-none flex items-center gap-2">
                 <svg className="w-5 h-5 text-zr-blue-mid/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
                 Transcripción completa
               </summary>
-              <pre className="text-sm text-zr-navy/60 font-poppins whitespace-pre-wrap mt-4 glass rounded-xl p-4">{meeting.transcript_raw}</pre>
+              <pre className="text-sm text-zr-navy/60 dark:text-zr-blue-pale/60 whitespace-pre-wrap mt-4 glass rounded-xl p-4">{meeting.transcript_raw}</pre>
             </details>
           )}
         </>
@@ -247,8 +247,8 @@ export default async function MeetingDetailPage({
       {/* Action Items */}
       {actionItems && actionItems.length > 0 && (
         <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-          <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-4 flex items-center gap-2">
-            <div className="w-8 h-8 gradient-warm rounded-lg flex items-center justify-center">
+          <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale mb-4 flex items-center gap-2">
+            <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
               </svg>
@@ -260,16 +260,16 @@ export default async function MeetingDetailPage({
               <div key={item.id} className="glass rounded-xl p-4 hover:shadow-elevated transition-all">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-zr-navy font-poppins">{item.description}</p>
+                    <p className="font-medium text-zr-navy dark:text-zr-blue-pale">{item.description}</p>
                     <div className="flex items-center gap-3 mt-2">
-                      <span className="inline-flex items-center gap-1 text-xs text-zr-blue-mid/50 font-poppins">
+                      <span className="inline-flex items-center gap-1 text-xs text-zr-blue-mid/50">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                         </svg>
                         {item.assignee_name || 'Sin asignar'}
                       </span>
                       {item.due_date && (
-                        <span className="inline-flex items-center gap-1 text-xs text-zr-blue-mid/40 font-poppins">
+                        <span className="inline-flex items-center gap-1 text-xs text-zr-blue-mid/40">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
@@ -280,10 +280,10 @@ export default async function MeetingDetailPage({
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <PriorityBadge priority={item.priority} />
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium font-poppins ${
-                      item.status === 'completado' ? 'bg-emerald-50 text-emerald-600'
-                      : item.status === 'en_progreso' ? 'bg-blue-50 text-blue-600'
-                      : 'bg-gray-100 text-gray-500'
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                      item.status === 'completado' ? 'bg-indigo-50 text-indigo-600'
+                      : item.status === 'en_progreso' ? 'bg-indigo-100/50 text-indigo-700'
+                      : 'bg-indigo-50/50 text-indigo-400'
                     }`}>
                       {item.status === 'completado' ? 'completado' : item.status === 'en_progreso' ? 'en progreso' : 'pendiente'}
                     </span>
@@ -303,10 +303,10 @@ export default async function MeetingDetailPage({
       {/* Participants */}
       {meeting.status === 'completed' && participants.length > 0 && (
         <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-          <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3">Participantes</h2>
+          <h2 className="text-lg font-semibold text-zr-navy dark:text-zr-blue-pale mb-3">Participantes</h2>
           <div className="flex flex-wrap gap-2">
             {participants.map((p) => (
-              <span key={p.email} className="glass rounded-full px-3 py-1.5 text-sm font-poppins text-zr-navy/70">
+              <span key={p.email} className="glass rounded-full px-3 py-1.5 text-sm text-zr-navy/70 dark:text-zr-blue-pale/70">
                 {p.name}
                 <span className="text-zr-blue-mid/30 mx-1">·</span>
                 <span className="text-zr-blue-mid/40 text-xs">{p.email}</span>
@@ -318,20 +318,20 @@ export default async function MeetingDetailPage({
 
       {/* Failed State */}
       {meeting.status === 'failed' && (
-        <section className="glass-strong rounded-2xl p-6 text-center space-y-4 border border-rose-200/50">
-          <div className="w-12 h-12 gradient-warm rounded-xl flex items-center justify-center mx-auto">
+        <section className="glass-strong rounded-2xl p-6 text-center space-y-4 border border-indigo-200/50">
+          <div className="w-12 h-12 gradient-primary rounded-xl flex items-center justify-center mx-auto">
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
             </svg>
           </div>
-          <p className="text-rose-700 font-medium font-poppins">La reunión falló durante el procesamiento</p>
+          <p className="text-indigo-700 font-medium">La reunión falló durante el procesamiento</p>
           <RetryButton meetingId={meeting.id} />
         </section>
       )}
 
       {!minute && meeting.status === 'completed' && (
         <div className="glass-strong rounded-2xl p-8 text-center">
-          <p className="text-zr-blue-mid/50 font-poppins">Minuta no disponible aún.</p>
+          <p className="text-zr-blue-mid/50">Minuta no disponible aún.</p>
         </div>
       )}
     </div>
