@@ -1,6 +1,5 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
-import DeleteMeetingButton from '@/components/DeleteMeetingButton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 
@@ -23,56 +22,108 @@ export default async function DashboardHome() {
       .order('created_at', { ascending: false }),
   ]);
 
-  const meetings = meetingsResult.data;
-  const actionItems = actionItemsResult.data;
+  const meetings = meetingsResult.data || [];
+  const actionItems = actionItemsResult.data || [];
 
   return (
     <div className="space-y-8">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-zr-navy font-raleway">Dashboard</h1>
-          <p className="text-zr-blue-mid text-sm">Bienvenido, {user?.email}</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-zr-navy font-poppins">Dashboard</h1>
+          <p className="text-zr-blue-mid/60 font-poppins text-sm mt-0.5">Bienvenido, {user?.email}</p>
         </div>
         <Link
           href="/dashboard/meetings/new"
-          className="bg-zr-blue text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-zr-navy transition font-raleway"
+          className="gradient-primary text-white px-4 sm:px-5 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-300 hover:-translate-y-0.5 font-poppins hidden sm:inline-flex items-center gap-2"
         >
-          + Nueva Reunión
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Nueva Reunión
         </Link>
       </div>
 
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
+          <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center mb-3">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+          </div>
+          <p className="text-2xl font-bold text-zr-navy font-poppins">{meetings.length}</p>
+          <p className="text-xs text-zr-blue-mid/50 font-poppins">Reuniones</p>
+        </div>
+        <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
+          <div className="w-10 h-10 gradient-warm rounded-xl flex items-center justify-center mb-3">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+          </div>
+          <p className="text-2xl font-bold text-zr-navy font-poppins">{actionItems.length}</p>
+          <p className="text-xs text-zr-blue-mid/50 font-poppins">Tareas pendientes</p>
+        </div>
+        <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
+          <div className="w-10 h-10 gradient-cool rounded-xl flex items-center justify-center mb-3">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <p className="text-2xl font-bold text-zr-navy font-poppins">{meetings.filter(m => m.status === 'completed').length}</p>
+          <p className="text-xs text-zr-blue-mid/50 font-poppins">Completadas</p>
+        </div>
+        <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
+          <div className="w-10 h-10 gradient-success rounded-xl flex items-center justify-center mb-3">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="text-2xl font-bold text-zr-navy font-poppins">{meetings.filter(m => m.status === 'processing').length}</p>
+          <p className="text-xs text-zr-blue-mid/50 font-poppins">Procesando</p>
+        </div>
+      </div>
+
+      {/* Recent Meetings */}
       <section>
-        <h2 className="text-lg font-semibold text-zr-navy mb-4 font-raleway">Reuniones Recientes</h2>
-        {meetings && meetings.length > 0 ? (
-          <div className="bg-white rounded-lg border border-zr-blue-pale/30 divide-y divide-zr-blue-pale/20">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-zr-navy font-poppins">Reuniones Recientes</h2>
+          <Link href="/dashboard/meetings" className="text-sm text-zr-blue font-medium hover:text-zr-navy transition font-poppins">
+            Ver todas
+          </Link>
+        </div>
+        {meetings.length > 0 ? (
+          <div className="space-y-3">
             {meetings.map((meeting) => (
               <Link
                 key={meeting.id}
                 href={`/dashboard/meetings/${meeting.id}`}
-                className="block p-4 hover:bg-zr-blue-pale/10 transition"
+                className="glass-strong block rounded-2xl p-4 sm:p-5 hover:shadow-elevated transition-all duration-300 hover:-translate-y-0.5 group"
               >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-zr-navy">{meeting.title}</p>
-                    <p className="text-sm text-zr-blue-mid">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-zr-navy font-poppins truncate group-hover:text-zr-blue transition">{meeting.title}</p>
+                    <p className="text-sm text-zr-blue-mid/50 font-poppins mt-0.5">
                       {meeting.coordination && `${meeting.coordination} · `}
-                      {new Date(meeting.created_at).toLocaleDateString('es-ES')}
+                      {new Date(meeting.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={meeting.status} />
-                    <DeleteMeetingButton meetingId={meeting.id} />
-                  </div>
+                  <StatusBadge status={meeting.status} />
                 </div>
               </Link>
             ))}
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-zr-blue-pale/30 p-8 text-center">
-            <p className="text-zr-blue-mid">No hay reuniones aún.</p>
+          <div className="glass-strong rounded-2xl p-8 text-center">
+            <div className="w-12 h-12 gradient-primary rounded-xl flex items-center justify-center mx-auto mb-3 opacity-50">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            </div>
+            <p className="text-zr-blue-mid/50 font-poppins">No hay reuniones aún</p>
             <Link
               href="/dashboard/meetings/new"
-              className="inline-block mt-3 bg-zr-blue text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-zr-navy transition"
+              className="inline-flex items-center gap-2 mt-3 gradient-primary text-white px-4 py-2 rounded-xl text-sm font-medium hover:shadow-lg transition font-poppins"
             >
               Crear primera reunión
             </Link>
@@ -80,27 +131,33 @@ export default async function DashboardHome() {
         )}
       </section>
 
+      {/* Pending Tasks */}
       <section>
-        <h2 className="text-lg font-semibold text-zr-navy mb-4 font-raleway">Mis Tareas Pendientes</h2>
-        {actionItems && actionItems.length > 0 ? (
-          <div className="bg-white rounded-lg border border-zr-blue-pale/30 divide-y divide-zr-blue-pale/20">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-zr-navy font-poppins">Mis Tareas Pendientes</h2>
+          <Link href="/dashboard/action-items" className="text-sm text-zr-blue font-medium hover:text-zr-navy transition font-poppins">
+            Ver todas
+          </Link>
+        </div>
+        {actionItems.length > 0 ? (
+          <div className="space-y-3">
             {actionItems.map((item) => (
-              <div key={item.id} className="p-4">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium text-zr-navy">{item.description}</p>
+              <div key={item.id} className="glass-strong rounded-2xl p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-zr-navy font-poppins truncate">{item.description}</p>
                   <PriorityBadge priority={item.priority} />
                 </div>
                 {item.due_date && (
-                  <p className="text-sm text-zr-blue-mid mt-1">
-                    Fecha límite: {new Date(item.due_date).toLocaleDateString('es-ES')}
+                  <p className="text-sm text-zr-blue-mid/50 font-poppins mt-1">
+                    Fecha límite: {new Date(item.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
                   </p>
                 )}
               </div>
             ))}
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-zr-blue-pale/30 p-8 text-center">
-            <p className="text-zr-blue-mid">No tienes tareas pendientes.</p>
+          <div className="glass-strong rounded-2xl p-8 text-center">
+            <p className="text-zr-blue-mid/50 font-poppins">No tienes tareas pendientes</p>
           </div>
         )}
       </section>

@@ -6,16 +6,19 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        'zr-navy': '#21284F',
-        'zr-blue': '#1E4D96',
-        'zr-blue-mid': '#3869B1',
-        'zr-blue-light': '#6590CB',
-        'zr-blue-pale': '#98BAE3',
-        'zr-white': '#FFFFFF',
+        'zr-navy': '#1e1b4b',
+        'zr-blue': '#4338ca',
+        'zr-blue-mid': '#6366f1',
+        'zr-blue-light': '#818cf8',
+        'zr-blue-pale': '#c7d2fe',
+        'zr-white': '#ffffff',
       },
       fontFamily: {
-        'roboto': ['Roboto', 'sans-serif'],
-        'raleway': ['Raleway', 'sans-serif'],
+        poppins: ['Poppins', 'sans-serif'],
+      },
+      animation: {
+        'float': 'float 3s ease-in-out infinite',
+        'shimmer': 'shimmer 2s linear infinite',
       },
     },
   },

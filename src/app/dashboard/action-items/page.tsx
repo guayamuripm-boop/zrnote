@@ -13,46 +13,64 @@ export default async function ActionItemsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Mis Tareas</h1>
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold text-zr-navy font-poppins">Mis Tareas</h1>
+        <p className="text-zr-blue-mid/50 font-poppins text-sm mt-0.5">{actionItems?.length || 0} tareas asignadas</p>
+      </div>
+
       {actionItems && actionItems.length > 0 ? (
-        <div className="bg-white rounded-lg border divide-y">
+        <div className="space-y-3">
           {actionItems.map((item: any) => (
-            <div key={item.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="font-medium">{item.description}</p>
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                  {item.meetings && (
-                    <span className="text-zr-blue font-medium">
-                      {item.meetings.title}
-                    </span>
-                  )}
-                  {item.meetings?.created_at && (
-                    <span>· {new Date(item.meetings.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            <div key={item.id} className="glass-strong rounded-2xl p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-zr-navy font-poppins">{item.description}</p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    {item.meetings && (
+                      <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-poppins font-medium">
+                        {item.meetings.title}
+                      </span>
+                    )}
+                    {item.meetings?.created_at && (
+                      <span className="text-xs text-zr-blue-mid/40 font-poppins">
+                        {new Date(item.meetings.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                  {item.due_date && (
+                    <p className="text-sm text-zr-blue-mid/50 font-poppins mt-1">
+                      Fecha límite: {new Date(item.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}
+                    </p>
                   )}
                 </div>
-                <p className="text-sm text-gray-500">
-                  {item.due_date && `Fecha límite: ${new Date(item.due_date).toLocaleDateString('es-ES')}`}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <PriorityBadge priority={item.priority} />
-                <span
-                  className={`px-2 py-1 rounded text-xs font-medium ${
-                    item.status === 'completado'
-                      ? 'bg-green-100 text-green-700'
-                      : item.status === 'en_progreso'
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-gray-100 text-gray-700'
-                  }`}
-                >
-                  {item.status}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <PriorityBadge priority={item.priority} />
+                  <span
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium font-poppins ${
+                      item.status === 'completado'
+                        ? 'bg-emerald-50 text-emerald-600'
+                        : item.status === 'en_progreso'
+                        ? 'bg-blue-50 text-blue-600'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}
+                  >
+                    {item.status === 'completado' ? 'completado' : item.status === 'en_progreso' ? 'en progreso' : 'pendiente'}
+                  </span>
+                </div>
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-gray-500">No tienes tareas pendientes.</p>
+        <div className="glass-strong rounded-2xl p-12 text-center">
+          <div className="w-16 h-16 gradient-success rounded-2xl flex items-center justify-center mx-auto mb-4 opacity-50">
+            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <p className="text-zr-blue-mid/50 font-poppins text-lg">No tienes tareas pendientes</p>
+          <p className="text-zr-blue-mid/30 font-poppins text-sm mt-1">¡Todo al día!</p>
+        </div>
       )}
     </div>
   );

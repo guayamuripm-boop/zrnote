@@ -40,60 +40,77 @@ export default async function MeetingDetailPage({
   })).filter((p) => p.email);
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{meeting.title}</h1>
-          <p className="text-gray-500">
-            {meeting.coordination && `${meeting.coordination} · `}
-            {new Date(meeting.created_at).toLocaleDateString('es-ES', {
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric',
-            })}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <StatusBadge status={meeting.status} />
-          {meeting.status === 'scheduled' && (
-            <div className="flex items-center gap-2">
-              <Link
-                href={`/dashboard/meetings/${meeting.id}/record`}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition"
-              >
-                Grabar
-              </Link>
-              <Link
-                href={`/dashboard/meetings/${meeting.id}/upload`}
-                className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
-              >
-                Subir Audio
-              </Link>
-            </div>
-          )}
-          <DeleteMeetingButton meetingId={meeting.id} />
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl sm:text-2xl font-bold text-zr-navy font-poppins truncate">{meeting.title}</h1>
+            <p className="text-zr-blue-mid/50 font-poppins text-sm mt-0.5">
+              {meeting.coordination && `${meeting.coordination} · `}
+              {new Date(meeting.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <StatusBadge status={meeting.status} />
+            {meeting.status === 'scheduled' && (
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/dashboard/meetings/${meeting.id}/record`}
+                  className="gradient-warm text-white px-4 py-2 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-rose-500/25 transition-all font-poppins inline-flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                  </svg>
+                  Grabar
+                </Link>
+                <Link
+                  href={`/dashboard/meetings/${meeting.id}/upload`}
+                  className="glass border-zr-blue-pale/50 text-zr-navy px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/80 transition-all font-poppins"
+                >
+                  Subir Audio
+                </Link>
+              </div>
+            )}
+            <DeleteMeetingButton meetingId={meeting.id} />
+          </div>
         </div>
       </div>
 
+      {/* Minute */}
       {minute && (
         <>
-          <section className="bg-white rounded-lg border p-6 space-y-4">
-            <h2 className="text-lg font-semibold">Minuta</h2>
+          <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+            <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
+              <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              Minuta
+            </h2>
             <div>
-              <h3 className="font-medium text-sm text-gray-500 mb-1">Resumen</h3>
-              <p className="whitespace-pre-wrap">{minute.summary}</p>
+              <h3 className="font-medium text-sm text-zr-blue-mid/50 mb-1 font-poppins">Resumen</h3>
+              <p className="text-zr-navy/80 font-poppins leading-relaxed whitespace-pre-wrap">{minute.summary}</p>
             </div>
           </section>
 
           {minute.discussion && (minute.discussion as any[]).length > 0 && (
-            <section className="bg-white rounded-lg border p-6 space-y-4">
-              <h2 className="text-lg font-semibold">Temas Discutidos</h2>
+            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-4 flex items-center gap-2">
+                <div className="w-8 h-8 gradient-cool rounded-lg flex items-center justify-center">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                  </svg>
+                </div>
+                Temas Discutidos
+              </h2>
               <div className="space-y-4">
                 {(minute.discussion as any[]).map((d, i) => (
-                  <div key={i} className="border-l-4 border-zr-blue pl-4">
-                    <h3 className="font-medium">{d.topic}</h3>
-                    {d.speaker && <p className="text-xs text-gray-400 mb-1">Liderado por: {d.speaker}</p>}
-                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{d.details}</p>
+                  <div key={i} className="border-l-4 border-indigo-400 pl-4 py-1">
+                    <h3 className="font-semibold text-zr-navy font-poppins">{d.topic}</h3>
+                    {d.speaker && <p className="text-xs text-zr-blue-mid/40 font-poppins mt-0.5">Liderado por: {d.speaker}</p>}
+                    <p className="text-sm text-zr-navy/70 font-poppins mt-1 whitespace-pre-wrap leading-relaxed">{d.details}</p>
                   </div>
                 ))}
               </div>
@@ -101,27 +118,48 @@ export default async function MeetingDetailPage({
           )}
 
           {minute.decisions && (minute.decisions as string[]).length > 0 && (
-            <section className="bg-white rounded-lg border p-6 space-y-4">
-              <h2 className="text-lg font-semibold">Decisiones</h2>
-              <ul className="list-disc list-inside space-y-1">
+            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
+                <div className="w-8 h-8 gradient-success rounded-lg flex items-center justify-center">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                Decisiones
+              </h2>
+              <ul className="space-y-2">
                 {(minute.decisions as string[]).map((d, i) => (
-                  <li key={i}>{d}</li>
+                  <li key={i} className="flex items-start gap-2 text-zr-navy/80 font-poppins text-sm">
+                    <span className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
+                      <svg className="w-3 h-3 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </span>
+                    {d}
+                  </li>
                 ))}
               </ul>
             </section>
           )}
 
           {minute.project_statuses && (minute.project_statuses as any[]).length > 0 && (
-            <section className="bg-white rounded-lg border p-6 space-y-4">
-              <h2 className="text-lg font-semibold">Estados de Proyectos</h2>
+            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
+                <div className="w-8 h-8 gradient-cool rounded-lg flex items-center justify-center">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                Estados de Proyectos
+              </h2>
               <div className="space-y-3">
                 {(minute.project_statuses as any[]).map((p, i) => (
-                  <div key={i} className="bg-gray-50 rounded-lg p-3">
+                  <div key={i} className="glass rounded-xl p-4">
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-medium">{p.project}</h3>
-                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">{p.status}</span>
+                      <h3 className="font-semibold text-zr-navy font-poppins text-sm">{p.project}</h3>
+                      <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full text-xs font-medium font-poppins">{p.status}</span>
                     </div>
-                    <p className="text-sm text-gray-600">{p.details}</p>
+                    <p className="text-sm text-zr-navy/60 font-poppins">{p.details}</p>
                   </div>
                 ))}
               </div>
@@ -129,14 +167,21 @@ export default async function MeetingDetailPage({
           )}
 
           {minute.blockers && (minute.blockers as any[]).length > 0 && (
-            <section className="bg-white rounded-lg border p-6 space-y-4">
-              <h2 className="text-lg font-semibold">Bloqueos / Problemas</h2>
+            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
+                <div className="w-8 h-8 gradient-warm rounded-lg flex items-center justify-center">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                Bloqueos
+              </h2>
               <div className="space-y-3">
                 {(minute.blockers as any[]).map((b, i) => (
-                  <div key={i} className="bg-red-50 rounded-lg p-3">
-                    <h3 className="font-medium text-red-800">{b.issue}</h3>
-                    <p className="text-sm text-red-600">Impacto: {b.impact}</p>
-                    {b.owner && <p className="text-xs text-gray-500">Responsable: {b.owner}</p>}
+                  <div key={i} className="bg-rose-50/80 border border-rose-100 rounded-xl p-4">
+                    <h3 className="font-semibold text-rose-800 font-poppins text-sm">{b.issue}</h3>
+                    <p className="text-sm text-rose-600 font-poppins mt-0.5">Impacto: {b.impact}</p>
+                    {b.owner && <p className="text-xs text-zr-blue-mid/40 font-poppins mt-1">Responsable: {b.owner}</p>}
                   </div>
                 ))}
               </div>
@@ -144,66 +189,87 @@ export default async function MeetingDetailPage({
           )}
 
           {minute.ideas && (minute.ideas as string[]).length > 0 && (
-            <section className="bg-white rounded-lg border p-6 space-y-4">
-              <h2 className="text-lg font-semibold">Ideas / Brainstorming</h2>
-              <ul className="list-disc list-inside space-y-1">
+            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
+                <div className="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                </div>
+                Ideas / Brainstorming
+              </h2>
+              <ul className="space-y-2">
                 {(minute.ideas as string[]).map((idea, i) => (
-                  <li key={i}>{idea}</li>
+                  <li key={i} className="flex items-start gap-2 text-zr-navy/70 font-poppins text-sm">
+                    <span className="text-amber-400 mt-1">💡</span>
+                    {idea}
+                  </li>
                 ))}
               </ul>
             </section>
           )}
 
           {minute.next_steps && (minute.next_steps as string[]).length > 0 && (
-            <section className="bg-white rounded-lg border p-6 space-y-4">
-              <h2 className="text-lg font-semibold">Próximos Pasos</h2>
-              <ul className="list-disc list-inside space-y-1">
+            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+              <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3 flex items-center gap-2">
+                <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+                </div>
+                Próximos Pasos
+              </h2>
+              <ul className="space-y-2">
                 {(minute.next_steps as string[]).map((n, i) => (
-                  <li key={i}>{n}</li>
+                  <li key={i} className="flex items-start gap-2 text-zr-navy/70 font-poppins text-sm">
+                    <span className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold text-indigo-600 font-poppins">{i + 1}</span>
+                    {n}
+                  </li>
                 ))}
               </ul>
             </section>
           )}
 
           {meeting.transcript_raw && (
-            <details className="bg-white rounded-lg border p-6 space-y-4">
-              <summary className="text-lg font-semibold cursor-pointer">Transcripción completa</summary>
-              <pre className="text-sm text-gray-600 whitespace-pre-wrap mt-2">{meeting.transcript_raw}</pre>
+            <details className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+              <summary className="text-lg font-semibold text-zr-navy font-poppins cursor-pointer select-none flex items-center gap-2">
+                <svg className="w-5 h-5 text-zr-blue-mid/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Transcripción completa
+              </summary>
+              <pre className="text-sm text-zr-navy/60 font-poppins whitespace-pre-wrap mt-4 glass rounded-xl p-4">{meeting.transcript_raw}</pre>
             </details>
           )}
         </>
       )}
 
+      {/* Action Items */}
       {actionItems && actionItems.length > 0 && (
-        <section className="bg-white rounded-lg border p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Responsabilidades</h2>
-            <span className="text-sm text-gray-500">
-              {new Date(meeting.created_at).toLocaleDateString('es-ES', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-              })}
-            </span>
-          </div>
+        <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+          <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-4 flex items-center gap-2">
+            <div className="w-8 h-8 gradient-warm rounded-lg flex items-center justify-center">
+              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+            </div>
+            Responsabilidades
+          </h2>
           <div className="space-y-3">
             {actionItems.map((item) => (
-              <div
-                key={item.id}
-                className="border border-gray-100 rounded-xl p-4 hover:border-blue-200 hover:bg-blue-50/30 transition"
-              >
+              <div key={item.id} className="glass rounded-xl p-4 hover:shadow-elevated transition-all">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900">{item.description}</p>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <span className="inline-flex items-center gap-1 text-sm text-gray-500">
+                    <p className="font-medium text-zr-navy font-poppins">{item.description}</p>
+                    <div className="flex items-center gap-3 mt-2">
+                      <span className="inline-flex items-center gap-1 text-xs text-zr-blue-mid/50 font-poppins">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                         </svg>
                         {item.assignee_name || 'Sin asignar'}
                       </span>
                       {item.due_date && (
-                        <span className="inline-flex items-center gap-1 text-sm text-gray-400">
+                        <span className="inline-flex items-center gap-1 text-xs text-zr-blue-mid/40 font-poppins">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
@@ -214,15 +280,11 @@ export default async function MeetingDetailPage({
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <PriorityBadge priority={item.priority} />
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                        item.status === 'completado'
-                          ? 'bg-green-100 text-green-700'
-                          : item.status === 'en_progreso'
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium font-poppins ${
+                      item.status === 'completado' ? 'bg-emerald-50 text-emerald-600'
+                      : item.status === 'en_progreso' ? 'bg-blue-50 text-blue-600'
+                      : 'bg-gray-100 text-gray-500'
+                    }`}>
                       {item.status === 'completado' ? 'completado' : item.status === 'en_progreso' ? 'en progreso' : 'pendiente'}
                     </span>
                   </div>
@@ -233,36 +295,44 @@ export default async function MeetingDetailPage({
         </section>
       )}
 
+      {/* Assign Action Items */}
       {meeting.status === 'completed' && actionItems && actionItems.length > 0 && participants.length > 0 && (
-        <AssignActionItems
-          meetingId={meeting.id}
-          actionItems={actionItems}
-          participants={participants}
-        />
+        <AssignActionItems meetingId={meeting.id} actionItems={actionItems} participants={participants} />
       )}
 
+      {/* Participants */}
       {meeting.status === 'completed' && participants.length > 0 && (
-        <section className="bg-white rounded-lg border p-6 space-y-4">
-          <h2 className="text-lg font-semibold">Participantes</h2>
+        <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+          <h2 className="text-lg font-semibold text-zr-navy font-poppins mb-3">Participantes</h2>
           <div className="flex flex-wrap gap-2">
             {participants.map((p) => (
-              <span key={p.email} className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm">
-                {p.name} <span className="text-gray-400">·</span> {p.email}
+              <span key={p.email} className="glass rounded-full px-3 py-1.5 text-sm font-poppins text-zr-navy/70">
+                {p.name}
+                <span className="text-zr-blue-mid/30 mx-1">·</span>
+                <span className="text-zr-blue-mid/40 text-xs">{p.email}</span>
               </span>
             ))}
           </div>
         </section>
       )}
 
+      {/* Failed State */}
       {meeting.status === 'failed' && (
-        <section className="bg-red-50 border border-red-200 rounded-lg p-6 text-center space-y-3">
-          <p className="text-red-800 font-medium">La reunión falló durante el procesamiento</p>
+        <section className="glass-strong rounded-2xl p-6 text-center space-y-4 border border-rose-200/50">
+          <div className="w-12 h-12 gradient-warm rounded-xl flex items-center justify-center mx-auto">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <p className="text-rose-700 font-medium font-poppins">La reunión falló durante el procesamiento</p>
           <RetryButton meetingId={meeting.id} />
         </section>
       )}
 
       {!minute && meeting.status === 'completed' && (
-        <p className="text-gray-500">Minuta no disponible aún.</p>
+        <div className="glass-strong rounded-2xl p-8 text-center">
+          <p className="text-zr-blue-mid/50 font-poppins">Minuta no disponible aún.</p>
+        </div>
       )}
     </div>
   );
