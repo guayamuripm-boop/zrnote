@@ -34,6 +34,16 @@ export default async function MeetingDetailPage({
   const actionItems = actionItemsResult.data;
   const participantsRaw = participantsResult.data;
 
+  // Debug: log data issues
+  console.log('Meeting detail debug:', {
+    meetingId: params.id,
+    meetingStatus: meeting?.status,
+    hasMinute: !!minute,
+    actionItemsCount: actionItems?.length || 0,
+    actionItemsError: actionItemsResult.error?.message,
+    participantsCount: participantsRaw?.length || 0,
+  });
+
   const participants = (participantsRaw || []).map((p: any) => ({
     name: p.name || p.email_override?.split('@')[0] || 'Participante',
     email: p.email_override || '',
@@ -295,8 +305,21 @@ export default async function MeetingDetailPage({
         </section>
       )}
 
-      {/* Assign Action Items */}
-      {meeting.status === 'completed' && actionItems && actionItems.length > 0 && participants.length > 0 && (
+      {/* No action items message */}
+      {(!actionItems || actionItems.length === 0) && minute && meeting.status === 'completed' && (
+        <div className="glass-strong rounded-2xl p-6 text-center">
+          <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-3">
+            <svg className="w-6 h-6 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+          </div>
+          <p className="text-slate-500 dark:text-slate-400 text-sm">No se generaron action items para esta reunión</p>
+          <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">El LLM no detectó compromisos específicos en la transcripción</p>
+        </div>
+      )}
+
+      {/* Assign Action Items - show whenever there are unassigned items and participants */}
+      {actionItems && actionItems.length > 0 && participants.length > 0 && (
         <AssignActionItems meetingId={meeting.id} actionItems={actionItems} participants={participants} />
       )}
 

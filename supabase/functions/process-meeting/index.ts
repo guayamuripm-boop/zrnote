@@ -212,7 +212,8 @@ ${fullTranscript}
     }
 
     const minuteJSON = JSON.parse(jsonMatch[0]);
-    console.log('Minute generated');
+    console.log('Minute generated. Action items count:', (minuteJSON.action_items || []).length);
+    console.log('Action items data:', JSON.stringify(minuteJSON.action_items || []));
 
     // 5. Save minute to database
     const { data: minute, error: minuteError } = await supabase
@@ -246,7 +247,14 @@ ${fullTranscript}
     }));
 
     if (actionItemsToInsert.length > 0) {
-      await supabase.from('action_items').insert(actionItemsToInsert);
+      const { data: insertedItems, error: insertError } = await supabase.from('action_items').insert(actionItemsToInsert).select();
+      if (insertError) {
+        console.error('Action items insert error:', insertError.message);
+      } else {
+        console.log(`Inserted ${insertedItems?.length || 0} action items`);
+      }
+    } else {
+      console.log('No action items to insert (empty array from LLM)');
     }
 
     // 7. Update meeting status
