@@ -2,8 +2,14 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const authHeader = request.headers.get('authorization') || '';
+    const webhookSecret = process.env.ASSEMBLYAI_WEBHOOK_SECRET || '';
 
+    if (webhookSecret && authHeader !== `Bearer ${webhookSecret}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
     const { transcript_id, status } = body;
 
     if (!transcript_id) {

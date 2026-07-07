@@ -12,8 +12,9 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  let meetingId: string | null = null;
   try {
-    const { meetingId } = await req.json();
+    meetingId = (await req.json()).meetingId;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -60,8 +61,8 @@ Deno.serve(async (req) => {
 
       console.log(`Segment downloaded, size: ${audioData.size}`);
 
-      // Skip segments too small (< 50KB) — likely invalid/corrupt
-      if (audioData.size < 50000) {
+      // Skip segments too small (< 10KB) — likely invalid/corrupt
+      if (audioData.size < 10000) {
         console.log(`Skipping segment ${segment.segment_index}: too small (${audioData.size} bytes)`);
         continue;
       }
@@ -234,16 +235,18 @@ ${fullTranscript}
 
     if (minuteError) throw new Error(`Minute save error: ${minuteError.message}`);
 
-    // 6. Save action items
-    for (const item of minuteJSON.action_items || []) {
-      await supabase.from('action_items').insert({
-        meeting_id: meetingId,
-        minute_id: minute.id,
-        assignee_name: item.assignee_name,
-        description: item.description,
-        due_date: item.due_date,
-        priority: item.priority,
-      });
+    // 6. Save action items (batch insert)
+    const actionItemsToInsert = (minuteJSON.action_items || []).map((item: any) => ({
+      meeting_id: meetingId,
+      minute_id: minute.id,
+      assignee_name: item.assignee_name,
+      description: item.description,
+      due_date: item.due_date,
+      priority: item.priority,
+    }));
+
+    if (actionItemsToInsert.length > 0) {
+      await supabase.from('action_items').insert(actionItemsToInsert);
     }
 
     // 7. Update meeting status
@@ -255,7 +258,22 @@ ${fullTranscript}
       })
       .eq('id', meetingId);
 
-    // 8. Done — emails are sent via the Next.js send-emails route (Gmail SMTP)
+    // 8. Auto-send emails via Vercel API
+    try {
+      const appUrl = Deno.env.get('NEXT_PUBLIC_APP_URL') || 'https://zrnote.vercel.app';
+      const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+      const serviceKeyForAuth = Deno.env.get('SUPABASE_SERVICE_KEY') || serviceKey;
+      await fetch(`${appUrl}/api/meetings/${meetingId}/send-emails`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceKeyForAuth}`,
+        },
+      });
+      console.log('Auto-emails triggered');
+    } catch (emailErr) {
+      console.error('Auto-email trigger failed:', emailErr.message);
+    }
 
     console.log('Processing complete!');
 
@@ -265,6 +283,9 @@ ${fullTranscript}
     );
   } catch (error) {
     console.error('Error:', error.message);
+    if (meetingId) {
+      try { await supabase.from('meetings').update({ status: 'failed' }).eq('id', meetingId); } catch (_) { /* ignore */ }
+    }
     return new Response(
       JSON.stringify({ error: error.message }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

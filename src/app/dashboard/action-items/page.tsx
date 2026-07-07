@@ -1,4 +1,5 @@
 import { createServerSupabase } from '@/lib/supabase/server';
+import { PriorityBadge } from '@/components/PriorityBadge';
 
 export default async function ActionItemsPage() {
   const supabase = createServerSupabase();
@@ -6,7 +7,7 @@ export default async function ActionItemsPage() {
 
   const { data: actionItems } = await supabase
     .from('action_items')
-    .select('*')
+    .select('id, description, priority, due_date, status, meetings!inner(id, title, created_at)')
     .eq('assignee_user_id', user?.id)
     .order('created_at', { ascending: false });
 
@@ -15,26 +16,26 @@ export default async function ActionItemsPage() {
       <h1 className="text-2xl font-bold">Mis Tareas</h1>
       {actionItems && actionItems.length > 0 ? (
         <div className="bg-white rounded-lg border divide-y">
-          {actionItems.map((item) => (
+          {actionItems.map((item: any) => (
             <div key={item.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-medium">{item.description}</p>
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  {item.meetings && (
+                    <span className="text-zr-blue font-medium">
+                      {item.meetings.title}
+                    </span>
+                  )}
+                  {item.meetings?.created_at && (
+                    <span>· {new Date(item.meetings.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                  )}
+                </div>
                 <p className="text-sm text-gray-500">
-                  {item.due_date && `Fecha: ${new Date(item.due_date).toLocaleDateString('es-ES')}`}
+                  {item.due_date && `Fecha límite: ${new Date(item.due_date).toLocaleDateString('es-ES')}`}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span
-                  className={`px-2 py-1 rounded text-xs font-medium ${
-                    item.priority === 'alta'
-                      ? 'bg-red-100 text-red-700'
-                      : item.priority === 'media'
-                      ? 'bg-yellow-100 text-yellow-700'
-                      : 'bg-green-100 text-green-700'
-                  }`}
-                >
-                  {item.priority}
-                </span>
+                <PriorityBadge priority={item.priority} />
                 <span
                   className={`px-2 py-1 rounded text-xs font-medium ${
                     item.status === 'completado'

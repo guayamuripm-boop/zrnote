@@ -1,13 +1,16 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
 import DeleteMeetingButton from '@/components/DeleteMeetingButton';
+import { StatusBadge } from '@/components/StatusBadge';
 
 export default async function MeetingsPage() {
   const supabase = createServerSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const { data: meetings } = await supabase
     .from('meetings')
-    .select('*')
+    .select('id, title, coordination, type, status, created_at')
+    .eq('created_by', user?.id)
     .order('created_at', { ascending: false });
 
   return (
@@ -44,19 +47,7 @@ export default async function MeetingsPage() {
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="text-xs text-gray-500 hidden sm:inline">{meeting.type}</span>
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-medium ${
-                      meeting.status === 'completed'
-                        ? 'bg-green-100 text-green-700'
-                        : meeting.status === 'processing'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : meeting.status === 'failed'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-gray-100 text-gray-700'
-                    }`}
-                  >
-                    {meeting.status}
-                  </span>
+                  <StatusBadge status={meeting.status} />
                   <DeleteMeetingButton meetingId={meeting.id} />
                 </div>
               </div>

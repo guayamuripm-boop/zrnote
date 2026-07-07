@@ -45,6 +45,7 @@ export async function POST(
     .from('meetings')
     .select('org_id, audio_segments')
     .eq('id', params.id)
+    .eq('created_by', user.id)
     .single();
 
   if (!meeting) {

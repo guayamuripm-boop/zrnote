@@ -6,7 +6,10 @@ const createMeetingSchema = z.object({
   title: z.string().min(1),
   coordination: z.string().optional().default(''),
   type: z.enum(['presencial', 'virtual', 'llamada']).default('presencial'),
-  participants: z.array(z.object({ name: z.string(), email: z.string().email() })).optional().default([]),
+  participants: z.array(z.object({
+    name: z.string().min(1),
+    email: z.string().email(),
+  })).optional().default([]),
 });
 
 export async function GET() {
@@ -19,7 +22,8 @@ export async function GET() {
 
   const { data: meetings } = await supabase
     .from('meetings')
-    .select('*')
+    .select('id, title, coordination, type, status, created_at')
+    .eq('created_by', user.id)
     .order('created_at', { ascending: false });
 
   return NextResponse.json(meetings);
@@ -84,8 +88,15 @@ export async function POST(request: Request) {
     .eq('id', user.id)
     .single();
 
+  const participantsToInsert: Array<{
+    meeting_id: string;
+    user_id: string | null;
+    name: string;
+    email_override: string;
+  }> = [];
+
   if (creatorProfile) {
-    await supabase.from('meeting_participants').insert({
+    participantsToInsert.push({
       meeting_id: meeting.id,
       user_id: user.id,
       email_override: creatorProfile.email,
@@ -96,12 +107,16 @@ export async function POST(request: Request) {
   for (const p of parsed.data.participants) {
     if (creatorProfile?.email && p.email.toLowerCase() === creatorProfile.email.toLowerCase()) continue;
 
-    await supabase.from('meeting_participants').insert({
+    participantsToInsert.push({
       meeting_id: meeting.id,
       user_id: null,
       name: p.name,
       email_override: p.email,
     });
+  }
+
+  if (participantsToInsert.length > 0) {
+    await supabase.from('meeting_participants').insert(participantsToInsert);
   }
 
   return NextResponse.json({ id: meeting.id }, { status: 201 });

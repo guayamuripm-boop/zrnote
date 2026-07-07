@@ -17,6 +17,7 @@ export async function POST(
     .from('meetings')
     .select('*')
     .eq('id', params.id)
+    .eq('created_by', user.id)
     .single();
 
   if (!meeting) {

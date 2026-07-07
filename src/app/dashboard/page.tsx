@@ -1,23 +1,30 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
 import DeleteMeetingButton from '@/components/DeleteMeetingButton';
+import { StatusBadge } from '@/components/StatusBadge';
+import { PriorityBadge } from '@/components/PriorityBadge';
 
 export default async function DashboardHome() {
   const supabase = createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const { data: meetings } = await supabase
-    .from('meetings')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(10);
+  const [meetingsResult, actionItemsResult] = await Promise.all([
+    supabase
+      .from('meetings')
+      .select('id, title, status, created_at, coordination')
+      .eq('created_by', user?.id)
+      .order('created_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from('action_items')
+      .select('id, description, priority, due_date, status')
+      .eq('assignee_user_id', user?.id)
+      .eq('status', 'pendiente')
+      .order('created_at', { ascending: false }),
+  ]);
 
-  const { data: actionItems } = await supabase
-    .from('action_items')
-    .select('*')
-    .eq('assignee_user_id', user?.id)
-    .eq('status', 'pendiente')
-    .order('created_at', { ascending: false });
+  const meetings = meetingsResult.data;
+  const actionItems = actionItemsResult.data;
 
   return (
     <div className="space-y-8">
@@ -48,23 +55,12 @@ export default async function DashboardHome() {
                   <div>
                     <p className="font-medium text-zr-navy">{meeting.title}</p>
                     <p className="text-sm text-zr-blue-mid">
+                      {meeting.coordination && `${meeting.coordination} · `}
                       {new Date(meeting.created_at).toLocaleDateString('es-ES')}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        meeting.status === 'completed'
-                          ? 'bg-green-100 text-green-700'
-                          : meeting.status === 'processing'
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : meeting.status === 'failed'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-zr-blue-pale/30 text-zr-navy'
-                      }`}
-                    >
-                      {meeting.status}
-                    </span>
+                    <StatusBadge status={meeting.status} />
                     <DeleteMeetingButton meetingId={meeting.id} />
                   </div>
                 </div>
@@ -92,17 +88,7 @@ export default async function DashboardHome() {
               <div key={item.id} className="p-4">
                 <div className="flex items-center justify-between">
                   <p className="font-medium text-zr-navy">{item.description}</p>
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-medium ${
-                      item.priority === 'alta'
-                        ? 'bg-red-100 text-red-700'
-                        : item.priority === 'media'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : 'bg-green-100 text-green-700'
-                    }`}
-                  >
-                    {item.priority}
-                  </span>
+                  <PriorityBadge priority={item.priority} />
                 </div>
                 {item.due_date && (
                   <p className="text-sm text-zr-blue-mid mt-1">

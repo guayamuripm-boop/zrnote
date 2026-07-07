@@ -22,7 +22,8 @@ export async function PATCH(
   const { error } = await supabase
     .from('meetings')
     .update({ speaker_map })
-    .eq('id', params.id);
+    .eq('id', params.id)
+    .eq('created_by', user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
