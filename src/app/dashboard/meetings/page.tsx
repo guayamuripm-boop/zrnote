@@ -10,7 +10,8 @@ export default async function MeetingsPage() {
     .from('meetings')
     .select('id, title, coordination, type, status, created_at')
     .eq('created_by', user?.id)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(200);
 
   return (
     <div className="space-y-6">

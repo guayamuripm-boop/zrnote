@@ -25,7 +25,8 @@ export async function GET() {
     .from('meetings')
     .select('id, title, coordination, type, status, created_at')
     .eq('created_by', user.id)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(200);
 
   return NextResponse.json(meetings);
 }

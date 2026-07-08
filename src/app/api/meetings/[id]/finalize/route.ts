@@ -15,7 +15,7 @@ export async function POST(
 
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('*')
+    .select('status')
     .eq('id', params.id)
     .eq('created_by', user.id)
     .single();

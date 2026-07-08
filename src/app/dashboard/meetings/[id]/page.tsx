@@ -17,7 +17,7 @@ export default async function MeetingDetailPage({
 
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('*')
+    .select('id, title, coordination, created_at, status, transcript_raw')
     .eq('id', params.id)
     .eq('created_by', user?.id)
     .single();

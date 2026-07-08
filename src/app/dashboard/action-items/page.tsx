@@ -9,7 +9,8 @@ export default async function ActionItemsPage() {
     .from('action_items')
     .select('id, description, priority, due_date, status, meetings!inner(id, title, created_at)')
     .eq('assignee_user_id', user?.id)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(200);
 
   return (
     <div className="space-y-6">

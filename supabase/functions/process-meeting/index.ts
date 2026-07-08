@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
 
     const { data: meeting, error: meetingError } = await supabase
       .from('meetings')
-      .select('*')
+      .select('audio_segments')
       .eq('id', meetingId)
       .single();
 
