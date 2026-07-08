@@ -7,6 +7,62 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+async function transcribeSegment(
+  supabase: any,
+  segment: any,
+  groqKey: string,
+): Promise<string | null> {
+  const { data: audioData, error: downloadError } = await supabase.storage
+    .from('meeting-audio')
+    .download(segment.r2_key);
+
+  if (downloadError) {
+    console.error(`Error downloading segment ${segment.segment_index}: ${downloadError.message}`);
+    return null;
+  }
+
+  if (audioData.size < 10000) {
+    console.log(`Skipping segment ${segment.segment_index}: too small (${audioData.size} bytes)`);
+    return null;
+  }
+
+  const ext = segment.r2_key.split('.').pop() || 'webm';
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const formData = new FormData();
+    formData.append('file', audioData, `audio.${ext}`);
+    formData.append('model', 'whisper-large-v3');
+    formData.append('language', 'es');
+    formData.append('response_format', 'verbose_json');
+
+    console.log(`Transcribing segment ${segment.segment_index} (attempt ${attempt})...`);
+    const response = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${groqKey}` },
+      body: formData,
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.text && result.text.trim().length > 0) {
+        console.log(`Segment ${segment.segment_index} transcribed: ${result.text.length} chars`);
+        return result.text;
+      }
+      console.log(`Segment ${segment.segment_index} produced empty transcription`);
+      return null;
+    }
+
+    const errText = await response.text();
+    console.error(`Segment ${segment.segment_index} attempt ${attempt} failed (${response.status}): ${errText}`);
+
+    if (attempt < 3) {
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
+  }
+
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -18,14 +74,12 @@ Deno.serve(async (req) => {
   let supabase;
   try {
     meetingId = (await req.json()).meetingId;
-
     const groqKey = Deno.env.get('GROQ_API_KEY')!;
 
     console.log(`Starting processing for meeting: ${meetingId}`);
 
     supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 1. Get meeting data
     const { data: meeting, error: meetingError } = await supabase
       .from('meetings')
       .select('*')
@@ -36,76 +90,21 @@ Deno.serve(async (req) => {
       throw new Error(`Meeting not found: ${meetingError?.message || 'null'}`);
     }
 
-    console.log(`Meeting found: ${meeting.title}, status: ${meeting.status}`);
-
-    // 2. Get audio file from storage
     const segments = meeting.audio_segments || [];
     if (segments.length === 0) {
       throw new Error('No audio segments found in meeting');
     }
 
-    console.log(`Found ${segments.length} segments`);
+    console.log(`Found ${segments.length} segments — processing in parallel`);
 
-    // Download and combine audio segments
-    let allTranscriptions: string[] = [];
+    const results = await Promise.allSettled(
+      segments.map((seg: any) => transcribeSegment(supabase, seg, groqKey))
+    );
 
-    for (const segment of segments) {
-      console.log(`Downloading segment: ${segment.r2_key}`);
-      const { data: audioData, error: downloadError } = await supabase.storage
-        .from('meeting-audio')
-        .download(segment.r2_key);
-
-      if (downloadError) {
-        console.error(`Error downloading segment: ${downloadError.message}`);
-        continue;
-      }
-
-      console.log(`Segment downloaded, size: ${audioData.size}`);
-
-      // Skip segments too small (< 10KB) — likely invalid/corrupt
-      if (audioData.size < 10000) {
-        console.log(`Skipping segment ${segment.segment_index}: too small (${audioData.size} bytes)`);
-        continue;
-      }
-
-      // Detect file extension from r2_key
-      const ext = segment.r2_key.split('.').pop() || 'webm';
-      const mimeMap: Record<string, string> = {
-        webm: 'audio/webm', mp3: 'audio/mpeg', m4a: 'audio/mp4',
-        ogg: 'audio/ogg', wav: 'audio/wav', '3gp': 'audio/3gpp',
-      };
-      const mime = mimeMap[ext] || 'audio/webm';
-
-      // 3. Transcribe with Groq Whisper
-      const formData = new FormData();
-      formData.append('file', audioData, `audio.${ext}`);
-      formData.append('model', 'whisper-large-v3');
-      formData.append('language', 'es');
-      formData.append('response_format', 'verbose_json');
-
-      console.log('Calling Groq Whisper...');
-      const transcriptionResponse = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${groqKey}`,
-        },
-        body: formData,
-      });
-
-      if (!transcriptionResponse.ok) {
-        const errorText = await transcriptionResponse.text();
-        console.error(`Transcription error for segment ${segment.segment_index}: ${errorText}`);
-        continue;
-      }
-
-      const transcriptionResult = await transcriptionResponse.json();
-      if (transcriptionResult.text && transcriptionResult.text.trim().length > 0) {
-        allTranscriptions.push(transcriptionResult.text);
-        console.log(`Transcribed segment: ${transcriptionResult.text.length} chars`);
-      } else {
-        console.log(`Segment ${segment.segment_index} produced empty transcription, skipping`);
-      }
-    }
+    const allTranscriptions = results
+      .filter((r): r is PromiseFulfilledResult<string | null> => r.status === 'fulfilled')
+      .map((r) => r.value)
+      .filter((text): text is string => text !== null);
 
     const fullTranscript = allTranscriptions.join('\n\n');
     console.log(`Full transcription: ${fullTranscript.length} chars`);
@@ -114,7 +113,11 @@ Deno.serve(async (req) => {
       throw new Error('No se pudo transcribir ningún segmento. Verifica que el audio no esté vacío.');
     }
 
-    // 4. Generate minute with Groq Llama 3
+    await supabase
+      .from('meetings')
+      .update({ transcript_raw: fullTranscript })
+      .eq('id', meetingId);
+
     const minutePrompt = `
 Eres ZRNote, sistema de minutas de ZR Mecacademy.
 Analiza la transcripción COMPLETA y responde SOLO con un JSON válido, sin texto adicional.
@@ -213,10 +216,8 @@ ${fullTranscript}
     }
 
     const minuteJSON = JSON.parse(jsonMatch[0]);
-    console.log('Minute generated. Action items count:', (minuteJSON.action_items || []).length);
-    console.log('Action items data:', JSON.stringify(minuteJSON.action_items || []));
+    console.log('Minute generated. Action items:', (minuteJSON.action_items || []).length);
 
-    // 5. Save minute to database
     const { data: minute, error: minuteError } = await supabase
       .from('minutes')
       .insert({
@@ -237,7 +238,6 @@ ${fullTranscript}
 
     if (minuteError) throw new Error(`Minute save error: ${minuteError.message}`);
 
-    // 6. Save action items (batch insert)
     const actionItemsToInsert = (minuteJSON.action_items || []).map((item: any) => ({
       meeting_id: meetingId,
       minute_id: minute.id,
@@ -248,35 +248,27 @@ ${fullTranscript}
     }));
 
     if (actionItemsToInsert.length > 0) {
-      const { data: insertedItems, error: insertError } = await supabase.from('action_items').insert(actionItemsToInsert).select();
+      const { error: insertError } = await supabase.from('action_items').insert(actionItemsToInsert);
       if (insertError) {
         console.error('Action items insert error:', insertError.message);
       } else {
-        console.log(`Inserted ${insertedItems?.length || 0} action items`);
+        console.log(`Inserted ${actionItemsToInsert.length} action items`);
       }
-    } else {
-      console.log('No action items to insert (empty array from LLM)');
     }
 
-    // 7. Update meeting status
     await supabase
       .from('meetings')
-      .update({
-        status: 'completed',
-        transcript_raw: fullTranscript,
-      })
+      .update({ status: 'completed' })
       .eq('id', meetingId);
 
-    // 8. Auto-send emails via Vercel API
     try {
-      const appUrl = Deno.env.get('NEXT_PUBLIC_APP_URL') || 'https://zrnote.vercel.app';
+      const appUrl = Deno.env.get('NEXT_PUBLIC_APP_URL') || Deno.env.get('APP_URL') || 'https://zrnote.vercel.app';
       const serviceKey = Deno.env.get('SERVICE_ROLE_KEY') || '';
-      const serviceKeyForAuth = Deno.env.get('SUPABASE_SERVICE_KEY') || serviceKey;
       await fetch(`${appUrl}/api/meetings/${meetingId}/send-emails`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceKeyForAuth}`,
+          'Authorization': `Bearer ${serviceKey}`,
         },
       });
       console.log('Auto-emails triggered');
@@ -292,7 +284,7 @@ ${fullTranscript}
     );
   } catch (error) {
     console.error('Error:', error.message);
-    if (meetingId) {
+    if (meetingId && supabase) {
       try { await supabase.from('meetings').update({ status: 'failed' }).eq('id', meetingId); } catch (_) { /* ignore */ }
     }
     return new Response(

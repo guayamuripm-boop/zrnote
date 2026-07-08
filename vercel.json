@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/app/api/meetings/[id]/upload-segment/route.ts": {
+      "maxDuration": 120
+    },
+    "src/app/api/meetings/[id]/finalize/route.ts": {
+      "maxDuration": 30
+    }
+  }
+}

@@ -6,13 +6,23 @@ export async function triggerProcessing(meetingId: string): Promise<void> {
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
   );
 
-  const { data, error } = await supabase.functions.invoke('process-meeting', {
+  supabase.functions.invoke('process-meeting', {
     body: { meetingId },
+  }).then(({ error }) => {
+    if (error) {
+      console.error('Edge Function error:', error.message);
+      supabase
+        .from('meetings')
+        .update({ status: 'failed' })
+        .eq('id', meetingId)
+        .then(() => {});
+    }
+  }).catch((err) => {
+    console.error('Edge Function invoke error:', err.message);
+    supabase
+      .from('meetings')
+      .update({ status: 'failed' })
+      .eq('id', meetingId)
+      .then(() => {});
   });
-
-  if (error) {
-    const detail = data ? JSON.stringify(data) : error.message;
-    console.error('Edge Function error:', detail);
-    throw new Error(`Edge Function error: ${detail}`);
-  }
 }
