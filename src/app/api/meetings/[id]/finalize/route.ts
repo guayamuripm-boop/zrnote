@@ -24,6 +24,31 @@ export async function POST(
     return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
   }
 
+  if (meeting.status === 'completed') {
+    return NextResponse.json({ error: 'La reunión ya fue procesada' }, { status: 400 });
+  }
+
+  if (meeting.status === 'processing') {
+    return NextResponse.json({ error: 'La reunión ya se está procesando' }, { status: 400 });
+  }
+
+  if (meeting.status === 'failed') {
+    const { error: updateError } = await supabase
+      .from('meetings')
+      .update({
+        status: 'processing',
+        ended_at: new Date().toISOString(),
+      })
+      .eq('id', params.id);
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    triggerProcessing(params.id);
+    return NextResponse.json({ ok: true });
+  }
+
   const { error: updateError } = await supabase
     .from('meetings')
     .update({

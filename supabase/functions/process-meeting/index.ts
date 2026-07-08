@@ -56,11 +56,18 @@ async function transcribeSegment(
     console.error(`Segment ${segment.segment_index} attempt ${attempt} failed (${response.status}): ${errText}`);
 
     if (attempt < 3) {
-      await new Promise((r) => setTimeout(r, 2000 * attempt));
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
     }
   }
 
   return null;
+}
+
+async function heartbeat(supabase: any, meetingId: string) {
+  await supabase
+    .from('meetings')
+    .update({ status: 'processing' })
+    .eq('id', meetingId);
 }
 
 Deno.serve(async (req) => {
@@ -95,16 +102,30 @@ Deno.serve(async (req) => {
       throw new Error('No audio segments found in meeting');
     }
 
-    console.log(`Found ${segments.length} segments — processing in parallel`);
+    console.log(`Found ${segments.length} segments — processing in batches of 3`);
 
-    const results = await Promise.allSettled(
-      segments.map((seg: any) => transcribeSegment(supabase, seg, groqKey))
-    );
+    const BATCH_SIZE = 3;
+    const allTranscriptions: string[] = [];
 
-    const allTranscriptions = results
-      .filter((r): r is PromiseFulfilledResult<string | null> => r.status === 'fulfilled')
-      .map((r) => r.value)
-      .filter((text): text is string => text !== null);
+    for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+      const batch = segments.slice(i, i + BATCH_SIZE);
+      console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(segments.length / BATCH_SIZE)}`);
+
+      const results = await Promise.allSettled(
+        batch.map((seg: any) => transcribeSegment(supabase, seg, groqKey))
+      );
+
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) {
+          allTranscriptions.push(r.value);
+        }
+      }
+
+      if (i + BATCH_SIZE < segments.length) {
+        await heartbeat(supabase, meetingId);
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
 
     const fullTranscript = allTranscriptions.join('\n\n');
     console.log(`Full transcription: ${fullTranscript.length} chars`);
@@ -264,17 +285,14 @@ ${fullTranscript}
     try {
       const appUrl = Deno.env.get('NEXT_PUBLIC_APP_URL') || Deno.env.get('APP_URL') || 'https://zrnote.vercel.app';
       const serviceKey = Deno.env.get('SERVICE_ROLE_KEY') || '';
-      await fetch(`${appUrl}/api/meetings/${meetingId}/send-emails`, {
+      fetch(`${appUrl}/api/meetings/${meetingId}/send-emails`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${serviceKey}`,
         },
-      });
-      console.log('Auto-emails triggered');
-    } catch (emailErr) {
-      console.error('Auto-email trigger failed:', emailErr.message);
-    }
+      }).catch(() => {});
+    } catch (_) {}
 
     console.log('Processing complete!');
 
