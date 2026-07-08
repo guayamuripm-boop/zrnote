@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
 
   let meetingId: string | null = null;
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabaseKey = Deno.env.get('SERVICE_ROLE_KEY')!;
   let supabase;
   try {
     meetingId = (await req.json()).meetingId;
@@ -270,7 +270,7 @@ ${fullTranscript}
     // 8. Auto-send emails via Vercel API
     try {
       const appUrl = Deno.env.get('NEXT_PUBLIC_APP_URL') || 'https://zrnote.vercel.app';
-      const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+      const serviceKey = Deno.env.get('SERVICE_ROLE_KEY') || '';
       const serviceKeyForAuth = Deno.env.get('SUPABASE_SERVICE_KEY') || serviceKey;
       await fetch(`${appUrl}/api/meetings/${meetingId}/send-emails`, {
         method: 'POST',
