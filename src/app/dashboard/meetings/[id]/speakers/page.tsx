@@ -50,7 +50,7 @@ export default function SpeakersPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Nombre"
-            className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm min-w-0"
+            className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-base min-w-0"
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSpeaker())}
           />
           <input
@@ -58,7 +58,7 @@ export default function SpeakersPage() {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="Etiqueta (ej: Director)"
-            className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm min-w-0"
+            className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-base min-w-0"
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSpeaker())}
           />
           <button

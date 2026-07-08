@@ -199,5 +199,14 @@ export async function POST(
     return `error: ${r.reason}`;
   });
 
+  await supabase.from('email_logs').insert(
+    results.map((r) => ({
+      meeting_id: params.id,
+      recipient_email: r.status === 'fulfilled' ? r.value.email : 'unknown',
+      type: r.status === 'fulfilled' && r.value.email.includes('coordinator') ? 'coordinator_summary' : 'personal',
+      status: r.status === 'fulfilled' && r.value.ok ? 'sent' : 'failed',
+    }))
+  );
+
   return NextResponse.json({ ok: true, results: resultMessages });
 }

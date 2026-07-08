@@ -1,4 +1,5 @@
 import { createServerSupabase } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -51,7 +52,11 @@ export async function POST(request: Request) {
     .single();
 
   if (userError || !userRecord) {
-    const { error: insertError } = await supabase
+    const adminSupabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
+    );
+    const { error: insertError } = await adminSupabase
       .from('users')
       .upsert({
         id: user.id,

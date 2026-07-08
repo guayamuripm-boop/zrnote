@@ -5,6 +5,7 @@ dist/
 *.log
 .DS_Store
 .turbo/
+tsconfig.tsbuildinfo
 
 .vercel
 .env*

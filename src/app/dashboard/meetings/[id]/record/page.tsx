@@ -18,7 +18,7 @@ export default function RecordPage() {
   }, [params.id]);
 
   return (
-    <div className="min-h-[80vh] flex flex-col">
+    <div className="min-h-[80vh] min-h-dvh flex flex-col">
       {/* Header */}
       <div className="text-center mb-8 sm:mb-12">
         <Link href={`/dashboard/meetings/${params.id}`} className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition mb-6">

@@ -75,7 +75,7 @@ export default function NewMeetingPage() {
               onChange={(e) => setTitle(e.target.value)}
               required
               placeholder="Ej: Reunión semanal de equipo"
-              className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-sm"
+              className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-base min-w-0"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -86,7 +86,7 @@ export default function NewMeetingPage() {
                 value={coordination}
                 onChange={(e) => setCoordination(e.target.value)}
                 placeholder="Dirección Académica"
-                className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-sm"
+                className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-base min-w-0"
               />
             </div>
             <div>
@@ -94,7 +94,7 @@ export default function NewMeetingPage() {
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value as typeof type)}
-                className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-sm"
+                className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-base min-w-0"
               >
                 <option value="presencial">Presencial</option>
                 <option value="virtual">Virtual</option>
@@ -113,7 +113,7 @@ export default function NewMeetingPage() {
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               placeholder="Nombre"
-              className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm min-w-0"
+              className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-base min-w-0"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
             />
             <input
@@ -121,7 +121,7 @@ export default function NewMeetingPage() {
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
               placeholder="correo@ejemplo.com"
-              className="flex-1 sm:flex-[2] border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm min-w-0"
+              className="flex-1 sm:flex-[2] border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-base min-w-0"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
             />
             <button

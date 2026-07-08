@@ -13,16 +13,17 @@ Deno.serve(async (req) => {
   }
 
   let meetingId: string | null = null;
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  let supabase;
   try {
     meetingId = (await req.json()).meetingId;
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const groqKey = Deno.env.get('GROQ_API_KEY')!;
 
     console.log(`Starting processing for meeting: ${meetingId}`);
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    supabase = createClient(supabaseUrl, supabaseKey);
 
     // 1. Get meeting data
     const { data: meeting, error: meetingError } = await supabase
