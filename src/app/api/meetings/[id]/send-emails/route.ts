@@ -77,12 +77,42 @@ function buildActionItemsHtml(items: any[]): string {
     }</tbody></table>`;
 }
 
+function matchItemsToParticipant(items: any[], participantName: string, participantEmail: string): any[] {
+  if (!items || !participantName) return [];
+  const nameLower = participantName.toLowerCase().trim();
+  const emailLocal = participantEmail.split('@')[0].toLowerCase().trim();
+
+  return items.filter((item) => {
+    if (item.assignee_email && item.assignee_email.toLowerCase() === participantEmail.toLowerCase()) return true;
+    if (!item.assignee_name) return false;
+    const itemName = item.assignee_name.toLowerCase().trim();
+    if (itemName === nameLower) return true;
+    if (itemName.includes(nameLower) || nameLower.includes(itemName)) return true;
+    if (itemName.includes(emailLocal) || emailLocal.includes(itemName)) return true;
+    return false;
+  });
+}
+
+async function sendWithRetry(
+  emailFn: () => Promise<{ ok: boolean; error?: string }>,
+  maxAttempts = 3,
+): Promise<{ ok: boolean; error?: string }> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await emailFn();
+    if (result.ok) return result;
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
+  }
+  return { ok: false, error: 'Max retries exceeded' };
+}
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   const authHeader = request.headers.get('authorization') || '';
-  const serviceKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
   const isInternal = authHeader === `Bearer ${serviceKey}`;
 
   const supabase = createServerSupabase();
@@ -121,17 +151,18 @@ export async function POST(
     return NextResponse.json({ error: 'Solo el creador puede enviar correos' }, { status: 403 });
   }
 
-  const [actionItemsResult, minuteResult, participantsResult, creatorResult] = await Promise.all([
+  const [actionItemsResult, minuteResult, participantsResult, creatorResult, creatorUserResult] = await Promise.all([
     supabase.from('action_items').select('*').eq('meeting_id', params.id),
     supabase.from('minutes').select('*').eq('meeting_id', params.id).single(),
     supabase.from('meeting_participants').select('*').eq('meeting_id', params.id),
     supabase.from('meeting_participants').select('email_override').eq('meeting_id', params.id).eq('user_id', meeting.created_by).single(),
+    supabase.from('users').select('email').eq('id', meeting.created_by).single(),
   ]);
 
   const allItems = actionItemsResult.data || [];
   const minute = minuteResult.data;
   const participantsRaw = participantsResult.data;
-  const creatorEmail = creatorResult.data?.email_override;
+  const creatorEmail = creatorResult.data?.email_override || creatorUserResult.data?.email;
 
   const participants = (participantsRaw || []).map((p: any) => ({
     name: p.name || p.email_override?.split('@')[0] || 'Participante',
@@ -142,71 +173,69 @@ export async function POST(
   const minuteHtml = buildMinuteHtml(minute);
   const allItemsHtml = buildActionItemsHtml(allItems);
 
-  const emailPromises = participants
-    .filter((p) => p.email && (!creatorEmail || p.email.toLowerCase() !== creatorEmail.toLowerCase()))
-    .map((p) => {
-      const myItems = allItems.filter((i) => i.assignee_email && i.assignee_email.toLowerCase() === p.email.toLowerCase());
-      const otherItems = allItems.filter((i) => !i.assignee_email || i.assignee_email.toLowerCase() !== p.email.toLowerCase());
+  const emailQueue: Array<{ to: string; subject: string; html: string; label: string }> = [];
 
-      let myItemsHtml = '';
-      if (myItems.length > 0) {
-        myItemsHtml = `<div style="background:#ecfdf5;border-left:3px solid #22c55e;padding:12px;margin:16px 0;border-radius:0 8px 8px 0">
-          <h3 style="margin:0 0 8px;color:#166534;font-size:16px">Tus compromisos</h3>
-          <ul style="margin:0;padding-left:20px;color:#333">${
-            myItems.map((i) => `<li style="margin-bottom:4px"><strong>${i.description}</strong> — Prioridad: ${i.priority}${i.due_date ? `, Fecha: ${i.due_date}` : ''}</li>`).join('')
-          }</ul></div>`;
-      }
+  for (const p of participants) {
+    if (creatorEmail && p.email.toLowerCase() === creatorEmail.toLowerCase()) continue;
 
-      let otherItemsHtml = '';
-      if (otherItems.length > 0) {
-        otherItemsHtml = `<div style="margin-top:16px">
-          <h4 style="color:#666;font-size:13px;margin-bottom:4px">Otros compromisos de la reunión:</h4>
-          <ul style="padding-left:20px;color:#666;font-size:13px">${
-            otherItems.map((i) => `<li>${i.assignee_name || 'Sin asignar'}: ${i.description}</li>`).join('')
-          }</ul></div>`;
-      }
+    const myItems = matchItemsToParticipant(allItems, p.name, p.email);
+    const otherItems = allItems.filter((i) => !myItems.includes(i));
 
-      return sendMail({
-        to: p.email,
-        subject: `[ZRNote] ${meeting.title} — Minuta y compromisos`,
-        html: `<p>Hola ${p.name},</p><p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa y tus compromisos.</p>${myItemsHtml}${otherItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
-      }).then((result) => ({
-        email: p.email,
-        ...result,
-      }));
-    });
-
-  const creatorEmailPromise = creatorEmail
-    ? sendMail({
-        to: creatorEmail,
-        subject: `[ZRNote] ${meeting.title} — Minuta completa + todas las tareas`,
-        html: `<p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa con todas las tareas asignadas.</p>${allItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
-      }).then((result) => ({
-        email: `coordinator (${creatorEmail})`,
-        ...result,
-      }))
-    : null;
-
-  const allPromises = creatorEmailPromise
-    ? [...emailPromises, creatorEmailPromise]
-    : emailPromises;
-
-  const results = await Promise.allSettled(allPromises);
-  const resultMessages = results.map((r) => {
-    if (r.status === 'fulfilled') {
-      return `${r.value.email}: ${r.value.ok ? 'enviado' : `error: ${r.value.error}`}`;
+    let myItemsHtml = '';
+    if (myItems.length > 0) {
+      myItemsHtml = `<div style="background:#ecfdf5;border-left:3px solid #22c55e;padding:12px;margin:16px 0;border-radius:0 8px 8px 0">
+        <h3 style="margin:0 0 8px;color:#166534;font-size:16px">Tus compromisos</h3>
+        <ul style="margin:0;padding-left:20px;color:#333">${
+          myItems.map((i) => `<li style="margin-bottom:4px"><strong>${i.description}</strong> — Prioridad: ${i.priority}${i.due_date ? `, Fecha: ${i.due_date}` : ''}</li>`).join('')
+        }</ul></div>`;
     }
-    return `error: ${r.reason}`;
-  });
+
+    let otherItemsHtml = '';
+    if (otherItems.length > 0) {
+      otherItemsHtml = `<div style="margin-top:16px">
+        <h4 style="color:#666;font-size:13px;margin-bottom:4px">Otros compromisos de la reunión:</h4>
+        <ul style="padding-left:20px;color:#666;font-size:13px">${
+          otherItems.map((i) => `<li>${i.assignee_name || 'Sin asignar'}: ${i.description}</li>`).join('')
+        }</ul></div>`;
+    }
+
+    emailQueue.push({
+      to: p.email,
+      subject: `[ZRNote] ${meeting.title} — Minuta y compromisos`,
+      html: `<p>Hola ${p.name},</p><p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa y tus compromisos.</p>${myItemsHtml}${otherItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
+      label: p.email,
+    });
+  }
+
+  if (creatorEmail) {
+    emailQueue.push({
+      to: creatorEmail,
+      subject: `[ZRNote] ${meeting.title} — Minuta completa + todas las tareas`,
+      html: `<p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa con todas las tareas asignadas.</p>${allItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
+      label: `coordinator (${creatorEmail})`,
+    });
+  }
+
+  const results: Array<{ email: string; ok: boolean; error?: string }> = [];
+
+  for (const job of emailQueue) {
+    const result = await sendWithRetry(() =>
+      sendMail({ to: job.to, subject: job.subject, html: job.html })
+    );
+    results.push({ email: job.label, ...result });
+    if (emailQueue.indexOf(job) < emailQueue.length - 1) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
 
   await supabase.from('email_logs').insert(
     results.map((r) => ({
       meeting_id: params.id,
-      recipient_email: r.status === 'fulfilled' ? r.value.email : 'unknown',
-      type: r.status === 'fulfilled' && r.value.email.includes('coordinator') ? 'coordinator_summary' : 'personal',
-      status: r.status === 'fulfilled' && r.value.ok ? 'sent' : 'failed',
+      recipient_email: r.email,
+      type: r.email.includes('coordinator') ? 'coordinator_summary' : 'personal',
+      status: r.ok ? 'sent' : 'failed',
     }))
   );
 
-  return NextResponse.json({ ok: true, results: resultMessages });
+  return NextResponse.json({ ok: true, results: results.map((r) => `${r.email}: ${r.ok ? 'enviado' : `error: ${r.error}`}`) });
 }
