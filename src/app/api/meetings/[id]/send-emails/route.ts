@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { sendMail } from '@/lib/smtp';
+import { generateICS, icsToBuffer, CalendarEvent } from '@/lib/ics';
 
 function buildMinuteHtml(minute: any): string {
   if (!minute) return '<p>Minuta no disponible.</p>';
@@ -173,7 +174,7 @@ export async function POST(
   const minuteHtml = buildMinuteHtml(minute);
   const allItemsHtml = buildActionItemsHtml(allItems);
 
-  const emailQueue: Array<{ to: string; subject: string; html: string; label: string }> = [];
+  const emailQueue: Array<{ to: string; subject: string; html: string; label: string; attachments?: Array<{ filename: string; content: Buffer; contentType: string }> }> = [];
 
   for (const p of participants) {
     if (creatorEmail && p.email.toLowerCase() === creatorEmail.toLowerCase()) continue;
@@ -199,20 +200,59 @@ export async function POST(
         }</ul></div>`;
     }
 
+    const calendarEvents: CalendarEvent[] = myItems
+      .filter((i) => i.due_date)
+      .map((i) => ({
+        uid: `${i.id}@zrnote`,
+        summary: i.description,
+        description: `Prioridad: ${i.priority}\\nReunión: ${meeting.title}\\nResponsable: ${p.name}`,
+        dueDate: i.due_date,
+        priority: i.priority,
+        assigneeName: p.name,
+      }));
+
+    const icsContent = generateICS(calendarEvents);
+    const attachments = icsContent
+      ? [{ filename: 'compromisos.ics', content: icsToBuffer(icsContent), contentType: 'text/calendar; charset=utf-8' }]
+      : undefined;
+
+    const calendarNote = calendarEvents.length > 0
+      ? `<p style="background:#eff6ff;border-left:3px solid #3b82f6;padding:10px 14px;margin:12px 0;border-radius:0 8px 8px 0;font-size:13px;color:#1e40af">📅 Se adjuntó un archivo de calendario con ${calendarEvents.length} compromiso(s). Ábrelo para agregarlo a tu calendario.</p>`
+      : '';
+
     emailQueue.push({
       to: p.email,
       subject: `[ZRNote] ${meeting.title} — Minuta y compromisos`,
-      html: `<p>Hola ${p.name},</p><p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa y tus compromisos.</p>${myItemsHtml}${otherItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
+      html: `<p>Hola ${p.name},</p><p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa y tus compromisos.</p>${calendarNote}${myItemsHtml}${otherItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
       label: p.email,
+      attachments,
     });
   }
+
+  const creatorItems = matchItemsToParticipant(allItems, '', creatorEmail || '');
+  const creatorCalendarEvents: CalendarEvent[] = allItems
+    .filter((i) => i.due_date)
+    .map((i) => ({
+      uid: `${i.id}@zrnote`,
+      summary: i.description,
+      description: `Prioridad: ${i.priority}\\nReunión: ${meeting.title}\\nResponsable: ${i.assignee_name || 'Sin asignar'}`,
+      dueDate: i.due_date,
+      priority: i.priority,
+      assigneeName: i.assignee_name || '',
+    }));
+
+  const creatorIcs = generateICS(creatorCalendarEvents);
+  const creatorAttachments = creatorIcs
+    ? [{ filename: 'compromisos_todos.ics', content: icsToBuffer(creatorIcs), contentType: 'text/calendar; charset=utf-8' }]
+    : undefined;
 
   if (creatorEmail) {
     emailQueue.push({
       to: creatorEmail,
       subject: `[ZRNote] ${meeting.title} — Minuta completa + todas las tareas`,
-      html: `<p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa con todas las tareas asignadas.</p>${allItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
+      html: `<p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa con todas las tareas asignadas.</p>${creatorCalendarEvents.length > 0 ? `<p style="background:#eff6ff;border-left:3px solid #3b82f6;padding:10px 14px;margin:12px 0;border-radius:0 8px 8px 0;font-size:13px;color:#1e40af">📅 Se adjuntó un archivo de calendario con ${creatorCalendarEvents.length} compromiso(s).</p>` : ''}${allItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
       label: `coordinator (${creatorEmail})`,
+      attachments: creatorAttachments,
     });
   }
 
@@ -220,7 +260,7 @@ export async function POST(
 
   for (const job of emailQueue) {
     const result = await sendWithRetry(() =>
-      sendMail({ to: job.to, subject: job.subject, html: job.html })
+      sendMail({ to: job.to, subject: job.subject, html: job.html, attachments: job.attachments })
     );
     results.push({ email: job.label, ...result });
     if (emailQueue.indexOf(job) < emailQueue.length - 1) {

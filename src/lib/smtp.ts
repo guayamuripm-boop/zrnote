@@ -12,15 +12,21 @@ interface SendMailOptions {
   to: string;
   subject: string;
   html: string;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer | string;
+    contentType?: string;
+  }>;
 }
 
-export async function sendMail({ to, subject, html }: SendMailOptions): Promise<{ ok: boolean; error?: string }> {
+export async function sendMail({ to, subject, html, attachments }: SendMailOptions): Promise<{ ok: boolean; error?: string }> {
   try {
     await transporter.sendMail({
       from: `"ZRNote" <${process.env.GMAIL_USER}>`,
       to,
       subject,
       html,
+      attachments,
     });
     return { ok: true };
   } catch (err: any) {
