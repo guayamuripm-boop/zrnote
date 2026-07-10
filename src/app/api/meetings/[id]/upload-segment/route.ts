@@ -14,7 +14,10 @@ const ALLOWED_TYPES: Record<string, string> = {
   'audio/3gpp': '3gp',
 };
 
-const MAX_SIZE = 25 * 1024 * 1024; // 25MB Groq Whisper limit
+// Vercel Serverless Functions reject any request body over 4.5MB at the
+// platform level (FUNCTION_PAYLOAD_TOO_LARGE) before this handler even runs,
+// regardless of Groq Whisper's own 25MB limit — so this must stay under 4.5MB.
+const MAX_SIZE = 4 * 1024 * 1024; // 4MB, safely under Vercel's 4.5MB body cap
 
 export async function POST(
   request: Request,
@@ -36,7 +39,7 @@ export async function POST(
   }
 
   if (audioFile.size > MAX_SIZE) {
-    return NextResponse.json({ error: `Archivo muy grande (${(audioFile.size / 1024 / 1024).toFixed(1)}MB). Máximo 25MB.` }, { status: 400 });
+    return NextResponse.json({ error: `Archivo muy grande (${(audioFile.size / 1024 / 1024).toFixed(1)}MB). Máximo 4MB por archivo — para audios más largos usa "Grabar" en vez de subir un archivo.` }, { status: 400 });
   }
 
   const ext = ALLOWED_TYPES[audioFile.type] || audioFile.name.split('.').pop() || 'webm';

@@ -10,6 +10,7 @@ export default function SpeakersPage() {
   const [name, setName] = useState('');
   const [label, setLabel] = useState('');
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const addSpeaker = () => {
     if (name && label) {
@@ -20,12 +21,19 @@ export default function SpeakersPage() {
   };
 
   const saveSpeakers = async () => {
-    await fetch(`/api/meetings/${params.id}/speaker-map`, {
-      method: 'POST',
+    setError(null);
+    const speaker_map = Object.fromEntries(speakers.map((s) => [s.label, s.name]));
+    const res = await fetch(`/api/meetings/${params.id}/speaker-map`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ speakers }),
+      body: JSON.stringify({ speaker_map }),
     });
-    setSaved(true);
+    if (res.ok) {
+      setSaved(true);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || 'No se pudo guardar');
+    }
   };
 
   return (
@@ -99,6 +107,7 @@ export default function SpeakersPage() {
           >
             {saved ? '✓ Guardado' : 'Guardar Participantes'}
           </button>
+          {error && <p className="text-sm text-rose-600 dark:text-rose-400 text-center">{error}</p>}
         </div>
       )}
     </div>

@@ -341,6 +341,18 @@ export default async function MeetingDetailPage({
         </section>
       )}
 
+      {/* Processing State — recovery in case the worker died without updating status */}
+      {meeting.status === 'processing' && (
+        <section className="glass-strong rounded-2xl p-6 text-center space-y-3">
+          <div className="w-10 h-10 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-slate-600 dark:text-slate-300 font-medium">Procesando audio y generando minuta…</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            Si esto no avanza después de varios minutos, puede reintentarse.
+          </p>
+          <RetryButton meetingId={meeting.id} />
+        </section>
+      )}
+
       {/* Failed State */}
       {meeting.status === 'failed' && (
         <section className="glass-strong rounded-2xl p-6 text-center space-y-4 border border-rose-200/50 dark:border-rose-800/40">

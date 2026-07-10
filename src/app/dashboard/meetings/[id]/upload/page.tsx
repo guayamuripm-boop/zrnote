@@ -10,6 +10,9 @@ interface UploadedFile {
   error?: string;
 }
 
+// Must stay under Vercel's hard 4.5MB request body limit for Serverless Functions.
+const MAX_FILE_SIZE = 4 * 1024 * 1024;
+
 export default function UploadAudioPage() {
   const router = useRouter();
   const params = useParams();
@@ -25,7 +28,16 @@ export default function UploadAudioPage() {
     const audioFiles = Array.from(newFiles).filter((f) =>
       f.type.startsWith('audio/') || /\.(webm|mp3|m4a|ogg|wav|mpeg|mpg|3gp|aac)$/i.test(f.name)
     );
-    setFiles((prev) => [...prev, ...audioFiles.map((file) => ({ file, status: 'pending' as const }))]);
+    setFiles((prev) => [
+      ...prev,
+      ...audioFiles.map((file) => ({
+        file,
+        status: (file.size > MAX_FILE_SIZE ? 'error' : 'pending') as UploadedFile['status'],
+        error: file.size > MAX_FILE_SIZE
+          ? `Muy grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Máximo 4MB — usa "Grabar" para audios largos.`
+          : undefined,
+      })),
+    ]);
   }, []);
 
   const removeFile = (index: number) => {
@@ -87,7 +99,10 @@ export default function UploadAudioPage() {
         </Link>
         <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Subir Audio</h1>
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-          Formatos: MP3, M4A, WAV, OGG, WebM — Máximo 25MB
+          Formatos: MP3, M4A, WAV, OGG, WebM — Máximo 4MB por archivo
+        </p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+          ¿Audio más largo? Usa &quot;Grabar&quot; en vez de subir un archivo — graba y sube en vivo sin límite de tamaño.
         </p>
       </div>
 
@@ -141,11 +156,11 @@ export default function UploadAudioPage() {
                 </div>
               )}
               {f.status === 'error' && (
-                <div className="w-6 h-6 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center">
+                <button onClick={() => removeFile(i)} className="w-6 h-6 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center hover:bg-rose-200 dark:hover:bg-rose-900/50 transition">
                   <svg className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                </div>
+                </button>
               )}
               {f.status === 'pending' && (
                 <button onClick={() => removeFile(i)} className="text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 transition">

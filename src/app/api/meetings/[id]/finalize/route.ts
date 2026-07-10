@@ -2,6 +2,11 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { triggerProcessing } from '@/lib/queue';
 
+// If a meeting has been "processing" longer than this, assume the Edge
+// Function died without reaching its own catch block (timeout, crash, cold
+// start failure) and let the user retry instead of being stuck forever.
+const STALE_PROCESSING_MS = 10 * 60 * 1000;
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
@@ -15,7 +20,7 @@ export async function POST(
 
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('status')
+    .select('status, ended_at')
     .eq('id', params.id)
     .eq('created_by', user.id)
     .single();
@@ -29,10 +34,15 @@ export async function POST(
   }
 
   if (meeting.status === 'processing') {
-    return NextResponse.json({ error: 'La reunión ya se está procesando' }, { status: 400 });
+    const startedAt = meeting.ended_at ? new Date(meeting.ended_at).getTime() : 0;
+    const isStale = Date.now() - startedAt > STALE_PROCESSING_MS;
+    if (!isStale) {
+      return NextResponse.json({ error: 'La reunión ya se está procesando' }, { status: 400 });
+    }
+    // Stale lock — the previous run likely died without updating status. Fall through to retry.
   }
 
-  if (meeting.status === 'failed') {
+  if (meeting.status === 'failed' || meeting.status === 'processing') {
     const { error: updateError } = await supabase
       .from('meetings')
       .update({

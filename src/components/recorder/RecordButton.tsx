@@ -26,11 +26,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const segmentTimerRef = useRef<NodeJS.Timeout | null>(null);
   const flushTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const pendingUploadRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingUploadsRef = useRef<Promise<void>[]>([]);
   const segmentCountRef = useRef(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const isRecordingRef = useRef(false);
   const meetingIdRef = useRef(meetingId);
+  const [failedSegments, setFailedSegments] = useState(0);
 
   meetingIdRef.current = meetingId;
 
@@ -41,7 +42,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const uploadSegment = async (blob: Blob, index: number) => {
+  const uploadSegmentOnce = async (blob: Blob, index: number) => {
     const formData = new FormData();
     formData.append('audio', blob, `segment_${index}.webm`);
     formData.append('segmentIndex', index.toString());
@@ -52,8 +53,20 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     });
 
     if (!response.ok) {
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       throw new Error(data.error || 'Upload failed');
+    }
+  };
+
+  const uploadSegment = async (blob: Blob, index: number, maxAttempts = 3) => {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await uploadSegmentOnce(blob, index);
+        return;
+      } catch (err) {
+        if (attempt === maxAttempts) throw err;
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+      }
     }
   };
 
@@ -67,10 +80,11 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     setSegmentCount((prev) => prev + 1);
 
     const uploadPromise = uploadSegment(blob, currentSegment).catch((err) => {
-      console.error('Segment upload error:', err);
+      console.error(`Segment ${currentSegment} upload failed after retries:`, err);
+      setFailedSegments((prev) => prev + 1);
     });
 
-    pendingUploadRef.current = uploadPromise;
+    pendingUploadsRef.current.push(uploadPromise);
   }, []);
 
   const handleDataAvailable = useCallback((event: BlobEvent) => {
@@ -141,12 +155,15 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       streamRef.current = stream;
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus',
+        audioBitsPerSecond: 32000,
       });
 
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
       segmentCountRef.current = 0;
+      pendingUploadsRef.current = [];
       setSegmentCount(0);
+      setFailedSegments(0);
       setElapsed(0);
       setError(null);
       isRecordingRef.current = true;
@@ -236,7 +253,11 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     await releaseWakeLock();
     setState('uploading');
     await flushSegment();
-    await pendingUploadRef.current;
+    await Promise.all(pendingUploadsRef.current);
+
+    if (failedSegments > 0) {
+      setError(`${failedSegments} segmento(s) de audio no se pudieron subir. La minuta puede quedar incompleta.`);
+    }
 
     setState('finalizing');
     try {
