@@ -183,18 +183,21 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     }
   }
 
-  const newOffset = offset + batch.length;
-  const existingTranscript = meeting.transcript_raw || '';
-  const fullTranscript = existingTranscript
-    ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
-    : newTranscriptions.join('\n\n');
-  const more = newOffset < segments.length;
+const newOffset = offset + processed;
+   const existingTranscript = meeting.transcript_raw || '';
+   const fullTranscript = existingTranscript
+     ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
+     : newTranscriptions.join('\n\n');
+   const more = finalOffset < segments.length;
+
+   // If nothing processed this batch (all failed), skip remaining in this batch to avoid infinite loop
+   const finalOffset = processed > 0 ? newOffset : offset + batch.length;
 
   const { error: updateError } = await supabase
     .from('meetings')
     .update({
       transcript_raw: fullTranscript,
-      segments_transcribed_offset: newOffset,
+      segments_transcribed_offset: finalOffset,
     })
     .eq('id', meetingId);
 
@@ -202,8 +205,8 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     return { success: false, error: `Failed to save transcript: ${updateError.message}`, segmentsProcessed: processed, segmentsTotal: segments.length, more: false };
   }
 
-  logger.info('Transcription batch completed', { meetingId, processed, newOffset, total: segments.length, more });
-  return { success: true, transcript: fullTranscript, segmentsProcessed: newOffset, segmentsTotal: segments.length, more };
+  logger.info('Transcription batch completed', { meetingId, processed, newOffset: finalOffset, total: segments.length, more });
+  return { success: true, transcript: fullTranscript, segmentsProcessed: finalOffset, segmentsTotal: segments.length, more };
 }
 
 const MINUTE_PROMPT = (transcript: string) => `
@@ -379,6 +382,15 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
 }
 
 export async function sendMeetingEmails(meetingId: string): Promise<EmailResult> {
+  try {
+    return await _sendMeetingEmails(meetingId);
+  } catch (err: any) {
+    logger.error('sendMeetingEmails crashed', { meetingId, error: err?.message, stack: err?.stack });
+    return { success: false, sent: 0, failed: 0, error: err?.message || 'Unknown error' };
+  }
+}
+
+async function _sendMeetingEmails(meetingId: string): Promise<EmailResult> {
   const supabase = getSupabaseAdmin();
 
   logger.info('Starting email send', { meetingId });

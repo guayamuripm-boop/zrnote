@@ -48,6 +48,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const [failedSegments, setFailedSegments] = useState(0);
   const [speakerHint, setSpeakerHint] = useState<string>('');
   const [showSpeakerHintModal, setShowSpeakerHintModal] = useState(false);
+  const mimeTypeRef = useRef<string>('audio/webm;codecs=opus');
   const [pendingSpeakerHintSegment, setPendingSpeakerHintSegment] = useState<number | null>(null);
 
   meetingIdRef.current = meetingId;
@@ -60,11 +61,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   };
 
   const uploadSegmentOnce = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number) => {
-    // Comprimir si el blob es > 2MB para evitar límites de 4MB en Vercel
     const blobToUpload = await maybeCompressAudio(blob, 2);
     
+    const ext = mimeTypeRef.current.includes('mp4') ? 'mp4' : mimeTypeRef.current.includes('ogg') ? 'ogg' : 'webm';
+    
     const formData = new FormData();
-    formData.append('audio', blobToUpload, `segment_${index}.webm`);
+    formData.append('audio', blobToUpload, `segment_${index}.${ext}`);
     formData.append('segmentIndex', index.toString());
     if (speakerHint) {
       formData.append('speakerHint', speakerHint);
@@ -98,7 +100,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
   const flushSegment = useCallback(async () => {
     if (chunksRef.current.length === 0) return;
-    const blob = new Blob(chunksRef.current, { type: 'audio/webm;codecs=opus' });
+    const blob = new Blob(chunksRef.current, { type: mimeType });
     chunksRef.current = [];
 
     const currentSegment = segmentCountRef.current;
@@ -130,7 +132,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
   const flushChunks = useCallback(async () => {
     if (chunksRef.current.length === 0) return;
-    const blob = new Blob(chunksRef.current, { type: 'audio/webm;codecs=opus' });
+    const blob = new Blob(chunksRef.current, { type: mimeType });
     chunksRef.current = [];
 
     const currentSegment = segmentCountRef.current;
@@ -334,8 +336,26 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       });
 
       streamRef.current = stream;
+
+      // Detect best supported mimeType
+      const mimeTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/mp4',
+      ];
+      let mimeType = 'audio/webm;codecs=opus';
+      for (const mt of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mt)) {
+          mimeType = mt;
+          break;
+        }
+      }
+      console.log('[RecordButton] Using mimeType:', mimeType);
+      mimeTypeRef.current = mimeType;
+
       const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
+        mimeType,
         audioBitsPerSecond: 32000,
       });
 
