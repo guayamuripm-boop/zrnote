@@ -184,14 +184,13 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   }
 
 const newOffset = offset + processed;
+   // If nothing processed this batch (all failed), skip remaining in this batch to avoid infinite loop
+   const finalOffset = processed > 0 ? newOffset : offset + batch.length;
    const existingTranscript = meeting.transcript_raw || '';
    const fullTranscript = existingTranscript
      ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
      : newTranscriptions.join('\n\n');
    const more = finalOffset < segments.length;
-
-   // If nothing processed this batch (all failed), skip remaining in this batch to avoid infinite loop
-   const finalOffset = processed > 0 ? newOffset : offset + batch.length;
 
   const { error: updateError } = await supabase
     .from('meetings')
