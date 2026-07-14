@@ -3,20 +3,50 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+const STEPS = ['transcribe', 'analyze', 'vectorize', 'emails'] as const;
+
 export default function RetryButton({ meetingId }: { meetingId: string }) {
   const [loading, setLoading] = useState(false);
+  const [stepMsg, setStepMsg] = useState('');
   const router = useRouter();
 
   const handleRetry = async () => {
     setLoading(true);
-    const res = await fetch(`/api/meetings/${meetingId}/finalize`, { method: 'POST' });
-    if (res.ok) {
-      router.refresh();
-    } else {
-      const data = await res.json();
-      alert('Error al reintentar: ' + (data.error || 'desconocido'));
+
+    // First reset status via /finalize
+    const finalizeRes = await fetch(`/api/meetings/${meetingId}/finalize`, { method: 'POST' });
+    if (!finalizeRes.ok) {
+      const data = await finalizeRes.json();
+      alert('Error al reiniciar: ' + (data.error || 'desconocido'));
       setLoading(false);
+      return;
     }
+
+    // Then run pipeline steps, auto-detecting where to start
+    for (const step of STEPS) {
+      setStepMsg(step === 'transcribe' ? 'Transcribiendo...' : step === 'analyze' ? 'Generando minuta...' : step === 'vectorize' ? 'Indexando...' : 'Enviando correos...');
+
+      const res = await fetch(`/api/meetings/${meetingId}/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        // If step not applicable, continue to next
+        if (data.error?.includes('Invalid status') || data.error?.includes('Run')) continue;
+        alert('Error: ' + (data.error || 'desconocido'));
+        setLoading(false);
+        return;
+      }
+
+      // Small delay between steps for UI feedback
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    setLoading(false);
+    router.refresh();
   };
 
   return (
@@ -31,7 +61,7 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          Reintentando...
+          {stepMsg}
         </>
       ) : (
         <>

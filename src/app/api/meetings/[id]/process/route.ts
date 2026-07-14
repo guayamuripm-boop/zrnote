@@ -27,7 +27,7 @@ function checkRateLimit(key: string): boolean {
 }
 
 const processSchema = z.object({
-  step: z.enum(['transcribe', 'analyze', 'emails', 'vectorize']),
+  step: z.enum(['transcribe', 'analyze', 'emails', 'vectorize']).optional(),
 });
 
 export async function POST(
@@ -54,8 +54,47 @@ export async function POST(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { step } = parsed.data;
+  let { step } = parsed.data;
   const meetingId = params.id;
+
+  // Auto-detect next step if not specified
+  if (!step) {
+    const { data: detectMeeting } = await supabase
+      .from('meetings')
+      .select('status, transcript_raw')
+      .eq('id', meetingId)
+      .single();
+
+    if (detectMeeting) {
+      if (detectMeeting.status === 'failed' || detectMeeting.status === 'scheduled') {
+        step = 'transcribe';
+      } else if (!detectMeeting.transcript_raw) {
+        step = 'transcribe';
+      } else {
+        // Check if minute exists
+        const { data: existingMinute } = await supabase
+          .from('minutes')
+          .select('id')
+          .eq('meeting_id', meetingId)
+          .single();
+        if (!existingMinute) {
+          step = 'analyze';
+        } else {
+          // Check if already vectorized
+          const { data: existingChunks } = await supabase
+            .from('meeting_chunks')
+            .select('id')
+            .eq('meeting_id', meetingId)
+            .limit(1);
+          if (!existingChunks || existingChunks.length === 0) {
+            step = 'vectorize';
+          } else {
+            step = 'emails';
+          }
+        }
+      }
+    }
+  }
 
   const { data: meeting } = await supabase
     .from('meetings')
@@ -70,6 +109,10 @@ export async function POST(
 
   if (meeting.status === 'completed') {
     return NextResponse.json({ error: 'Meeting already completed' }, { status: 400 });
+  }
+
+  if (!step) {
+    return NextResponse.json({ error: 'Could not determine next processing step' }, { status: 400 });
   }
 
   const validTransitions: Record<string, string[]> = {

@@ -78,6 +78,23 @@ export default function UploadAudioPage() {
       setProcessing(true);
       try {
         await fetch(`/api/meetings/${meetingId}/finalize`, { method: 'POST' });
+
+        // Run pipeline steps sequentially
+        const processSteps = ['transcribe', 'analyze', 'vectorize', 'emails'];
+        for (const step of processSteps) {
+          const res = await fetch(`/api/meetings/${meetingId}/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ step }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (data.error?.includes('Invalid status') || data.error?.includes('Run')) continue;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 300));
+        }
+
         router.push(`/dashboard/meetings/${meetingId}`);
       } catch {
         setProcessing(false);
