@@ -5,6 +5,22 @@
     },
     "src/app/api/meetings/[id]/finalize/route.ts": {
       "maxDuration": 30
+    },
+    "src/app/api/meetings/[id]/process/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/cron/retention/route.ts": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/retry-stuck",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/retention",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }

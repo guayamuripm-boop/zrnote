@@ -98,6 +98,17 @@ export default async function MeetingDetailPage({
                 </svg>
               </div>
               Minuta
+              {meeting.status === 'completed' && (
+                <a
+                  href={`/api/meetings/${params.id}/export-pdf`}
+                  className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  PDF
+                </a>
+              )}
             </h2>
             <div>
               <h3 className="font-medium text-sm text-slate-500 dark:text-slate-400 mb-1">Resumen</h3>

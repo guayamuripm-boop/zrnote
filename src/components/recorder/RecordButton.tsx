@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { maybeCompressAudio } from '@/lib/audio-compression';
 
-type RecordingState = 'idle' | 'recording' | 'paused' | 'uploading' | 'finalizing';
+type RecordingState = 'idle' | 'recording' | 'paused' | 'uploading' | 'finalizing' | 'processing';
+type ProcessingStep = 'transcribe' | 'analyze' | 'vectorize' | 'emails';
 
 interface RecordButtonProps {
   meetingId: string;
@@ -12,6 +14,8 @@ interface RecordButtonProps {
 
 const SEGMENT_DURATION_MS = 30 * 60 * 1000;
 const FLUSH_INTERVAL_MS = 30 * 1000;
+const POLL_INTERVAL_MS = 3000;
+const MAX_POLL_ATTEMPTS = 120;
 
 export default function RecordButton({ meetingId, meetingTitle, onFinalized }: RecordButtonProps) {
   const [state, setState] = useState<RecordingState>('idle');
@@ -19,6 +23,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const [segmentCount, setSegmentCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [wakeLockActive, setWakeLockActive] = useState(false);
+  const [processingStep, setProcessingStep] = useState<ProcessingStep | null>(null);
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [processingMessage, setProcessingMessage] = useState('');
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -31,7 +38,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const isRecordingRef = useRef(false);
   const meetingIdRef = useRef(meetingId);
+  const pollAttemptsRef = useRef(0);
+  const segmentStartTimeRef = useRef<number>(Date.now());
   const [failedSegments, setFailedSegments] = useState(0);
+  const [speakerHint, setSpeakerHint] = useState<string>('');
+  const [showSpeakerHintModal, setShowSpeakerHintModal] = useState(false);
+  const [pendingSpeakerHintSegment, setPendingSpeakerHintSegment] = useState<number | null>(null);
 
   meetingIdRef.current = meetingId;
 
@@ -42,10 +54,19 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const uploadSegmentOnce = async (blob: Blob, index: number) => {
+  const uploadSegmentOnce = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number) => {
+    // Comprimir si el blob es > 2MB para evitar límites de 4MB en Vercel
+    const blobToUpload = await maybeCompressAudio(blob, 2);
+    
     const formData = new FormData();
-    formData.append('audio', blob, `segment_${index}.webm`);
+    formData.append('audio', blobToUpload, `segment_${index}.webm`);
     formData.append('segmentIndex', index.toString());
+    if (speakerHint) {
+      formData.append('speakerHint', speakerHint);
+    }
+    if (durationSec !== undefined) {
+      formData.append('durationSec', durationSec.toString());
+    }
 
     const response = await fetch(`/api/meetings/${meetingIdRef.current}/upload-segment`, {
       method: 'POST',
@@ -58,10 +79,10 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   };
 
-  const uploadSegment = async (blob: Blob, index: number, maxAttempts = 3) => {
+  const uploadSegment = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number, maxAttempts = 3) => {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await uploadSegmentOnce(blob, index);
+        await uploadSegmentOnce(blob, index, speakerHint, durationSec);
         return;
       } catch (err) {
         if (attempt === maxAttempts) throw err;
@@ -76,16 +97,55 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     chunksRef.current = [];
 
     const currentSegment = segmentCountRef.current;
-    segmentCountRef.current += 1;
-    setSegmentCount((prev) => prev + 1);
-
-    const uploadPromise = uploadSegment(blob, currentSegment).catch((err) => {
+    
+    // Calculate actual duration of this segment in seconds
+    const durationSec = Math.round((Date.now() - segmentStartTimeRef.current) / 1000);
+    
+    // Use confirmed speaker hint for this segment
+    const hintToUse = speakerHint && pendingSpeakerHintSegment === currentSegment ? speakerHint : undefined;
+    
+    const uploadPromise = uploadSegment(blob, currentSegment, hintToUse, durationSec).catch((err) => {
       console.error(`Segment ${currentSegment} upload failed after retries:`, err);
       setFailedSegments((prev) => prev + 1);
     });
 
+    // Clear hint after using it
+    if (hintToUse) {
+      setSpeakerHint('');
+      setPendingSpeakerHintSegment(null);
+    }
+
+    // Reset segment start time for next segment
+    segmentStartTimeRef.current = Date.now();
+
     pendingUploadsRef.current.push(uploadPromise);
-  }, []);
+  }, [speakerHint, pendingSpeakerHintSegment]);
+
+  // Flush chunks to current segment WITHOUT creating new segment (called every 30s)
+  const flushChunks = useCallback(async () => {
+    if (chunksRef.current.length === 0) return;
+    const blob = new Blob(chunksRef.current, { type: 'audio/webm;codecs=opus' });
+    chunksRef.current = [];
+
+    const currentSegment = segmentCountRef.current;
+    const durationSec = Math.round((Date.now() - segmentStartTimeRef.current) / 1000);
+    
+    const hintToUse = speakerHint && pendingSpeakerHintSegment === currentSegment ? speakerHint : undefined;
+    
+    const uploadPromise = uploadSegment(blob, currentSegment, hintToUse, durationSec).catch((err) => {
+      console.error(`Segment ${currentSegment} upload failed after retries:`, err);
+      setFailedSegments((prev) => prev + 1);
+    });
+
+    // Clear hint after using it
+    if (hintToUse) {
+      setSpeakerHint('');
+      setPendingSpeakerHintSegment(null);
+    }
+
+    // Don't reset segmentStartTimeRef - same segment continues
+    pendingUploadsRef.current.push(uploadPromise);
+  }, [speakerHint, pendingSpeakerHintSegment]);
 
   const handleDataAvailable = useCallback((event: BlobEvent) => {
     if (event.data.size > 0) {
@@ -142,6 +202,17 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   }, [flushSegment]);
 
+  const handleConfirmSpeakerHint = useCallback(() => {
+    // The hint will be used in the next flushSegment call
+    setShowSpeakerHintModal(false);
+  }, []);
+
+  const handleSkipSpeakerHint = useCallback(() => {
+    setSpeakerHint('');
+    setShowSpeakerHintModal(false);
+    setPendingSpeakerHintSegment(null);
+  }, []);
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -173,13 +244,17 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
       flushTimerRef.current = setInterval(() => {
         if (isRecordingRef.current && chunksRef.current.length > 0) {
-          flushSegment();
+          flushChunks();
         }
       }, FLUSH_INTERVAL_MS);
 
       segmentTimerRef.current = setInterval(() => {
         if (isRecordingRef.current) {
           flushSegment();
+          // Show speaker hint modal for the next 30-min segment
+          const nextSegmentIndex = segmentCountRef.current;
+          setPendingSpeakerHintSegment(nextSegmentIndex);
+          setShowSpeakerHintModal(true);
         }
       }, SEGMENT_DURATION_MS);
 
@@ -229,6 +304,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       segmentTimerRef.current = setInterval(() => {
         if (isRecordingRef.current) {
           flushSegment();
+          const nextSegmentIndex = segmentCountRef.current;
+          setPendingSpeakerHintSegment(nextSegmentIndex);
+          setShowSpeakerHintModal(true);
         }
       }, SEGMENT_DURATION_MS);
 
@@ -259,21 +337,82 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       setError(`${failedSegments} segmento(s) de audio no se pudieron subir. La minuta puede quedar incompleta.`);
     }
 
-    setState('finalizing');
-    try {
-      const res = await fetch(`/api/meetings/${meetingIdRef.current}/finalize`, { method: 'POST' });
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || 'Error al finalizar');
+    // Start sequential processing via polling
+    setState('processing');
+    setProcessingStep('transcribe');
+    setProcessingProgress(0);
+    setProcessingMessage('Transcribiendo audio...');
+    pollAttemptsRef.current = 0;
+
+const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'emails'];
+  const stepMessages: Record<ProcessingStep, string> = {
+    transcribe: 'Transcribiendo audio...',
+    analyze: 'Generando minuta con IA...',
+    vectorize: 'Indexando para búsqueda inteligente...',
+    emails: 'Enviando correos...',
+  };
+
+    for (const step of processSteps) {
+      setProcessingStep(step);
+      setProcessingMessage(stepMessages[step]);
+      setProcessingProgress(0);
+      pollAttemptsRef.current = 0;
+
+      const stepResult = await pollProcessingStep(meetingIdRef.current, step);
+      
+      if (!stepResult.ok) {
+        setError(stepResult.error || `Error en paso: ${step}`);
         setState('idle');
+        setProcessingStep(null);
         return;
       }
-      onFinalized?.();
-    } catch (err) {
-      console.error('Error finalizing:', err);
-      setError('Error de conexión al finalizar');
-      setState('idle');
+      
+      // Update progress
+      setProcessingProgress(100);
+      await new Promise((r) => setTimeout(r, 500));
     }
+
+    setProcessingStep(null);
+    setProcessingMessage('¡Completado!');
+    onFinalized?.();
+  };
+
+  const pollProcessingStep = async (meetingId: string, step: ProcessingStep): Promise<{ ok: boolean; error?: string }> => {
+    while (pollAttemptsRef.current < MAX_POLL_ATTEMPTS) {
+      pollAttemptsRef.current++;
+      const progress = Math.min(90, (pollAttemptsRef.current / MAX_POLL_ATTEMPTS) * 90);
+      setProcessingProgress(progress);
+
+      try {
+        const res = await fetch(`/api/meetings/${meetingId}/process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok) {
+            return { ok: true };
+          }
+          // If step not ready yet (e.g., analyze before transcribe), wait and retry
+          if (data.error?.includes('Invalid status') || data.error?.includes('Run transcribe step first')) {
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+            continue;
+          }
+          return { ok: false, error: data.error || `Step ${step} failed` };
+        }
+
+        const errData = await res.json().catch(() => ({}));
+        return { ok: false, error: errData.error || `HTTP ${res.status}` };
+      } catch (err) {
+        return { ok: false, error: 'Error de conexión' };
+      }
+
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+
+    return { ok: false, error: `Timeout en paso: ${step}` };
   };
 
   useEffect(() => {
@@ -319,7 +458,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
             {(state === 'recording' || state === 'paused') && (
               <span className={`w-3 h-3 rounded-full ${state === 'recording' ? 'bg-rose-500 animate-pulse dark:bg-rose-400' : 'bg-amber-400 dark:bg-amber-500'}`} />
             )}
-            {(state === 'uploading' || state === 'finalizing') && (
+            {(state === 'uploading' || state === 'finalizing' || state === 'processing') && (
               <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
             )}
             <span className="text-4xl sm:text-5xl font-light text-slate-900 dark:text-slate-100 tracking-wider tabular-nums">
@@ -332,6 +471,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
               {state === 'paused' && 'En pausa'}
               {state === 'uploading' && 'Guardando...'}
               {state === 'finalizing' && 'Procesando...'}
+              {state === 'processing' && processingStep && (
+                <>
+                  {processingStep === 'transcribe' && 'Transcribiendo...'}
+                  {processingStep === 'analyze' && 'Generando minuta...'}
+                  {processingStep === 'emails' && 'Enviando correos...'}
+                </>
+              )}
             </p>
             {state === 'recording' && wakeLockActive && (
               <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1">
@@ -416,17 +562,77 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
             <span>{state === 'uploading' ? 'Guardando...' : 'Procesando...'}</span>
           </div>
         )}
+
+        {state === 'processing' && processingStep && (
+          <div className="w-full max-w-sm space-y-3 text-center">
+            <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{processingMessage}</p>
+              <div className="w-full glass rounded-full h-2 overflow-hidden">
+                <div 
+                  className="gradient-primary h-2 rounded-full transition-all duration-300" 
+                  style={{ width: `${processingProgress}%` }} 
+                />
+              </div>
+              <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                <span>Paso: {processingStep === 'transcribe' ? '1/3' : processingStep === 'analyze' ? '2/3' : '3/3'}</span>
+                <span>Intento: {pollAttemptsRef.current}/{MAX_POLL_ATTEMPTS}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {state === 'finalizing' && (
+          <div className="w-full max-w-sm space-y-2">
+            <div className="flex justify-between text-xs text-slate-400 dark:text-slate-500">
+              <span>Transcribiendo audio...</span>
+              <span>~30s</span>
+            </div>
+            <div className="w-full glass rounded-full h-1.5 overflow-hidden">
+              <div className="gradient-primary h-1.5 rounded-full animate-pulse" style={{ width: '60%' }} />
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Progress hint */}
-      {state === 'finalizing' && (
-        <div className="w-full max-w-sm space-y-2">
-          <div className="flex justify-between text-xs text-slate-400 dark:text-slate-500">
-            <span>Transcribiendo audio...</span>
-            <span>~30s</span>
-          </div>
-          <div className="w-full glass rounded-full h-1.5 overflow-hidden">
-            <div className="gradient-primary h-1.5 rounded-full animate-pulse" style={{ width: '60%' }} />
+      {showSpeakerHintModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="glass-strong rounded-2xl p-6 w-full max-w-md animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">¿Quién está hablando ahora?</h3>
+            </div>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+              Segmento de 30 min #{pendingSpeakerHintSegment !== null ? pendingSpeakerHintSegment + 1 : '?'}. Ingresa el nombre del orador principal para mejorar la transcripción.
+            </p>
+            <input
+              type="text"
+              value={speakerHint}
+              onChange={(e) => setSpeakerHint(e.target.value)}
+              placeholder="Ej: Juan Pérez, Directora, Cliente..."
+              className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && handleConfirmSpeakerHint()}
+            />
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={handleSkipSpeakerHint}
+                className="flex-1 glass border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 py-3 rounded-xl font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                Saltar
+              </button>
+              <button
+                onClick={handleConfirmSpeakerHint}
+                disabled={!speakerHint.trim()}
+                className="flex-1 gradient-primary text-white py-3 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition disabled:opacity-50"
+              >
+                Confirmar
+              </button>
+            </div>
           </div>
         </div>
       )}

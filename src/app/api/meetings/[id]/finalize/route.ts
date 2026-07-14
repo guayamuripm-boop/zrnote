@@ -1,10 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
-import { triggerProcessing } from '@/lib/queue';
 
-// If a meeting has been "processing" longer than this, assume the Edge
-// Function died without reaching its own catch block (timeout, crash, cold
-// start failure) and let the user retry instead of being stuck forever.
 const STALE_PROCESSING_MS = 10 * 60 * 1000;
 
 export async function POST(
@@ -39,11 +35,10 @@ export async function POST(
     if (!isStale) {
       return NextResponse.json({ error: 'La reunión ya se está procesando' }, { status: 400 });
     }
-    // Stale lock — the previous run likely died without updating status. Fall through to retry.
   }
 
   if (meeting.status === 'failed' || meeting.status === 'processing') {
-    const { error: updateError } = await supabase
+    const { error } = await supabase
       .from('meetings')
       .update({
         status: 'processing',
@@ -51,15 +46,14 @@ export async function POST(
       })
       .eq('id', params.id);
 
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    triggerProcessing(params.id);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, nextStep: 'transcribe' });
   }
 
-  const { error: updateError } = await supabase
+  const { error } = await supabase
     .from('meetings')
     .update({
       status: 'processing',
@@ -67,11 +61,9 @@ export async function POST(
     })
     .eq('id', params.id);
 
-  if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  triggerProcessing(params.id);
-
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, nextStep: 'transcribe' });
 }

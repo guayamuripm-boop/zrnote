@@ -1,0 +1,176 @@
+import { createServerSupabase } from '@/lib/supabase/server';
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { transcribeMeeting } from '@/lib/processing';
+
+// Simple in-memory rate limiter (per user per meeting)
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+const RATE_LIMIT_MAX = 10; // max requests per window
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
+
+function checkRateLimit(key: string): boolean {
+  const now = Date.now();
+  const record = rateLimitMap.get(key);
+  
+  if (!record || now > record.resetAt) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  
+  if (record.count >= RATE_LIMIT_MAX) {
+    return false;
+  }
+  
+  record.count++;
+  return true;
+}
+
+const processSchema = z.object({
+  step: z.enum(['transcribe', 'analyze', 'emails', 'vectorize']),
+});
+
+export async function POST(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const supabase = createServerSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Rate limiting per user per meeting
+  const rateLimitKey = `${user.id}:${params.id}:process`;
+  if (!checkRateLimit(rateLimitKey)) {
+    return NextResponse.json({ error: 'Too many requests. Please wait a moment.' }, { status: 429 });
+  }
+
+  const body = await request.json();
+  const parsed = processSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const { step } = parsed.data;
+  const meetingId = params.id;
+
+  const { data: meeting } = await supabase
+    .from('meetings')
+    .select('status, created_by, transcript_raw')
+    .eq('id', meetingId)
+    .eq('created_by', user.id)
+    .single();
+
+  if (!meeting) {
+    return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
+  }
+
+  if (meeting.status === 'completed') {
+    return NextResponse.json({ error: 'Meeting already completed' }, { status: 400 });
+  }
+
+  const validTransitions: Record<string, string[]> = {
+    transcribe: ['scheduled', 'failed', 'processing'],
+    analyze: ['processing', 'failed'],
+    emails: ['processing', 'failed'],
+    vectorize: ['processing', 'failed', 'completed'],
+  };
+
+  const requiredStatus = validTransitions[step];
+  if (requiredStatus && !requiredStatus.includes(meeting.status)) {
+    return NextResponse.json({ 
+      error: `Invalid status for step '${step}': ${meeting.status}` 
+    }, { status: 400 });
+  }
+
+  // Additional checks for retry from failed
+  if (step === 'analyze' && meeting.status === 'failed' && !meeting.transcript_raw) {
+    return NextResponse.json({ error: 'No transcript available. Run transcribe step first.' }, { status: 400 });
+  }
+  if (step === 'emails' && meeting.status === 'failed') {
+    // Check if minute exists
+    const { data: minute } = await supabase
+      .from('minutes')
+      .select('id')
+      .eq('meeting_id', meetingId)
+      .single();
+    if (!minute) {
+      return NextResponse.json({ error: 'No minute found. Run analyze step first.' }, { status: 400 });
+    }
+  }
+
+  if (step === 'transcribe') {
+    const { error: updateError } = await supabase
+      .from('meetings')
+      .update({ 
+        status: 'processing', 
+        ended_at: new Date().toISOString() 
+      })
+      .eq('id', meetingId);
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    const result = await transcribeMeeting(meetingId);
+    
+    if (!result.success) {
+      await supabase
+        .from('meetings')
+        .update({ status: 'failed' })
+        .eq('id', meetingId);
+      return NextResponse.json({ error: result.error }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, transcriptLength: result.transcript?.length });
+  }
+
+  if (step === 'analyze') {
+    if (!meeting.transcript_raw) {
+      return NextResponse.json({ error: 'No transcript available. Run transcribe step first.' }, { status: 400 });
+    }
+
+    const { analyzeMeeting } = await import('@/lib/processing');
+    const result = await analyzeMeeting(meetingId, meeting.transcript_raw);
+    
+    if (!result.success) {
+      await supabase
+        .from('meetings')
+        .update({ status: 'failed' })
+        .eq('id', meetingId);
+      return NextResponse.json({ error: result.error }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, minuteId: result.minuteId, actionItemsCount: result.actionItemsCount });
+  }
+
+  if (step === 'emails') {
+    const { sendMeetingEmails, markMeetingCompleted } = await import('@/lib/processing');
+    
+    const emailResult = await sendMeetingEmails(meetingId);
+    if (!emailResult.success) {
+      console.error('Email send failed:', emailResult.error);
+    }
+
+    await markMeetingCompleted(meetingId);
+
+    return NextResponse.json({ ok: true, emailsSent: emailResult.sent, emailsFailed: emailResult.failed });
+  }
+
+  if (step === 'vectorize') {
+    const { vectorizeMeeting } = await import('@/lib/processing');
+    
+    const result = await vectorizeMeeting(meetingId);
+    
+    if (!result.success) {
+      return NextResponse.json({ error: result.error }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, chunksCreated: result.chunksCreated });
+  }
+
+  return NextResponse.json({ error: 'Invalid step' }, { status: 400 });
+}

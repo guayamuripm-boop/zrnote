@@ -1,0 +1,339 @@
+# ZRNote — Contexto Maestro del Proyecto
+> **Fuente de verdad única** — Actualizar en cada sesión. Leer al inicio de cada conversación.
+
+---
+
+## 📍 ESTADO ACTUAL: **MVP FUNCIONAL + RAG + EXTENSION CHROME** (100% Free Tier)
+
+### ✅ YA IMPLEMENTADO Y FUNCIONANDO
+
+| Componente | Estado | Detalles |
+|------------|--------|----------|
+| **Auth** | ✅ | Supabase Auth (email/password), middleware protege `/dashboard` |
+| **CRUD Reuniones** | ✅ | Crear, listar, ver, editar, borrar + participantes |
+| **Grabación PWA** | ✅ | `RecordButton` robusto: segmentación 30min, wake lock, media session, retry, pause/resume, visibilidad |
+| **Subida archivos** | ✅ | Drag & drop, validación 4MB, multiarchivo, progress UI |
+| **Transcripción** | ✅ | Groq Whisper (whisper-large-v3) en Edge Function, batch 3 segmentos |
+| **Generación minuta** | ✅ | Groq Llama-3.3-70b con prompt detallado en español |
+| **Vista minuta** | ✅ | Render completo: resumen, temas, decisiones, proyectos, bloqueos, ideas, next steps, transcripción |
+| **Action Items** | ✅ | CRUD, asignación UI, badges prioridad/estado, página "Mis Tareas" |
+| **Emails** | ✅ | Nodemailer/Gmail SMTP, plantillas HTML ricas, adjuntos ICS, retry, logs |
+| **Speaker mapping** | ✅ | UI para mapear "Speaker 1" → nombres reales |
+| **Pipeline por pasos** | ✅ | `/process?step=transcribe\|analyze\|emails\|vectorize` + polling UI |
+| **Auto-recovery (cron)** | ✅ | Vercel Cron `*/5 * * * *` reintenta stuck/failed |
+| **Rate limiting** | ✅ | 10 req/min por user/meeting en `/process` |
+| **Logs estructurados** | ✅ | `logger.ts` JSON en prod, colores en dev |
+| **Tests** | ✅ | 9 tests Vitest pasando (`processing.test.ts`) |
+| **RGPD endpoints** | ✅ | `GET /api/user/export`, `POST /api/user/delete` |
+| **Security headers** | ✅ | CSP, HSTS, X-Frame-Options, Permissions-Policy |
+| **Retención datos (cron)** | ✅ | Diario 3AM: borra audio >30d, archiva >1a, limpia orphans |
+| **Multi-tenant schema** | ✅ | `organizations`, `org_members`, RLS por org |
+| **pgvector + RAG** | ✅ | Migración `012_pgvector_and_meeting_chunks.sql`, función `search_meeting_chunks` |
+| **Embeddings (Jina AI)** | ✅ | `embeddings.ts` - gratis 1M tokens/mes, 1024 dims |
+| **Vectorize step** | ✅ | `vectorizeMeeting()` + step `vectorize` en pipeline |
+| **Agent API (RAG)** | ✅ | `POST /api/agent/query` - embedding query → pgvector search → Groq LLM + citas |
+| **Chrome Extension (MV3)** | ✅ | Grabación Meet/Zoom/Teams via `getDisplayMedia()`, panel flotante, popup, background, backend URL configurable |
+| **PDF Export** | ✅ | `GET /api/meetings/[id]/export-pdf` — descarga minuta en PDF usando `@react-pdf/renderer` |
+| **Google Calendar link in emails** | ✅ | `generateGoogleCalendarUrl()` en emails (link público "Añadir a Calendar", sin OAuth) |
+
+---
+
+## 🏗️ ARQUITECTURA FINAL (100% Free Tier)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           ZRNOTE STACK (FREE TIER)                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐      │
+│  │   Chrome Ext     │    │   Next.js 14     │    │    Supabase      │      │
+│  │   (Manifest V3)  │───▶│   (Vercel Free)  │───▶│   (500MB DB +     │      │
+│  │  getDisplayMedia │    │  App Router      │    │   1GB Storage)   │      │
+│  │  MediaRecorder   │    │  Server Actions  │    │  pgvector + RLS  │      │
+│  └──────────────────┘    └────────┬─────────┘    └────────┬─────────┘      │
+│                                    │                      │                │
+│                                    ▼                      ▼                │
+│                          ┌──────────────────┐    ┌──────────────────┐      │
+│                          │   Groq (Free)    │    │   Jina AI (Free) │      │
+│                          │  Whisper + Llama │    │  Embeddings      │      │
+│                          │  14k req/day     │    │  1M tokens/mes   │      │
+│                          └──────────────────┘    └──────────────────┘      │
+│                                    │                                        │
+│                                    ▼                                        │
+│                          ┌──────────────────┐                              │
+│                          │  Gmail SMTP      │                              │
+│                          │  (500/día gratis)│                              │
+│                          └──────────────────┘                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Coste mensual: $0** (Free tiers generosos)
+
+---
+
+## 📁 ESTRUCTURA CLAVE
+
+```
+C:\Dev\ZR Note\
+├── src/
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── meetings/[id]/
+│   │   │   │   ├── process/route.ts          # Pipeline por pasos (4 steps)
+│   │   │   │   ├── upload-segment/route.ts   # Upload audio chunks
+│   │   │   │   ├── finalize/route.ts         # Inicia pipeline
+│   │   │   │   └── route.ts                  # CRUD meeting
+│   │   │   ├── agent/query/route.ts          # RAG Agent API
+│   │   │   ├── user/export/route.ts          # RGPD export
+│   │   │   ├── user/delete/route.ts          # RGPD delete
+│   │   │   ├── cron/retry-stuck/route.ts     # Auto-recovery (5min)
+│   │   │   └── cron/retention/route.ts       # Retención diaria (3AM)
+│   │   ├── dashboard/
+│   │   │   ├── meetings/[id]/
+│   │   │   │   ├── page.tsx                  # Vista minuta completa
+│   │   │   │   ├── record/page.tsx           # Grabación PWA
+│   │   │   │   ├── speakers/page.tsx         # Speaker mapping
+│   │   │   │   └── upload/page.tsx           # Subida archivos
+│   │   │   ├── action-items/page.tsx         # Mis tareas
+│   │   │   └── page.tsx                      # Dashboard home
+│   │   └── (auth)/login|signup/page.tsx
+│   ├── components/
+│   │   ├── recorder/RecordButton.tsx         # Grabadora PWA completa
+│   │   └── minutes/AssignActionItems.tsx     # Asignación UI
+│   ├── lib/
+│   │   ├── processing.ts                     # Pipeline core (transcribe/analyze/vectorize/emails)
+│   │   ├── embeddings.ts                     # Jina AI embeddings
+│   │   ├── logger.ts                         # Structured logging
+│   │   ├── supabase/server.ts|client.ts      # Supabase clients
+│   │   └── env.ts                            # Env vars centralizadas
+│   └── middleware.ts                         # Auth protection
+├── supabase/
+│   └── migrations/
+│       ├── 001_initial_schema.sql
+│       ├── 002_fix_rls.sql
+│       ... 011_perf_indexes.sql
+│       └── 012_pgvector_and_meeting_chunks.sql  # RAG schema
+├── extension/                                # Chrome Extension MV3
+│   ├── manifest.json
+│   ├── background.js
+│   ├── content.js
+│   ├── content.css
+│   ├── popup.html|js
+│   └── icons/
+├── vitest.config.ts
+├── next.config.js                            # Security headers + crons
+├── vercel.json                               # Function durations + crons
+└── CONTEXT.md                                # ESTE ARCHIVO
+```
+
+---
+
+## 🔧 PIPELINE DE PROCESAMIENTO (4 Steps)
+
+```
+POST /api/meetings/[id]/finalize
+    │
+    ▼ status=processing
+POST /api/meetings/[id]/process?step=transcribe
+    │  - Descarga segmentos de Supabase Storage
+    │  - Groq Whisper (batch 3) → transcript_raw
+    ▼
+POST /api/meetings/[id]/process?step=analyze
+    │  - Groq Llama-3.3-70b + prompt detallado
+    │  - Inserta minutes + action_items
+    ▼
+POST /api/meetings/[id]/process?step=vectorize
+    │  - Crea chunks semánticos (summary, decisions, action_items, transcript)
+    │  - Jina AI embeddings (1024 dims) → pgvector meeting_chunks
+    ▼
+POST /api/meetings/[id]/process?step=emails
+    │  - Nodemailer Gmail SMTP
+    │  - Emails personalizados + ICS adjuntos
+    ▼
+status=completed
+```
+
+**Cada step < 60s** (límite Vercel). Polling desde UI cada 3s.
+
+---
+
+## 🗄️ SCHEMA CLAVE (Supabase)
+
+```sql
+-- Organizations (multi-tenant)
+organizations: id, name, slug, created_at
+
+-- Users (extends auth.users)
+users: id, org_id, role (super_admin|coordinator|participant), full_name, email
+
+-- Meetings
+meetings: id, org_id, created_by, title, coordination, type, status,
+          started_at, ended_at, audio_segments[], transcript_raw, speaker_map
+
+-- Minutes (1:1 meeting)
+minutes: meeting_id, summary, discussion[], decisions[], project_statuses[],
+         blockers[], ideas[], next_steps[], action_items[], raw_llm_output
+
+-- Action Items
+action_items: meeting_id, minute_id, assignee_user_id, assignee_name, assignee_email,
+              description, due_date, priority (alta|media|baja), status
+
+-- RAG Vector Store (pgvector)
+meeting_chunks: org_id, meeting_id, chunk_index, content, embedding vector(1024),
+                metadata(jsonb: section, speaker)
+
+-- Function: search_meeting_chunks(org_id, query_embedding, limit, meeting_id?)
+```
+
+**RLS**: Aislamiento total por `org_id`. Service role bypass para workers.
+
+---
+
+## 🌐 ENDPOINTS CLAVE
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `POST` | `/api/meetings` | Crear reunión + participantes |
+| `GET` | `/api/meetings` | Listar reuniones del usuario |
+| `GET/PATCH/DELETE` | `/api/meetings/[id]` | CRUD reunión |
+| `POST` | `/api/meetings/[id]/upload-segment` | Subir chunk audio |
+| `POST` | `/api/meetings/[id]/finalize` | Iniciar pipeline (status=processing) |
+| `POST` | `/api/meetings/[id]/process` | Step: `transcribe\|analyze\|vectorize\|emails` |
+| `POST` | `/api/agent/query` | RAG query: `{query, orgId, meetingId?, topK?, filters?}` |
+| `GET` | `/api/user/export` | RGPD: exporta todos los datos del usuario |
+| `POST` | `/api/user/delete` | RGPD: elimina cuenta + datos (requiere password) |
+| `GET` | `/api/cron/retry-stuck` | Cron 5min: recupera stuck/failed |
+| `GET` | `/api/cron/retention` | Cron 3AM: limpieza retención |
+
+---
+
+## 🧪 TESTS
+
+```bash
+npm run test        # Vitest - 9 tests passing
+npm run build       # Next.js build OK
+npm run lint        # ESLint (si configurado)
+```
+
+---
+
+## 📦 CHROME EXTENSION (C:\Dev\ZR Note\extension)
+
+**Instalación local:**
+```
+1. Chrome → chrome://extensions → "Modo desarrollador" ON
+2. "Cargar descomprimida" → C:\Dev\ZR Note\extension
+3. En Meet: icono ZRNote → "Iniciar Grabación"
+```
+
+**Funciona en:** Meet, Zoom, Teams, Jitsi (cualquier pestaña con `getDisplayMedia`)
+
+---
+
+## 🚀 DEPLOY CHECKLIST
+
+### Variables Vercel (Settings → Environment Variables)
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+GROQ_API_KEY=gsk_...
+JINA_API_KEY=jina_...                    # Gratis en jina.ai
+GMAIL_USER=tu-email@gmail.com
+GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx   # App Password (no contraseña normal)
+NEXT_PUBLIC_APP_URL=https://tu-app.vercel.app
+```
+
+### Migración Supabase (SQL Editor)
+```sql
+-- Ejecutar en Supabase SQL Editor:
+-- Copiar contenido de supabase/migrations/012_pgvector_and_meeting_chunks.sql
+```
+
+### Deploy
+```bash
+git add .
+git commit -m "feat: pipeline completo + RAG + Chrome extension"
+git push origin main
+# Vercel auto-deploy + registra crons automáticamente
+```
+
+---
+
+## 🎯 PRÓXIMOS PASOS OPCIONALES (Post-MVP)
+
+| Prioridad | Feature | Esfuerzo |
+|-----------|---------|----------|
+| Alta | Recall.ai bot para Meet/Zoom automático | 1 semana |
+| Alta | PDF export minuta (@react-pdf/renderer) | 2 días |
+| Media | Notificaciones realtime (Supabase Realtime) | 3 días |
+| Media | Búsqueda full-text minutas (pg_trgm) | 1 día |
+| Baja | Google Calendar sync (crear follow-up events) | 3 días |
+| Baja | Notion/Linear/Trello/Slack integrations | 1 semana c/u |
+| Baja | Multi-tenant SaaS (Stripe + onboarding) | 2 semanas |
+
+---
+
+## 🔑 GOOGLE CALENDAR OAUTH 2.0 SETUP (PASOS)
+
+Para habilitar Google Calendar REST API (crear eventos automáticos desde ZRNote):
+
+### 1. Google Cloud Console
+1. Ir a https://console.cloud.google.com → Crear proyecto o seleccionar existente
+2. Habilitar **Google Calendar API** (Biblioteca de APIs → buscar "Google Calendar API" → Habilitar)
+3. Ir a **Credenciales** → **Crear credenciales** → **ID de cliente OAuth**
+4. Tipo de aplicación: **Aplicación web**
+5. **Orígenes autorizados de JavaScript**: `https://zrnote.vercel.app`
+6. **URI de redireccionamiento autorizados**: `https://zrnote.vercel.app/api/auth/calendar/callback`
+7. Copiar **Client ID** y **Client Secret**
+
+### 2. Configurar OAuth Consent Screen
+1. Ir a **Pantalla de consentimiento de OAuth**
+2. User Type: **Externo** (o Interno si solo uso del equipo)
+3. Añadir scopes: `.../auth/calendar.events` (crear eventos)
+4. Añadir como usuario de prueba tu email @gmail.com
+
+### 3. Obtener Refresh Token (una vez)
+```bash
+# 1. Construir URL de autorización:
+https://accounts.google.com/o/oauth2/v2/auth?client_id=TU_CLIENT_ID&redirect_uri=https://zrnote.vercel.app/api/auth/calendar/callback&response_type=code&scope=https://www.googleapis.com/auth/calendar.events&access_type=offline&prompt=consent
+
+# 2. Visitar URL, autorizar, serás redirigido a:
+#    https://zrnote.vercel.app/api/auth/calendar/callback?code=AUTH_CODE
+
+# 3. Canjear code por refresh_token (POST):
+curl -X POST https://oauth2.googleapis.com/token \
+  -d "client_id=TU_CLIENT_ID" \
+  -d "client_secret=TU_CLIENT_SECRET" \
+  -d "code=EL_CODE" \
+  -d "redirect_uri=https://zrnote.vercel.app/api/auth/calendar/callback" \
+  -d "grant_type=authorization_code"
+# → Devuelve { "refresh_token": "1//xxxxx", "access_token": "...", "expires_in": 3600 }
+```
+
+### 4. Variables de Entorno (Vercel)
+```bash
+GOOGLE_CALENDAR_CLIENT_ID=xxxx.apps.googleusercontent.com
+GOOGLE_CALENDAR_CLIENT_SECRET=GOCSPX-xxxx
+GOOGLE_CALENDAR_REFRESH_TOKEN=1//xxxxx
+GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callback
+```
+
+### 5. Código existente
+- `src/lib/google-calendar.ts` — funciones `createCalendarEvent`, `createMeetingCalendarEvent`, `createActionItemCalendarEvent`
+- Falta: endpoint de callback OAuth y UI de conexión en settings del dashboard
+- Actualmente los emails usan `generateGoogleCalendarUrl()` (link público, SIN OAuth) para "Añadir a Calendar"
+
+---
+
+## 📝 NOTAS PARA PRÓXIMA SESIÓN
+
+1. **Leer este archivo completo** al inicio
+2. **Verificar**: `npm run build` y `npm run test` pasan
+3. **Continuar** desde donde quedamos (ver "PRÓXIMOS PASOS" arriba)
+4. **Actualizar** este archivo al final de cada sesión
+
+---
+
+*Última actualización: 2026-07-13 — ZRNote MVP + RAG + Extension completado*

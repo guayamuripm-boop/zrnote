@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "ZRNote - Grabador de Reuniones",
+  "short_name": "ZRNote",
+  "version": "1.0.0",
+  "description": "Graba reuniones de Google Meet, genera minutas con IA y envía action items por email",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "alarms",
+    "notifications",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "*://meet.google.com/*",
+    "*://*.zrnote.vercel.app/*",
+    "*://localhost:*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://meet.google.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ZRNote",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "minimum_chrome_version": "100",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

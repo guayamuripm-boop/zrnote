@@ -33,6 +33,8 @@ export async function POST(
   const formData = await request.formData();
   const audioFile = formData.get('audio') as File;
   const segmentIndex = parseInt(formData.get('segmentIndex') as string, 10);
+  const speakerHint = formData.get('speakerHint') as string | null;
+  const durationSec = parseInt(formData.get('durationSec') as string, 10) || 0;
 
   if (!audioFile || isNaN(segmentIndex)) {
     return NextResponse.json({ error: 'Missing audio or segmentIndex' }, { status: 400 });
@@ -78,8 +80,9 @@ export async function POST(
   filtered.push({
     r2_key: r2Key,
     segment_index: segmentIndex,
-    duration_s: 0,
+    duration_s: durationSec || 0,
     status: 'uploaded',
+    speaker_hint: speakerHint || null,
   });
 
   await supabase
