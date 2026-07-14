@@ -1,7 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
+import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
+  const supabase = createServerSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const url = new URL(request.url);
   const meetingId = url.searchParams.get('meetingId');
 
@@ -21,11 +28,11 @@ export async function GET(request: Request) {
     return NextResponse.json(results, { status: 500 });
   }
 
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, serviceKey);
+  const adminClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, serviceKey);
 
   // 2. List files in bucket
   try {
-    const { data: folders, error: listError } = await supabase.storage
+    const { data: folders, error: listError } = await adminClient.storage
       .from('meeting-audio')
       .list('default', { limit: 5 });
 
@@ -41,7 +48,7 @@ export async function GET(request: Request) {
   // 3. If meetingId provided, try to download first segment
   if (meetingId) {
     try {
-      const { data: meetingFiles, error: meetErr } = await supabase.storage
+      const { data: meetingFiles, error: meetErr } = await adminClient.storage
         .from('meeting-audio')
         .list(`default/${meetingId}`, { limit: 5 });
 
@@ -53,7 +60,7 @@ export async function GET(request: Request) {
 
       if (meetingFiles && meetingFiles.length > 0) {
         const filePath = `default/${meetingId}/${meetingFiles[0].name}`;
-        const { data: fileData, error: downloadErr } = await supabase.storage
+        const { data: fileData, error: downloadErr } = await adminClient.storage
           .from('meeting-audio')
           .download(filePath);
 
