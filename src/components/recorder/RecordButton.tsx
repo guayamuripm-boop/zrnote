@@ -117,18 +117,22 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
     // Reset segment start time for next segment
     segmentStartTimeRef.current = Date.now();
+    segmentCountRef.current++;
+    setSegmentCount(segmentCountRef.current);
 
     pendingUploadsRef.current.push(uploadPromise);
   }, [speakerHint, pendingSpeakerHintSegment]);
 
-  // Flush chunks to current segment WITHOUT creating new segment (called every 30s)
   const flushChunks = useCallback(async () => {
     if (chunksRef.current.length === 0) return;
     const blob = new Blob(chunksRef.current, { type: 'audio/webm;codecs=opus' });
     chunksRef.current = [];
 
     const currentSegment = segmentCountRef.current;
+    segmentCountRef.current++;
+    setSegmentCount(segmentCountRef.current);
     const durationSec = Math.round((Date.now() - segmentStartTimeRef.current) / 1000);
+    segmentStartTimeRef.current = Date.now();
     
     const hintToUse = speakerHint && pendingSpeakerHintSegment === currentSegment ? speakerHint : undefined;
     
@@ -137,13 +141,11 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       setFailedSegments((prev) => prev + 1);
     });
 
-    // Clear hint after using it
     if (hintToUse) {
       setSpeakerHint('');
       setPendingSpeakerHintSegment(null);
     }
 
-    // Don't reset segmentStartTimeRef - same segment continues
     pendingUploadsRef.current.push(uploadPromise);
   }, [speakerHint, pendingSpeakerHintSegment]);
 
@@ -297,13 +299,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
       flushTimerRef.current = setInterval(() => {
         if (isRecordingRef.current && chunksRef.current.length > 0) {
-          flushSegment();
+          flushChunks();
         }
       }, FLUSH_INTERVAL_MS);
 
       segmentTimerRef.current = setInterval(() => {
         if (isRecordingRef.current) {
-          flushSegment();
+          flushChunks();
           const nextSegmentIndex = segmentCountRef.current;
           setPendingSpeakerHintSegment(nextSegmentIndex);
           setShowSpeakerHintModal(true);
