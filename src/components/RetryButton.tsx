@@ -22,27 +22,29 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
       return;
     }
 
-    // Then run pipeline steps, auto-detecting where to start
+    // Then run pipeline steps, auto-detecting where to start (with batch loop for transcribe)
     for (const step of STEPS) {
       setStepMsg(step === 'transcribe' ? 'Transcribiendo...' : step === 'analyze' ? 'Generando minuta...' : step === 'vectorize' ? 'Indexando...' : 'Enviando correos...');
 
-      const res = await fetch(`/api/meetings/${meetingId}/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step }),
-      });
-
-      if (!res.ok) {
+      let more = false;
+      do {
+        const res = await fetch(`/api/meetings/${meetingId}/process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step }),
+        });
         const data = await res.json().catch(() => ({}));
-        // If step not applicable, continue to next
-        if (data.error?.includes('Invalid status') || data.error?.includes('Run')) continue;
-        alert('Error: ' + (data.error || 'desconocido'));
-        setLoading(false);
-        return;
-      }
-
-      // Small delay between steps for UI feedback
-      await new Promise(r => setTimeout(r, 300));
+        if (!res.ok) {
+          // If step not applicable, continue to next
+          if (data.error?.includes('Invalid status') || data.error?.includes('Run')) break;
+          alert('Error: ' + (data.error || 'desconocido'));
+          setLoading(false);
+          return;
+        }
+        more = step === 'transcribe' ? (data.more || false) : false;
+        // Small delay between batches for UI feedback
+        await new Promise(r => setTimeout(r, 300));
+      } while (more);
     }
 
     setLoading(false);

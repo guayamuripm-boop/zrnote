@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { logger, withTiming } from '@/lib/logger';
 import { embedTexts } from '@/lib/embeddings';
+import { buildMinuteHtml, buildActionItemsHtml, buildMyItemsHtml, buildOtherItemsHtml, matchItemsToParticipant, sendWithRetry } from '@/lib/email-service';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
@@ -16,6 +17,7 @@ export interface TranscribeResult {
   error?: string;
   segmentsProcessed: number;
   segmentsTotal: number;
+  more: boolean;
 }
 
 export interface AnalyzeResult {
@@ -113,85 +115,95 @@ async function heartbeat(supabase: any, meetingId: string) {
     .eq('id', meetingId);
 }
 
-export async function transcribeMeeting(meetingId: string): Promise<TranscribeResult> {
+export async function transcribeMeeting(meetingId: string, maxSegments: number = 9): Promise<TranscribeResult> {
   const supabase = getSupabaseAdmin();
   const groqKey = process.env.GROQ_API_KEY;
 
   if (!groqKey) {
-    return { success: false, error: 'GROQ_API_KEY no configurada en el servidor', segmentsProcessed: 0, segmentsTotal: 0 };
+    return { success: false, error: 'GROQ_API_KEY no configurada en el servidor', segmentsProcessed: 0, segmentsTotal: 0, more: false };
   }
 
-  logger.info('Starting transcription', { meetingId, operation: 'transcribe' });
+  logger.info('Starting transcription batch', { meetingId, operation: 'transcribe', maxSegments });
 
   const { data: meeting, error: meetingError } = await supabase
     .from('meetings')
-    .select('audio_segments')
+    .select('audio_segments, transcript_raw, segments_transcribed_offset')
     .eq('id', meetingId)
     .single();
 
   if (meetingError || !meeting) {
-    return { success: false, error: `Meeting not found: ${meetingError?.message || 'null'}`, segmentsProcessed: 0, segmentsTotal: 0 };
+    return { success: false, error: `Meeting not found: ${meetingError?.message || 'null'}`, segmentsProcessed: 0, segmentsTotal: 0, more: false };
   }
 
   const segments = meeting.audio_segments || [];
   if (segments.length === 0) {
-    return { success: false, error: 'No audio segments found in meeting', segmentsProcessed: 0, segmentsTotal: 0 };
+    return { success: false, error: 'No audio segments found in meeting', segmentsProcessed: 0, segmentsTotal: 0, more: false };
   }
 
-  logger.info('Found segments', { meetingId, count: segments.length });
+  const offset = meeting.segments_transcribed_offset || 0;
+  const pendingSegments = segments.slice(offset);
+  const batch = pendingSegments.slice(0, maxSegments);
+
+  if (batch.length === 0) {
+    const transcript = meeting.transcript_raw || '';
+    if (!transcript.trim()) {
+      return { success: false, error: 'No segments to process and no existing transcript', segmentsProcessed: 0, segmentsTotal: segments.length, more: false };
+    }
+    return { success: true, transcript, segmentsProcessed: segments.length, segmentsTotal: segments.length, more: false };
+  }
+
+  logger.info('Processing batch', { meetingId, batchStart: offset, batchSize: batch.length, totalSegments: segments.length });
 
   // Build global speaker hints from all segments
   const speakerHints = segments
     .filter((s: any) => s.speaker_hint)
     .map((s: any) => `Segmento ${s.segment_index}: ${s.speaker_hint}`)
     .join('; ');
-  logger.debug('Global speaker hints', { meetingId, hints: speakerHints });
 
   const BATCH_SIZE = 3;
-  const allTranscriptions: string[] = [];
+  const newTranscriptions: string[] = [];
   let processed = 0;
 
-  for (let i = 0; i < segments.length; i += BATCH_SIZE) {
-    const batch = segments.slice(i, i + BATCH_SIZE);
-    logger.info('Processing batch', { meetingId, batch: Math.floor(i / BATCH_SIZE) + 1, total: Math.ceil(segments.length / BATCH_SIZE) });
+  for (let i = 0; i < batch.length; i += BATCH_SIZE) {
+    const miniBatch = batch.slice(i, i + BATCH_SIZE);
 
     const results = await Promise.allSettled(
-      batch.map((seg: any) => transcribeSegment(supabase, seg, groqKey, meetingId, speakerHints))
+      miniBatch.map((seg: any) => transcribeSegment(supabase, seg, groqKey, meetingId, speakerHints))
     );
 
     for (const r of results) {
       if (r.status === 'fulfilled' && r.value) {
-        allTranscriptions.push(r.value);
+        newTranscriptions.push(r.value);
         processed++;
       }
     }
 
-    if (i + BATCH_SIZE < segments.length) {
+    if (i + BATCH_SIZE < batch.length) {
       await heartbeat(supabase, meetingId);
-      await new Promise((r) => setTimeout(r, 500));
     }
   }
 
-  const fullTranscript = allTranscriptions.join('\n\n');
-  logger.info('Full transcription completed', { meetingId, chars: fullTranscript.length });
-
-    if (fullTranscript.trim().length === 0) {
-    const reason = processed === 0 && segments.length > 0
-      ? 'Todos los segmentos fallaron al descargar o transcribir. Verifica GROQ_API_KEY y que el bucket meeting-audio exista en Supabase.'
-      : 'No se pudo transcribir ningún segmento. Verifica que el audio no esté vacío.';
-    return { success: false, error: reason, segmentsProcessed: processed, segmentsTotal: segments.length };
-  }
+  const newOffset = offset + batch.length;
+  const existingTranscript = meeting.transcript_raw || '';
+  const fullTranscript = existingTranscript
+    ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
+    : newTranscriptions.join('\n\n');
+  const more = newOffset < segments.length;
 
   const { error: updateError } = await supabase
     .from('meetings')
-    .update({ transcript_raw: fullTranscript })
+    .update({
+      transcript_raw: fullTranscript,
+      segments_transcribed_offset: newOffset,
+    })
     .eq('id', meetingId);
 
   if (updateError) {
-    return { success: false, error: `Failed to save transcript: ${updateError.message}`, segmentsProcessed: processed, segmentsTotal: segments.length };
+    return { success: false, error: `Failed to save transcript: ${updateError.message}`, segmentsProcessed: processed, segmentsTotal: segments.length, more: false };
   }
 
-  return { success: true, transcript: fullTranscript, segmentsProcessed: processed, segmentsTotal: segments.length };
+  logger.info('Transcription batch completed', { meetingId, processed, newOffset, total: segments.length, more });
+  return { success: true, transcript: fullTranscript, segmentsProcessed: newOffset, segmentsTotal: segments.length, more };
 }
 
 const MINUTE_PROMPT = (transcript: string) => `
@@ -403,92 +415,6 @@ export async function sendMeetingEmails(meetingId: string): Promise<EmailResult>
 
   const { generateGoogleCalendarUrl } = await import('@/lib/google-calendar');
 
-  function buildMinuteHtml(minute: any): string {
-    if (!minute) return '<p>Minuta no disponible.</p>';
-    let html = '';
-    html += `<h2 style="color:#1a1a2e;font-size:18px;margin-bottom:8px">Resumen</h2><p style="color:#333;line-height:1.6">${minute.summary || 'No disponible'}</p>`;
-    if (minute.discussion && minute.discussion.length > 0) {
-      html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">Temas Discutidos</h2>`;
-      for (const d of minute.discussion) {
-        html += `<div style="border-left:3px solid #3b82f6;padding-left:12px;margin-bottom:16px">`;
-        html += `<h3 style="margin:0;font-weight:600">${d.topic}</h3>`;
-        if (d.speaker) html += `<p style="margin:2px 0;font-size:12px;color:#999">Liderado por: ${d.speaker}</p>`;
-        html += `<p style="margin:4px 0;color:#555;font-size:14px;line-height:1.5">${d.details}</p>`;
-        html += `</div>`;
-      }
-    }
-    if (minute.decisions && minute.decisions.length > 0) {
-      html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">Decisiones</h2><ul style="color:#333;line-height:1.6">`;
-      for (const d of minute.decisions) html += `<li>${d}</li>`;
-      html += `</ul>`;
-    }
-    if (minute.project_statuses && minute.project_statuses.length > 0) {
-      html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">Estados de Proyectos</h2>`;
-      for (const p of minute.project_statuses) {
-        html += `<div style="background:#f3f4f6;border-radius:8px;padding:12px;margin-bottom:8px">`;
-        html += `<strong>${p.project}</strong> <span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-size:12px">${p.status}</span>`;
-        html += `<p style="margin:4px 0 0;color:#555;font-size:14px">${p.details}</p></div>`;
-      }
-    }
-    if (minute.blockers && minute.blockers.length > 0) {
-      html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">Bloqueos / Problemas</h2>`;
-      for (const b of minute.blockers) {
-        html += `<div style="background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:8px">`;
-        html += `<strong style="color:#991b1b">${b.issue}</strong>`;
-        html += `<p style="margin:4px 0;color:#dc2626;font-size:14px">Impacto: ${b.impact}</p>`;
-        if (b.owner) html += `<p style="margin:0;font-size:12px;color:#999">Responsable: ${b.owner}</p>`;
-        html += `</div>`;
-      }
-    }
-    if (minute.ideas && minute.ideas.length > 0) {
-      html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">Ideas / Brainstorming</h2><ul style="color:#333;line-height:1.6">`;
-      for (const idea of minute.ideas) html += `<li>${idea}</li>`;
-      html += `</ul>`;
-    }
-    if (minute.next_steps && minute.next_steps.length > 0) {
-      html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">Próximos Pasos</h2><ul style="color:#333;line-height:1.6">`;
-      for (const n of minute.next_steps) html += `<li>${n}</li>`;
-      html += `</ul>`;
-    }
-    return html;
-  }
-
-  function buildActionItemsHtml(items: any[]): string {
-    if (!items || items.length === 0) return '<p>No se generaron action items.</p>';
-    return `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px">
-      <thead><tr style="background:#f3f4f6"><th>Responsable</th><th>Tarea</th><th>Prioridad</th><th>Fecha</th></tr></thead>
-      <tbody>${items.map((i) => `<tr><td>${i.assignee_name || 'Sin asignar'}</td><td>${i.description}</td><td>${i.priority}</td><td>${i.due_date || '—'}</td></tr>`).join('')}</tbody></table>`;
-  }
-
-  function matchItemsToParticipant(items: any[], participantName: string, participantEmail: string): any[] {
-    if (!items || !participantName) return [];
-    const nameLower = participantName.toLowerCase().trim();
-    const emailLocal = participantEmail.split('@')[0].toLowerCase().trim();
-    return items.filter((item) => {
-      if (item.assignee_email && item.assignee_email.toLowerCase() === participantEmail.toLowerCase()) return true;
-      if (!item.assignee_name) return false;
-      const itemName = item.assignee_name.toLowerCase().trim();
-      if (itemName === nameLower) return true;
-      if (itemName.includes(nameLower) || nameLower.includes(itemName)) return true;
-      if (itemName.includes(emailLocal) || emailLocal.includes(itemName)) return true;
-      return false;
-    });
-  }
-
-  async function sendWithRetry(
-    emailFn: () => Promise<{ ok: boolean; error?: string }>,
-    maxAttempts = 3,
-  ): Promise<{ ok: boolean; error?: string }> {
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const result = await emailFn();
-      if (result.ok) return result;
-      if (attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 2000 * attempt));
-      }
-    }
-    return { ok: false, error: 'Max retries exceeded' };
-  }
-
   const nodemailer = await import('nodemailer');
   const transporter = nodemailer.default.createTransport({
     service: 'gmail',
@@ -525,19 +451,8 @@ export async function sendMeetingEmails(meetingId: string): Promise<EmailResult>
     const myItems = matchItemsToParticipant(allItems, p.name, p.email);
     const otherItems = allItems.filter((i) => !myItems.includes(i));
 
-    let myItemsHtml = '';
-    if (myItems.length > 0) {
-      myItemsHtml = `<div style="background:#ecfdf5;border-left:3px solid #22c55e;padding:12px;margin:16px 0;border-radius:0 8px 8px 0">
-        <h3 style="margin:0 0 8px;color:#166534;font-size:16px">Tus compromisos</h3>
-        <ul style="margin:0;padding-left:20px;color:#333">${myItems.map((i) => `<li style="margin-bottom:4px"><strong>${i.description}</strong> — Prioridad: ${i.priority}${i.due_date ? `, Fecha: ${i.due_date}` : ''}</li>`).join('')}</ul></div>`;
-    }
-
-    let otherItemsHtml = '';
-    if (otherItems.length > 0) {
-      otherItemsHtml = `<div style="margin-top:16px">
-        <h4 style="color:#666;font-size:13px;margin-bottom:4px">Otros compromisos de la reunión:</h4>
-        <ul style="padding-left:20px;color:#666;font-size:13px">${otherItems.map((i) => `<li>${i.assignee_name || 'Sin asignar'}: ${i.description}</li>`).join('')}</ul></div>`;
-    }
+    const myItemsHtml = buildMyItemsHtml(myItems);
+    const otherItemsHtml = buildOtherItemsHtml(otherItems);
 
     const calendarUrl = generateGoogleCalendarUrl({
       title: `Revisar: ${meeting.title}`,

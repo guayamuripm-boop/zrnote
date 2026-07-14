@@ -2,29 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { transcribeMeeting } from '@/lib/processing';
-
-// Simple in-memory rate limiter (per user per meeting)
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-const RATE_LIMIT_MAX = 10; // max requests per window
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
-
-function checkRateLimit(key: string): boolean {
-  const now = Date.now();
-  const record = rateLimitMap.get(key);
-  
-  if (!record || now > record.resetAt) {
-    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return true;
-  }
-  
-  if (record.count >= RATE_LIMIT_MAX) {
-    return false;
-  }
-  
-  record.count++;
-  return true;
-}
+import { checkRateLimit, cleanupExpiredRateLimits } from '@/lib/rate-limiter';
 
 const processSchema = z.object({
   step: z.enum(['transcribe', 'analyze', 'emails', 'vectorize']).optional(),
@@ -41,9 +19,10 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Rate limiting per user per meeting
+  // Rate limiting per user per meeting (DB-based)
   const rateLimitKey = `${user.id}:${params.id}:process`;
-  if (!checkRateLimit(rateLimitKey)) {
+  const { allowed } = await checkRateLimit(rateLimitKey);
+  if (!allowed) {
     return NextResponse.json({ error: 'Too many requests. Please wait a moment.' }, { status: 429 });
   }
 
@@ -168,7 +147,14 @@ export async function POST(
       return NextResponse.json({ ok: false, error: result.error, segmentsProcessed: result.segmentsProcessed, segmentsTotal: result.segmentsTotal });
     }
 
-    return NextResponse.json({ ok: true, transcriptLength: result.transcript?.length });
+    // If more segments remain, return more:true so the frontend keeps polling
+    return NextResponse.json({
+      ok: true,
+      more: result.more,
+      transcriptLength: result.transcript?.length,
+      segmentsProcessed: result.segmentsProcessed,
+      segmentsTotal: result.segmentsTotal,
+    });
   }
 
   if (step === 'analyze') {

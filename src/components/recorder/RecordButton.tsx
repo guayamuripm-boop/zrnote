@@ -505,6 +505,13 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
         if (res.ok) {
           const data = await res.json();
           if (data.ok) {
+            // If more segments remain, keep polling
+            if (data.more) {
+              const segmentsMsg = data.segmentsTotal ? ` (${data.segmentsProcessed}/${data.segmentsTotal})` : '';
+              setProcessingMessage(`Transcribiendo audio...${segmentsMsg}`);
+              await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+              continue;
+            }
             return { ok: true };
           }
           // If step not ready yet (e.g., analyze before transcribe), wait and retry

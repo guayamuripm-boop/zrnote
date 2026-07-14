@@ -79,20 +79,24 @@ export default function UploadAudioPage() {
       try {
         await fetch(`/api/meetings/${meetingId}/finalize`, { method: 'POST' });
 
-        // Run pipeline steps sequentially
+        // Run pipeline steps sequentially (with batch loop for transcribe)
         const processSteps = ['transcribe', 'analyze', 'vectorize', 'emails'];
         for (const step of processSteps) {
-          const res = await fetch(`/api/meetings/${meetingId}/process`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ step }),
-          });
-          if (!res.ok) {
+          let more = false;
+          do {
+            const res = await fetch(`/api/meetings/${meetingId}/process`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ step }),
+            });
             const data = await res.json().catch(() => ({}));
-            if (data.error?.includes('Invalid status') || data.error?.includes('Run')) continue;
-            break;
-          }
-          await new Promise(r => setTimeout(r, 300));
+            if (!res.ok) {
+              if (data.error?.includes('Invalid status') || data.error?.includes('Run')) break;
+              break;
+            }
+            more = step === 'transcribe' ? (data.more || false) : false;
+            await new Promise(r => setTimeout(r, 1000));
+          } while (more);
         }
 
         router.push(`/dashboard/meetings/${meetingId}`);

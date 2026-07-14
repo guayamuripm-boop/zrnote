@@ -61,7 +61,21 @@ export async function GET() {
     .lt('created_at', archiveCutoff.toISOString())
     .select('id');
 
-  // 3. Clean up orphaned storage files (files not referenced in any meeting)
+  // 3. Clean up expired rate limits
+  await supabase
+    .from('rate_limits')
+    .delete()
+    .lt('reset_at', new Date().toISOString());
+
+  // 4. Clean up stuck processing queue items (> 1 hour old)
+  const staleCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  await supabase
+    .from('processing_queue')
+    .delete()
+    .or(`status.eq.pending,status.eq.running`)
+    .lt('created_at', staleCutoff);
+
+  // 5. Clean up orphaned storage files (files not referenced in any meeting)
   // This is a safety net - list all files and check against DB
   const { data: allFiles } = await supabase.storage
     .from('meeting-audio')

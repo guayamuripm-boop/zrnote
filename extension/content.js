@@ -213,7 +213,7 @@ class MeetRecorder {
   }
 
   private async callProcessStep(step: string): Promise<boolean> {
-    const maxRetries = 20;
+    const maxRetries = 60;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const res = await fetch(`${this.API_BASE}/api/meetings/${this.meetingId}/process`, {
@@ -222,10 +222,17 @@ class MeetRecorder {
           body: JSON.stringify({ step }),
           credentials: 'include',
         });
-
-        if (res.ok) return true;
-
         const data = await res.json().catch(() => ({}));
+
+        if (res.ok && data.ok) {
+          // If more segments remain, keep polling
+          if (data.more) {
+            await new Promise(r => setTimeout(r, 3000));
+            continue;
+          }
+          return true;
+        }
+
         // If step not ready yet (e.g., analyze before transcribe done), retry
         if (data.error?.includes('Invalid status') || data.error?.includes('Run transcribe step first')) {
           await new Promise(r => setTimeout(r, 3000));

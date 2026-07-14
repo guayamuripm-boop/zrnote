@@ -35,6 +35,10 @@
 | **Chrome Extension (MV3)** | ✅ | Grabación Meet/Zoom/Teams via `getDisplayMedia()`, panel flotante, popup, background, backend URL configurable |
 | **PDF Export** | ✅ | `GET /api/meetings/[id]/export-pdf` — descarga minuta en PDF usando `@react-pdf/renderer` |
 | **Google Calendar link in emails** | ✅ | `generateGoogleCalendarUrl()` en emails (link público "Añadir a Calendar", sin OAuth) |
+| **Rate limiter DB-based** | ✅ | `rate_limits` table reemplaza el Map en memoria (no funcionaba en serverless) |
+| **Transcripción por lotes** | ✅ | `segments_transcribed_offset` + `more: true` → evita timeout Vercel 60s en reuniones largas |
+| **Email service compartido** | ✅ | `email-service.ts` — `buildMinuteHtml`, `buildActionItemsHtml`, `matchItemsToParticipant`, `sendWithRetry` extraídos |
+| **Rate limit cleanup cron** | ✅ | Limpieza automática de rate_limits + processing_queue expirados en el cron de retención |
 
 ---
 
@@ -330,10 +334,11 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 ## 📝 NOTAS PARA PRÓXIMA SESIÓN
 
 1. **Leer este archivo completo** al inicio
-2. **Verificar**: `npm run build` y `npm run test` pasan
+2. **Verificar**: `npx vitest run` y `npm run build` pasan
 3. **Continuar** desde donde quedamos (ver "PRÓXIMOS PASOS" arriba)
 4. **Actualizar** este archivo al final de cada sesión
+5. **Migraciones pendientes**: Las migraciones `015_rate_limiter_and_queue.sql` deben ejecutarse en Supabase SQL Editor ANTES de grabar una reunión
 
 ---
 
-*Última actualización: 2026-07-13 — ZRNote MVP + RAG + Extension completado*
+*Última actualización: 2026-07-14 — Sesión 3: Rate limiter DB, transcripción por lotes, email service compartido, cleanup cron*
