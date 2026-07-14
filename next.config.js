@@ -4,6 +4,7 @@ const nextConfig = {
   poweredByHeader: false,
   experimental: {
     optimizePackageImports: ['@supabase/supabase-js'],
+    serverComponentsExternalPackages: ['@react-pdf/renderer'],
   },
   async headers() {
     return [
