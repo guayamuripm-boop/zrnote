@@ -178,8 +178,15 @@ export async function POST(
 
   if (step === 'emails') {
     const { sendMeetingEmails, markMeetingCompleted } = await import('@/lib/processing');
-    
-    const emailResult = await sendMeetingEmails(meetingId);
+
+    let emailResult;
+    try {
+      emailResult = await sendMeetingEmails(meetingId);
+    } catch (err: any) {
+      console.error('Email step crashed:', err);
+      emailResult = { success: false, sent: 0, failed: 0, error: err?.message || 'Unknown error' };
+    }
+
     if (!emailResult.success) {
       console.error('Email send failed:', emailResult.error);
     }

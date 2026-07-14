@@ -501,14 +501,18 @@ export async function sendMeetingEmails(meetingId: string): Promise<EmailResult>
     }
   }
 
-  await supabase.from('email_logs').insert(
-    emailQueue.map((job, idx) => ({
-      meeting_id: meetingId,
-      recipient_email: job.label,
-      type: job.label.includes('coordinator') ? 'coordinator_summary' : 'personal',
-      status: idx < sent ? 'sent' : 'failed',
-    }))
-  );
+  try {
+    await supabase.from('email_logs').insert(
+      emailQueue.map((job, idx) => ({
+        meeting_id: meetingId,
+        recipient_email: job.label,
+        type: job.label.includes('coordinator') ? 'coordinator_summary' : 'personal',
+        status: idx < sent ? 'sent' : 'failed',
+      }))
+    );
+  } catch (logErr: any) {
+    logger.error('Failed to insert email_logs', { meetingId, error: logErr.message });
+  }
 
   return { success: failed === 0, sent, failed, error: failed > 0 ? errors.join('; ') : undefined };
 }
