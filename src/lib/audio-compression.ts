@@ -37,6 +37,9 @@ export async function compressAudioBlob(
   // 1. Decode audio to AudioBuffer
   const arrayBuffer = await audioBlob.arrayBuffer();
   const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume();
+  }
   const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
   // Truncate if needed

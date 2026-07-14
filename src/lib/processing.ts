@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { logger, withTiming } from '@/lib/logger';
 import { embedTexts } from '@/lib/embeddings';
-import { generateGoogleCalendarUrl } from '@/lib/google-calendar';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
@@ -116,7 +115,11 @@ async function heartbeat(supabase: any, meetingId: string) {
 
 export async function transcribeMeeting(meetingId: string): Promise<TranscribeResult> {
   const supabase = getSupabaseAdmin();
-  const groqKey = process.env.GROQ_API_KEY!;
+  const groqKey = process.env.GROQ_API_KEY;
+
+  if (!groqKey) {
+    return { success: false, error: 'GROQ_API_KEY no configurada en el servidor', segmentsProcessed: 0, segmentsTotal: 0 };
+  }
 
   logger.info('Starting transcription', { meetingId, operation: 'transcribe' });
 
@@ -394,6 +397,8 @@ export async function sendMeetingEmails(meetingId: string): Promise<EmailResult>
   })).filter((p) => p.email);
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
+
+  const { generateGoogleCalendarUrl } = await import('@/lib/google-calendar');
 
   function buildMinuteHtml(minute: any): string {
     if (!minute) return '<p>Minuta no disponible.</p>';

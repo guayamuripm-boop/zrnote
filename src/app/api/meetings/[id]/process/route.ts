@@ -165,7 +165,7 @@ export async function POST(
         .from('meetings')
         .update({ status: 'failed' })
         .eq('id', meetingId);
-      return NextResponse.json({ error: result.error }, { status: 500 });
+      return NextResponse.json({ ok: false, error: result.error });
     }
 
     return NextResponse.json({ ok: true, transcriptLength: result.transcript?.length });
@@ -184,7 +184,7 @@ export async function POST(
         .from('meetings')
         .update({ status: 'failed' })
         .eq('id', meetingId);
-      return NextResponse.json({ error: result.error }, { status: 500 });
+      return NextResponse.json({ ok: false, error: result.error });
     }
 
     return NextResponse.json({ ok: true, minuteId: result.minuteId, actionItemsCount: result.actionItemsCount });
@@ -209,7 +209,7 @@ export async function POST(
     const result = await vectorizeMeeting(meetingId);
     
     if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 500 });
+      return NextResponse.json({ ok: false, error: result.error });
     }
 
     return NextResponse.json({ ok: true, chunksCreated: result.chunksCreated });

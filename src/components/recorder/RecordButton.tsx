@@ -302,10 +302,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     animFrameRef.current = requestAnimationFrame(drawVisualizer);
   }, []);
 
-  const setupVisualizer = useCallback((stream: MediaStream) => {
+  const setupVisualizer = useCallback(async (stream: MediaStream) => {
     stopVisualizer();
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
       const source = audioCtx.createMediaStreamSource(stream);
@@ -345,7 +348,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       setElapsed(0);
       setError(null);
       isRecordingRef.current = true;
-      setupVisualizer(stream);
 
       mediaRecorder.ondataavailable = handleDataAvailable;
       mediaRecorder.start(1000);
@@ -403,8 +405,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       timerRef.current = setInterval(() => {
         setElapsed((prev) => prev + 1);
       }, 1000);
-
-      if (streamRef.current) setupVisualizer(streamRef.current);
 
       flushTimerRef.current = setInterval(() => {
         if (isRecordingRef.current && chunksRef.current.length > 0) {
@@ -526,6 +526,20 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
 
     return { ok: false, error: `Timeout en paso: ${step}` };
   };
+
+  // Start/stop visualizer when recording state changes, after canvas mounts
+  useEffect(() => {
+    if (state === 'recording' && streamRef.current && canvasRef.current) {
+      setupVisualizer(streamRef.current);
+    } else if (state === 'recording' && streamRef.current) {
+      const raf = requestAnimationFrame(() => {
+        if (streamRef.current && canvasRef.current) {
+          setupVisualizer(streamRef.current);
+        }
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [state, setupVisualizer]);
 
   useEffect(() => {
     return () => {
