@@ -100,7 +100,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
   const flushSegment = useCallback(async () => {
     if (chunksRef.current.length === 0) return;
-    const blob = new Blob(chunksRef.current, { type: mimeType });
+    const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current });
     chunksRef.current = [];
 
     const currentSegment = segmentCountRef.current;
@@ -132,7 +132,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
   const flushChunks = useCallback(async () => {
     if (chunksRef.current.length === 0) return;
-    const blob = new Blob(chunksRef.current, { type: mimeType });
+    const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current });
     chunksRef.current = [];
 
     const currentSegment = segmentCountRef.current;
