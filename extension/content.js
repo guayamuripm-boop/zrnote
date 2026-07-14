@@ -212,43 +212,59 @@ class MeetRecorder {
     }
   }
 
-  private async pollProcessingStatus() {
-    while (this.processing) {
+  private async callProcessStep(step: string): Promise<boolean> {
+    const maxRetries = 20;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const res = await fetch(`${this.API_BASE}/api/meetings/${this.meetingId}`, {
+        const res = await fetch(`${this.API_BASE}/api/meetings/${this.meetingId}/process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step }),
           credentials: 'include',
         });
-        const data = await res.json();
-        
-        if (data.status === 'completed') {
-          this.processing = false;
-          this.broadcastStatus({ recording: false, processing: false });
-          chrome.runtime.sendMessage({ type: 'MINUTE_GENERATED' });
-          break;
-        } else if (data.status === 'failed') {
-          this.processing = false;
-          this.broadcastStatus({ recording: false, processing: false });
-          break;
+
+        if (res.ok) return true;
+
+        const data = await res.json().catch(() => ({}));
+        // If step not ready yet (e.g., analyze before transcribe done), retry
+        if (data.error?.includes('Invalid status') || data.error?.includes('Run transcribe step first')) {
+          await new Promise(r => setTimeout(r, 3000));
+          continue;
         }
-
-        // Actualizar paso
-        const steps: Record<string, string> = {
-          processing: 'Procesando audio...',
-          transcribing: 'Transcribiendo...',
-          analyzing: 'Generando minuta...',
-          sending_emails: 'Enviando correos...',
-        };
-        this.broadcastStatus({ 
-          recording: false, 
-          processing: true, 
-          step: steps[data.status] || data.status 
-        });
-
+        // Fatal error
+        console.error(`[ZRNote] Step ${step} failed:`, data.error);
+        return false;
       } catch (e) {
-        console.warn('[ZRNote] Poll error:', e);
+        console.warn(`[ZRNote] Step ${step} attempt ${attempt} failed:`, e);
+        await new Promise(r => setTimeout(r, 3000));
       }
+    }
+    return false;
+  }
 
-      await new Promise(r => setTimeout(r, 5000));
+  private async pollProcessingStatus() {
+    const steps = [
+      { step: 'transcribe', label: 'Transcribiendo audio...' },
+      { step: 'analyze', label: 'Generando minuta con IA...' },
+      { step: 'vectorize', label: 'Indexando para búsqueda...' },
+      { step: 'emails', label: 'Enviando correos...' },
+    ];
+
+    for (const { step, label } of steps) {
+      if (!this.processing) break;
+      this.broadcastStatus({ recording: false, processing: true, step: label });
+      const ok = await this.callProcessStep(step);
+      if (!ok) {
+        this.processing = false;
+        this.broadcastStatus({ recording: false, processing: false });
+        return;
+      }
+    }
+
+    if (this.processing) {
+      this.processing = false;
+      this.broadcastStatus({ recording: false, processing: false });
+      chrome.runtime.sendMessage({ type: 'MINUTE_GENERATED' });
     }
   }
 

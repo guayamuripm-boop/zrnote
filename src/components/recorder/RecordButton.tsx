@@ -40,6 +40,11 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const meetingIdRef = useRef(meetingId);
   const pollAttemptsRef = useRef(0);
   const segmentStartTimeRef = useRef<number>(Date.now());
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animFrameRef = useRef<number | null>(null);
   const [failedSegments, setFailedSegments] = useState(0);
   const [speakerHint, setSpeakerHint] = useState<string>('');
   const [showSpeakerHintModal, setShowSpeakerHintModal] = useState(false);
@@ -215,6 +220,106 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     setPendingSpeakerHintSegment(null);
   }, []);
 
+  const stopVisualizer = useCallback(() => {
+    if (animFrameRef.current !== null) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+  }, []);
+
+  const initCanvasSize = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.scale(dpr, dpr);
+  }, []);
+
+  const drawVisualizer = useCallback(() => {
+    const canvas = canvasRef.current;
+    const analyser = analyserRef.current;
+    if (!canvas || !analyser) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.width / dpr;
+    const h = canvas.height / dpr;
+    ctx.clearRect(0, 0, w, h);
+
+    const barCount = 48;
+    const gap = 2;
+    const barWidth = (w - (barCount - 1) * gap) / barCount;
+
+    const avg = dataArray.reduce((a, b) => a + b, 0) / bufferLength;
+    const isSilent = avg < 12;
+
+    for (let i = 0; i < barCount; i++) {
+      const idx = Math.floor((i / barCount) * bufferLength);
+      const raw = dataArray[idx] / 255;
+      const value = isSilent ? 0.02 + Math.sin(Date.now() / 800 + i * 0.5) * 0.01 : raw;
+
+      const barH = Math.max(value * h * 0.9, 1.5);
+      const x = i * (barWidth + gap);
+      const y = h - barH;
+
+      if (isSilent) {
+        const gray = 200 + Math.sin(Date.now() / 1000 + i * 0.3) * 15;
+        ctx.fillStyle = `rgba(${gray}, ${gray}, ${gray}, 0.3)`;
+      } else {
+        const hue = 210 + value * 50;
+        const sat = 70 + value * 25;
+        const lit = 45 + value * 35;
+        ctx.fillStyle = `hsl(${hue}, ${sat}%, ${lit}%)`;
+      }
+
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(x, y, barWidth, barH, 2);
+      } else {
+        ctx.rect(x, y, barWidth, barH);
+      }
+      ctx.fill();
+    }
+
+    animFrameRef.current = requestAnimationFrame(drawVisualizer);
+  }, []);
+
+  const setupVisualizer = useCallback((stream: MediaStream) => {
+    stopVisualizer();
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+      sourceRef.current = source;
+      initCanvasSize();
+      drawVisualizer();
+    } catch (e) {
+      console.warn('Audio visualizer not supported:', e);
+    }
+  }, [stopVisualizer, drawVisualizer, initCanvasSize]);
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -240,6 +345,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       setElapsed(0);
       setError(null);
       isRecordingRef.current = true;
+      setupVisualizer(stream);
 
       mediaRecorder.ondataavailable = handleDataAvailable;
       mediaRecorder.start(1000);
@@ -281,6 +387,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.pause();
       isRecordingRef.current = false;
+      stopVisualizer();
       if (timerRef.current) clearInterval(timerRef.current);
       if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
       if (flushTimerRef.current) clearInterval(flushTimerRef.current);
@@ -296,6 +403,8 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       timerRef.current = setInterval(() => {
         setElapsed((prev) => prev + 1);
       }, 1000);
+
+      if (streamRef.current) setupVisualizer(streamRef.current);
 
       flushTimerRef.current = setInterval(() => {
         if (isRecordingRef.current && chunksRef.current.length > 0) {
@@ -330,6 +439,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       }
     }
 
+    stopVisualizer();
     await releaseWakeLock();
     setState('uploading');
     await flushSegment();
@@ -419,6 +529,9 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
 
   useEffect(() => {
     return () => {
+      if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
+      if (sourceRef.current) sourceRef.current.disconnect();
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') audioContextRef.current.close();
       if (timerRef.current) clearInterval(timerRef.current);
       if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
       if (flushTimerRef.current) clearInterval(flushTimerRef.current);
@@ -489,6 +602,27 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
                 Pantalla bloqueada activa
               </p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Audio Visualizer */}
+      {state === 'recording' && (
+        <div className="w-full max-w-sm glass rounded-2xl p-3 sm:p-4 shadow-elevated">
+          <div className="relative">
+            <canvas
+              ref={canvasRef}
+              className="w-full h-16 sm:h-20 rounded-xl"
+              style={{ display: 'block' }}
+            />
+            {!analyserRef.current && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-between mt-2 px-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-wider uppercase">Audio en vivo</span>
           </div>
         </div>
       )}
