@@ -1,63 +1,33 @@
-// ZRNote Meet Recorder - Content Script
+// ZRNote Meet Recorder - Content Script (JavaScript)
 // Se inyecta en meet.google.com
 
-interface Status {
-  recording: boolean;
-  processing: boolean;
-  meetingTitle?: string;
-  step?: string;
-  elapsed?: number;
-}
-
 class MeetRecorder {
-  private mediaRecorder: MediaRecorder | null = null;
-  private stream: MediaStream | null = null;
-  private chunks: Blob[] = [];
-  private segmentIndex = 0;
-  private recording = false;
-  private processing = false;
-  private meetingId: string;
-  private meetingTitle: string;
-  private startTime = 0;
-  private segmentTimer: NodeJS.Timeout | null = null;
-  private elapsedTimer: NodeJS.Timeout | null = null;
-  private API_BASE = 'https://zrnote.vercel.app';
-  private readonly SEGMENT_DURATION_MS = 30 * 60 * 1000; // 30 min
-  private readonly FLUSH_INTERVAL_MS = 30 * 1000; // 30 seg
-
   constructor() {
+    this.mediaRecorder = null;
+    this.stream = null;
+    this.chunks = [];
+    this.segmentIndex = 0;
+    this.recording = false;
+    this.processing = false;
     this.meetingId = this.extractMeetingId();
     this.meetingTitle = this.extractMeetingTitle();
+    this.startTime = 0;
+    this.segmentTimer = null;
+    this.elapsedTimer = null;
+    this.API_BASE = 'https://zrnote.vercel.app';
+    this.SEGMENT_DURATION_MS = 30 * 60 * 1000;
+    this.FLUSH_INTERVAL_MS = 30 * 1000;
     this.init();
   }
 
-  private extractMeetingId(): string {
-    // URL: https://meet.google.com/abc-defg-hij
-    const match = window.location.href.match(/\/([a-z]{3}-[a-z]{4}-[a-z]{3})/);
-    return match ? match[1] : `meet_${Date.now()}`;
-  }
-
-  private extractMeetingTitle(): string {
-    // Intentar varios selectores
-    const selectors = [
-      '[data-meeting-title]',
-      'h1[jsname]',
-      '.G5t3rd',
-      'div[aria-label^="Título de la reunión"]',
-    ];
-    for (const sel of selectors) {
-      const el = document.querySelector(sel);
-      if (el?.textContent?.trim()) return el.textContent.trim();
-    }
-    return 'Google Meet';
-  }
-
-  private async init() {
+  async init() {
     // Cargar URL configurada desde storage
-    const data = await chrome.storage.sync.get(['zrnote_backend_url']);
-    if (data.zrnote_backend_url) {
-      this.API_BASE = data.zrnote_backend_url.replace(/\/+$/, '');
-    }
+    try {
+      const data = await chrome.storage.sync.get(['zrnote_backend_url']);
+      if (data.zrnote_backend_url) {
+        this.API_BASE = data.zrnote_backend_url.replace(/\/+$/, '');
+      }
+    } catch (e) {}
 
     // Escuchar mensajes del popup/background
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -65,11 +35,13 @@ class MeetRecorder {
       return true; // async
     });
 
-    // Notificar que content script está listo
+    // Esperar a que Meet cargue
+    await this.waitForMeet();
+    this.injectUI();
     this.broadcastStatus({ recording: false, processing: false });
   }
 
-  private handleMessage(msg: any, sendResponse: (response: any) => void) {
+  handleMessage(msg, sendResponse) {
     switch (msg.type) {
       case 'START_RECORDING':
         this.startRecording().then(() => sendResponse({ ok: true })).catch(e => sendResponse({ error: e.message }));
@@ -90,7 +62,7 @@ class MeetRecorder {
     }
   }
 
-  private getStatus(): Status {
+  getStatus() {
     return {
       recording: this.recording,
       processing: this.processing,
@@ -99,13 +71,214 @@ class MeetRecorder {
     };
   }
 
-  private async startRecording() {
+  extractMeetingId() {
+    const match = window.location.href.match(/\/([a-z]{3}-[a-z]{4}-[a-z]{3})/);
+    return match ? match[1] : `meet_${Date.now()}`;
+  }
+
+  extractMeetingTitle() {
+    const selectors = [
+      '[data-meeting-title]',
+      'h1[jsname]',
+      '.G5t3rd',
+      'div[aria-label^="Título de la reunión"]',
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el?.textContent?.trim()) return el.textContent.trim();
+    }
+    return 'Google Meet';
+  }
+
+  async waitForMeet() {
+    return new Promise(resolve => {
+      const check = () => {
+        if (document.querySelector('[data-meeting-id]') || document.querySelector('.G5t3rd')) {
+          resolve();
+        } else {
+          setTimeout(check, 1000);
+        }
+      };
+      check();
+    });
+  }
+
+  injectUI() {
+    if (document.getElementById('zrnote-recorder-ui')) return;
+
+    this.uiContainer = document.createElement('div');
+    this.uiContainer.id = 'zrnote-recorder-ui';
+    this.uiContainer.innerHTML = `
+      <div class="zrnote-panel">
+        <div class="zrnote-header">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+          <span>ZRNote Recorder</span>
+        </div>
+        <div class="zrnote-status" id="zrnote-status">
+          <span class="status-dot"></span>
+          <span class="status-text">Listo para grabar</span>
+        </div>
+        <div class="zrnote-timer" id="zrnote-timer" style="display:none">00:00:00</div>
+        <div class="zrnote-controls">
+          <button id="zrnote-start" class="zrnote-btn primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+            </svg>
+            Iniciar Grabación
+          </button>
+          <button id="zrnote-stop" class="zrnote-btn danger" style="display:none">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2"/>
+            </svg>
+            Detener y Procesar
+          </button>
+        </div>
+        <div class="zrnote-info">
+          <small>Reunión: ${this.meetingTitle || 'Detectando...'}</small>
+          <small>ID: ${this.meetingId || '-'}</small>
+        </div>
+      </div>
+    `;
+
+    // Estilos inyectados
+    const style = document.createElement('style');
+    style.textContent = `
+      #zrnote-recorder-ui {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 2147483647;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      .zrnote-panel {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+        padding: 16px;
+        min-width: 280px;
+        border: 1px solid #e5e7eb;
+      }
+      .zrnote-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+        color: #1f2937;
+        margin-bottom: 12px;
+      }
+      .zrnote-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #f3f4f6;
+        border-radius: 8px;
+        margin-bottom: 12px;
+      }
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #10b981;
+      }
+      .status-dot.recording {
+        background: #ef4444;
+        animation: pulse 1.5s infinite;
+      }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+      .zrnote-timer {
+        text-align: center;
+        font-family: 'SF Mono', Monaco, monospace;
+        font-size: 24px;
+        font-weight: 600;
+        color: #ef4444;
+        margin-bottom: 12px;
+        padding: 8px;
+        background: #fef2f2;
+        border-radius: 8px;
+      }
+      .zrnote-controls {
+        display: flex;
+        gap: 8px;
+      }
+      .zrnote-btn {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 10px 16px;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .zrnote-btn.primary { background: #2563eb; color: white; }
+      .zrnote-btn.primary:hover { background: #1d4ed8; }
+      .zrnote-btn.danger { background: #ef4444; color: white; }
+      .zrnote-btn.danger:hover { background: #dc2626; }
+      .zrnote-info {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        color: #6b7280;
+        font-size: 12px;
+      }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(this.uiContainer);
+
+    // Event listeners
+    document.getElementById('zrnote-start').addEventListener('click', () => this.startRecording());
+    document.getElementById('zrnote-stop').addEventListener('click', () => this.stopRecording());
+  }
+
+  updateUI(recording, processing, step) {
+    const startBtn = document.getElementById('zrnote-start');
+    const stopBtn = document.getElementById('zrnote-stop');
+    const statusEl = document.getElementById('zrnote-status');
+    const timerEl = document.getElementById('zrnote-timer');
+
+    if (recording) {
+      if (startBtn) startBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = 'flex';
+      if (statusEl) {
+        statusEl.innerHTML = '<span class="status-dot recording"></span><span class="status-text">Grabando...</span>';
+      }
+      if (timerEl) timerEl.style.display = 'block';
+    } else if (processing) {
+      if (startBtn) startBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = 'none';
+      if (statusEl) {
+        statusEl.innerHTML = '<span class="status-dot" style="background:#f59e0b"></span><span class="status-text">' + (arguments[2] || 'Procesando...') + '</span>';
+      }
+      if (timerEl) timerEl.style.display = 'none';
+    } else {
+      if (startBtn) startBtn.style.display = 'flex';
+      if (stopBtn) stopBtn.style.display = 'none';
+      if (statusEl) {
+        statusEl.innerHTML = '<span class="status-dot"></span><span class="status-text">Listo para grabar</span>';
+      }
+      if (timerEl) timerEl.style.display = 'none';
+    }
+  }
+
+  async startRecording() {
     if (this.recording) return;
 
     try {
       // Solicitar captura de pestaña con audio
       this.stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 2 }, // Mínimo video para mantener pestaña activa
+        video: { frameRate: 2 },
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -122,8 +295,24 @@ class MeetRecorder {
         if (this.recording) this.stopRecording();
       });
 
+      // Detectar mejor mimeType soportado
+      const mimeTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/mp4',
+      ];
+      let mimeType = 'audio/webm;codecs=opus';
+      for (const mt of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mt)) {
+          mimeType = mt;
+          break;
+        }
+      }
+      console.log('[ZRNote] Using mimeType:', mimeType);
+
       this.mediaRecorder = new MediaRecorder(this.stream, {
-        mimeType: 'audio/webm;codecs=opus',
+        mimeType,
         audioBitsPerSecond: 32000,
       });
 
@@ -153,7 +342,6 @@ class MeetRecorder {
       setTimeout(() => {
         if (this.recording) {
           this.mediaRecorder?.stop();
-          // Reiniciar para siguiente segmento
           setTimeout(() => this.startRecording(), 1000);
         }
       }, this.SEGMENT_DURATION_MS);
@@ -161,6 +349,7 @@ class MeetRecorder {
       // Timer de tiempo transcurrido
       this.startElapsedTimer();
 
+      this.updateUI(true, false);
       this.broadcastStatus({ recording: true, meetingTitle: this.meetingTitle });
       chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
 
@@ -170,7 +359,7 @@ class MeetRecorder {
     }
   }
 
-  private async stopRecording() {
+  async stopRecording() {
     if (!this.recording && !this.processing) return;
 
     this.recording = false;
@@ -187,7 +376,7 @@ class MeetRecorder {
       this.stream.getTracks().forEach(t => t.stop());
     }
 
-    this.broadcastStatus({ recording: false, processing: true, meetingTitle: this.meetingTitle, step: 'Transcribiendo audio...' });
+    this.updateUI(false, true, 'Transcribiendo audio...');
 
     try {
       // Finalizar segmento actual
@@ -208,11 +397,11 @@ class MeetRecorder {
     } catch (err) {
       console.error('[ZRNote] Error stopping:', err);
       this.processing = false;
-      this.broadcastStatus({ recording: false, processing: false });
+      this.updateUI(false, false);
     }
   }
 
-  private async callProcessStep(step: string): Promise<boolean> {
+  async callProcessStep(step) {
     const maxRetries = 60;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -239,17 +428,17 @@ class MeetRecorder {
           continue;
         }
         // Fatal error
-        console.error(`[ZRNote] Step ${step} failed:`, data.error);
+        console.error('[ZRNote] Step ' + step + ' failed:', data.error);
         return false;
       } catch (e) {
-        console.warn(`[ZRNote] Step ${step} attempt ${attempt} failed:`, e);
+        console.warn('[ZRNote] Step ' + step + ' attempt ' + attempt + ' failed:', e);
         await new Promise(r => setTimeout(r, 3000));
       }
     }
     return false;
   }
 
-  private async pollProcessingStatus() {
+  async pollProcessingStatus() {
     const steps = [
       { step: 'transcribe', label: 'Transcribiendo audio...' },
       { step: 'analyze', label: 'Generando minuta con IA...' },
@@ -259,23 +448,23 @@ class MeetRecorder {
 
     for (const { step, label } of steps) {
       if (!this.processing) break;
-      this.broadcastStatus({ recording: false, processing: true, step: label });
+      this.updateUI(false, true, label);
       const ok = await this.callProcessStep(step);
       if (!ok) {
         this.processing = false;
-        this.broadcastStatus({ recording: false, processing: false });
+        this.updateUI(false, false);
         return;
       }
     }
 
     if (this.processing) {
       this.processing = false;
-      this.broadcastStatus({ recording: false, processing: false });
+      this.updateUI(false, false);
       chrome.runtime.sendMessage({ type: 'MINUTE_GENERATED' });
     }
   }
 
-  private async flushSegment() {
+  async flushSegment() {
     if (this.chunks.length === 0) return;
 
     const blob = new Blob(this.chunks, { type: 'audio/webm;codecs=opus' });
@@ -297,7 +486,7 @@ class MeetRecorder {
         const err = await res.json();
         console.error('[ZRNote] Upload error:', err);
       } else {
-        console.log(`[ZRNote] Segment ${this.segmentIndex} uploaded`);
+        console.log('[ZRNote] Segment ' + this.segmentIndex + ' uploaded');
       }
     } catch (e) {
       console.error('[ZRNote] Upload failed:', e);
@@ -306,20 +495,26 @@ class MeetRecorder {
     this.segmentIndex++;
   }
 
-  private startElapsedTimer() {
+  startElapsedTimer() {
     this.startTime = Date.now();
     this.elapsedTimer = setInterval(() => {
       const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
       this.broadcastStatus({ recording: true, elapsed });
+      const timerEl = document.getElementById('zrnote-timer');
+      if (timerEl) {
+        const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+        const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+        const s = String(elapsed % 60).padStart(2, '0');
+        timerEl.textContent = h + ':' + m + ':' + s;
+      }
     }, 1000);
   }
 
-  private broadcastStatus(status: Status) {
-    // Enviar a popup si está abierto
+  broadcastStatus(status) {
     chrome.runtime.sendMessage({ type: 'STATUS_UPDATE', status }).catch(() => {});
   }
 
-  private getStatus(): Status {
+  getStatus() {
     return {
       recording: this.recording,
       processing: this.processing,
@@ -330,19 +525,18 @@ class MeetRecorder {
 }
 
 // Inicializar cuando Meet esté listo
-function waitForMeet(): Promise<void> {
+function waitForMeet() {
   return new Promise(resolve => {
     const check = () => {
-      if (document.querySelector('[data-meeting-id]') || 
-          document.querySelector('.G5t3rd') ||
-          document.querySelector('[data-meeting-title]')) {
+      if (document.querySelector('[data-meeting-id]') || document.querySelector('.G5t3rd') || document.querySelector('[data-meeting-title]')) {
         resolve();
       } else {
         setTimeout(check, 1000);
       }
     };
     check();
-  }
+  });
+}
 
 waitForMeet().then(() => {
   new MeetRecorder();
