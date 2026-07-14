@@ -165,7 +165,7 @@ export async function POST(
         .from('meetings')
         .update({ status: 'failed' })
         .eq('id', meetingId);
-      return NextResponse.json({ ok: false, error: result.error });
+      return NextResponse.json({ ok: false, error: result.error, segmentsProcessed: result.segmentsProcessed, segmentsTotal: result.segmentsTotal });
     }
 
     return NextResponse.json({ ok: true, transcriptLength: result.transcript?.length });

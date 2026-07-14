@@ -175,8 +175,11 @@ export async function transcribeMeeting(meetingId: string): Promise<TranscribeRe
   const fullTranscript = allTranscriptions.join('\n\n');
   logger.info('Full transcription completed', { meetingId, chars: fullTranscript.length });
 
-  if (fullTranscript.trim().length === 0) {
-    return { success: false, error: 'No se pudo transcribir ningún segmento. Verifica que el audio no esté vacío.', segmentsProcessed: processed, segmentsTotal: segments.length };
+    if (fullTranscript.trim().length === 0) {
+    const reason = processed === 0 && segments.length > 0
+      ? 'Todos los segmentos fallaron al descargar o transcribir. Verifica GROQ_API_KEY y que el bucket meeting-audio exista en Supabase.'
+      : 'No se pudo transcribir ningún segmento. Verifica que el audio no esté vacío.';
+    return { success: false, error: reason, segmentsProcessed: processed, segmentsTotal: segments.length };
   }
 
   const { error: updateError } = await supabase
