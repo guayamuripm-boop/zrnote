@@ -68,9 +68,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     const formData = new FormData();
     formData.append('audio', blobToUpload, `segment_${index}.${ext}`);
     formData.append('segmentIndex', index.toString());
-    if (speakerHint) {
-      formData.append('speakerHint', speakerHint);
-    }
     if (durationSec !== undefined) {
       formData.append('durationSec', durationSec.toString());
     }
@@ -89,7 +86,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const uploadSegment = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number, maxAttempts = 3) => {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await uploadSegmentOnce(blob, index, speakerHint, durationSec);
+        await uploadSegmentOnce(blob, index, undefined, durationSec);
         return;
       } catch (err) {
         if (attempt === maxAttempts) throw err;
@@ -105,18 +102,15 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
     const currentSegment = segmentCountRef.current;
     
-    // Calculate actual duration of this segment in seconds
     const durationSec = Math.round((Date.now() - segmentStartTimeRef.current) / 1000);
     
-    // Use confirmed speaker hint for this segment
     const hintToUse = undefined;
     
-    const uploadPromise = uploadSegment(blob, currentSegment, hintToUse, durationSec).catch((err) => {
+    const uploadPromise = uploadSegment(blob, currentSegment, undefined, durationSec).catch((err) => {
       console.error(`Segment ${currentSegment} upload failed after retries:`, err);
       setFailedSegments((prev) => prev + 1);
     });
 
-    // Reset segment start time for next segment
     segmentStartTimeRef.current = Date.now();
     segmentCountRef.current++;
     setSegmentCount(segmentCountRef.current);
@@ -158,9 +152,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const setupMediaSession = () => {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: meetingTitle || 'ZRNote GrabaciÃ³n',
+        title: meetingTitle || 'ZRNote Grabación',
         artist: 'ZRNote',
-        album: 'GrabaciÃ³n en curso',
+        album: 'Grabación en curso',
       });
 
       navigator.mediaSession.setActionHandler('pause', () => pauseRecording());
@@ -194,6 +188,230 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
     analyserRef.current = null;
   }, []);
+
+  const setupVisualizer = useCallback(async (stream: MediaStream) => {
+    stopVisualizer();
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+      sourceRef.current = source;
+      initCanvasSize();
+      drawVisualizer();
+    } catch (e) {
+      console.warn('Audio visualizer not supported:', e);
+    }
+  }, [stopVisualizer, drawVisualizer, initCanvasSize]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      streamRef.current = stream;
+
+      const mimeTypes = [
+        'audio/webm',
+        'audio/webm;codecs=opus',
+        'audio/ogg;codecs=opus',
+        'audio/mp4',
+      ];
+      let mimeType = 'audio/webm';
+      for (const mt of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mt)) {
+          mimeType = mt;
+          break;
+        }
+      }
+      console.log('[RecordButton] Using mimeType:', mimeType);
+      mimeTypeRef.current = mimeType;
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType,
+        audioBitsPerSecond: 128000,
+      });
+
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+      segmentCountRef.current = 0;
+      pendingUploadsRef.current = [];
+      setSegmentCount(0);
+      setFailedSegments(0);
+      setElapsed(0);
+      setError(null);
+      isRecordingRef.current = true;
+
+      mediaRecorder.ondataavailable = handleDataAvailable;
+      mediaRecorder.start(1000);
+
+      segmentTimerRef.current = setInterval(() => {
+        if (isRecordingRef.current) {
+          flushSegment();
+        }
+      }, SEGMENT_DURATION_MS);
+
+      timerRef.current = setInterval(() => {
+        setElapsed((prev) => prev + 1);
+      }, 1000);
+
+      setState('recording');
+
+      await requestWakeLock();
+      setupMediaSession();
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    } catch (err) {
+      console.error('Error starting recording:', err);
+      setError('No se pudo acceder al micrófono. Verifica los permisos.');
+    }
+  };
+
+  const pauseRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.pause();
+      isRecordingRef.current = false;
+      stopVisualizer();
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
+      setState('paused');
+    }
+  };
+
+  const resumeRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      mediaRecorderRef.current.resume();
+      isRecordingRef.current = true;
+
+      timerRef.current = setInterval(() => {
+        setElapsed((prev) => prev + 1);
+      }, 1000);
+
+      segmentTimerRef.current = setInterval(() => {
+        if (isRecordingRef.current) {
+          flushSegment();
+        }
+      }, SEGMENT_DURATION_MS);
+
+      setState('recording');
+    }
+  };
+
+  const finalizeRecording = async () => {
+    isRecordingRef.current = false;
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+    if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current.state === 'recording' || mediaRecorderRef.current.state === 'paused') {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      }
+    }
+
+    stopVisualizer();
+    await releaseWakeLock();
+    setState('uploading');
+    await flushSegment();
+    await Promise.all(pendingUploadsRef.current);
+
+    if (failedSegments > 0) {
+      setError(`${failedSegments} segmento(s) de audio no se pudieron subir. La minuta puede quedar incompleta.`);
+    }
+
+    setState('processing');
+    setProcessingStep('transcribe');
+    setProcessingProgress(0);
+    setProcessingMessage('Transcribiendo audio...');
+    pollAttemptsRef.current = 0;
+
+    const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'emails'];
+    const stepMessages: Record<ProcessingStep, string> = {
+      transcribe: 'Transcribiendo audio...',
+      analyze: 'Generando minuta con IA...',
+      vectorize: 'Indexando para búsqueda inteligente...',
+      emails: 'Enviando correos...',
+    };
+
+    for (const step of processSteps) {
+      setProcessingStep(step);
+      setProcessingMessage(stepMessages[step]);
+      setProcessingProgress(0);
+      pollAttemptsRef.current = 0;
+
+      const stepResult = await pollProcessingStep(meetingIdRef.current, step);
+      
+      if (!stepResult.ok) {
+        setError(stepResult.error || `Error en paso: ${step}`);
+        setState('idle');
+        setProcessingStep(null);
+        return;
+      }
+      
+      setProcessingProgress(100);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    setProcessingStep(null);
+    setProcessingMessage('¡Completado!');
+    onFinalized?.();
+  };
+
+  const pollProcessingStep = async (meetingId: string, step: ProcessingStep): Promise<{ ok: boolean; error?: string }> => {
+    while (pollAttemptsRef.current < MAX_POLL_ATTEMPTS) {
+      pollAttemptsRef.current++;
+      const progress = Math.min(90, (pollAttemptsRef.current / MAX_POLL_ATTEMPTS) * 90);
+      setProcessingProgress(progress);
+
+      try {
+        const res = await fetch(`/api/meetings/${meetingId}/process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok) {
+            if (data.more) {
+              const segmentsMsg = data.segmentsTotal ? ` (${data.segmentsProcessed}/${data.segmentsTotal})` : '';
+              setProcessingMessage(`Transcribiendo audio...${segmentsMsg}`);
+              await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+              continue;
+            }
+            return { ok: true };
+          }
+          if (data.error?.includes('Invalid status') || data.error?.includes('Run transcribe step first')) {
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+            continue;
+          }
+          return { ok: false, error: data.error || `Step ${step} failed` };
+        }
+
+        const errData = await res.json().catch(() => ({}));
+        return { ok: false, error: errData.error || `HTTP ${res.status}` };
+      } catch (err) {
+        return { ok: false, error: 'Error de conexión' };
+      }
+
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+
+    return { ok: false, error: `Timeout en paso: ${step}` };
+  };
 
   const initCanvasSize = useCallback(() => {
     const canvas = canvasRef.current;
@@ -282,215 +500,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   }, [stopVisualizer, drawVisualizer, initCanvasSize]);
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      streamRef.current = stream;
-
-      // Detect best supported mimeType - FORCE audio/webm (sin codecs=opus) para compatibilidad mÃ³vil
-      const mimeTypes = [
-        'audio/webm',           // MÃS COMPATIBLE - sin codecs=opus
-        'audio/webm;codecs=opus',
-        'audio/ogg;codecs=opus',
-        'audio/mp4',
-      ];
-      let mimeType = 'audio/webm';
-      for (const mt of mimeTypes) {
-        if (MediaRecorder.isTypeSupported(mt)) {
-          mimeType = mt;
-          break;
-        }
-      }
-      console.log('[RecordButton] Using mimeType:', mimeType);
-      mimeTypeRef.current = mimeType;
-
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType,
-        audioBitsPerSecond: 128000,  // Bitrate fijo alto para evitar cambios de codec mid-stream
-      });
-
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-      segmentCountRef.current = 0;
-      pendingUploadsRef.current = [];
-      setSegmentCount(0);
-      setFailedSegments(0);
-      setElapsed(0);
-      setError(null);
-      isRecordingRef.current = true;
-
-      mediaRecorder.ondataavailable = handleDataAvailable;
-      mediaRecorder.start(1000);
-
-      segmentTimerRef.current = setInterval(() => {
-        if (isRecordingRef.current) {
-          flushSegment();
-        }
-      }, SEGMENT_DURATION_MS);
-
-      timerRef.current = setInterval(() => {
-        setElapsed((prev) => prev + 1);
-      }, 1000);
-
-      setState('recording');
-
-      await requestWakeLock();
-      setupMediaSession();
-
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    } catch (err) {
-      console.error('Error starting recording:', err);
-      setError('No se pudo acceder al micrÃ³fono. Verifica los permisos.');
-    }
-  };
-
-  const pauseRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.pause();
-      isRecordingRef.current = false;
-      stopVisualizer();
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
-      setState('paused');
-    }
-  };
-
-  const resumeRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
-      mediaRecorderRef.current.resume();
-      isRecordingRef.current = true;
-
-      timerRef.current = setInterval(() => {
-        setElapsed((prev) => prev + 1);
-      }, 1000);
-
-      segmentTimerRef.current = setInterval(() => {
-        if (isRecordingRef.current) {
-          flushSegment();
-        }
-      }, SEGMENT_DURATION_MS);
-
-      setState('recording');
-    }
-  };
-
-  const finalizeRecording = async () => {
-    isRecordingRef.current = false;
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-
-    if (mediaRecorderRef.current) {
-      if (mediaRecorderRef.current.state === 'recording' || mediaRecorderRef.current.state === 'paused') {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
-      }
-    }
-
-    stopVisualizer();
-    await releaseWakeLock();
-    setState('uploading');
-    await flushSegment();
-    await Promise.all(pendingUploadsRef.current);
-
-    if (failedSegments > 0) {
-      setError(`${failedSegments} segmento(s) de audio no se pudieron subir. La minuta puede quedar incompleta.`);
-    }
-
-    // Start sequential processing via polling
-    setState('processing');
-    setProcessingStep('transcribe');
-    setProcessingProgress(0);
-    setProcessingMessage('Transcribiendo audio...');
-    pollAttemptsRef.current = 0;
-
-const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'emails'];
-  const stepMessages: Record<ProcessingStep, string> = {
-    transcribe: 'Transcribiendo audio...',
-    analyze: 'Generando minuta con IA...',
-    vectorize: 'Indexando para bÃºsqueda inteligente...',
-    emails: 'Enviando correos...',
-  };
-
-    for (const step of processSteps) {
-      setProcessingStep(step);
-      setProcessingMessage(stepMessages[step]);
-      setProcessingProgress(0);
-      pollAttemptsRef.current = 0;
-
-      const stepResult = await pollProcessingStep(meetingIdRef.current, step);
-      
-      if (!stepResult.ok) {
-        setError(stepResult.error || `Error en paso: ${step}`);
-        setState('idle');
-        setProcessingStep(null);
-        return;
-      }
-      
-      // Update progress
-      setProcessingProgress(100);
-      await new Promise((r) => setTimeout(r, 500));
-    }
-
-    setProcessingStep(null);
-    setProcessingMessage('Â¡Completado!');
-    onFinalized?.();
-  };
-
-  const pollProcessingStep = async (meetingId: string, step: ProcessingStep): Promise<{ ok: boolean; error?: string }> => {
-    while (pollAttemptsRef.current < MAX_POLL_ATTEMPTS) {
-      pollAttemptsRef.current++;
-      const progress = Math.min(90, (pollAttemptsRef.current / MAX_POLL_ATTEMPTS) * 90);
-      setProcessingProgress(progress);
-
-      try {
-        const res = await fetch(`/api/meetings/${meetingId}/process`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ step }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ok) {
-            // If more segments remain, keep polling
-            if (data.more) {
-              const segmentsMsg = data.segmentsTotal ? ` (${data.segmentsProcessed}/${data.segmentsTotal})` : '';
-              setProcessingMessage(`Transcribiendo audio...${segmentsMsg}`);
-              await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-              continue;
-            }
-            return { ok: true };
-          }
-          // If step not ready yet (e.g., analyze before transcribe), wait and retry
-          if (data.error?.includes('Invalid status') || data.error?.includes('Run transcribe step first')) {
-            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-            continue;
-          }
-          return { ok: false, error: data.error || `Step ${step} failed` };
-        }
-
-        const errData = await res.json().catch(() => ({}));
-        return { ok: false, error: errData.error || `HTTP ${res.status}` };
-      } catch (err) {
-        return { ok: false, error: 'Error de conexiÃ³n' };
-      }
-
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    }
-
-    return { ok: false, error: `Timeout en paso: ${step}` };
-  };
-
-  // Start/stop visualizer when recording state changes, after canvas mounts
   useEffect(() => {
     if (state === 'recording' && streamRef.current && canvasRef.current) {
       setupVisualizer(streamRef.current);
@@ -523,12 +532,11 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
 
   return (
     <div className="flex flex-col items-center gap-8">
-      {/* Error */}
       {error && (
         <div className="w-full max-w-md bg-rose-100 dark:bg-rose-900/30 rounded-xl p-4 flex items-start gap-3">
           <div className="w-8 h-8 gradient-error rounded-lg flex items-center justify-center shrink-0">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77-.833.192 2.5 1.732 2.5z" />
             </svg>
           </div>
           <div className="flex-1">
@@ -542,7 +550,6 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
         </div>
       )}
 
-      {/* Timer + Status */}
       {state !== 'idle' && (
         <div className="text-center space-y-3">
           <div className="flex items-center justify-center gap-3">
@@ -582,7 +589,6 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
         </div>
       )}
 
-      {/* Audio Visualizer */}
       {state === 'recording' && (
         <div className="w-full max-w-sm glass rounded-2xl p-3 sm:p-4 shadow-elevated">
           <div className="relative">
@@ -603,7 +609,6 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
         </div>
       )}
 
-      {/* Main Action Button */}
       <div className="relative">
         {state === 'idle' && (
           <button
@@ -681,9 +686,9 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
             <div className="space-y-1">
               <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{processingMessage}</p>
               <div className="w-full glass rounded-full h-2 overflow-hidden">
-                <div 
-                  className="gradient-primary h-2 rounded-full transition-all duration-300" 
-                  style={{ width: `${processingProgress}%` }} 
+                <div
+                  className="gradient-primary h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${processingProgress}%` }}
                 />
               </div>
               <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
@@ -706,32 +711,6 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
           </div>
         )}
       </div>
-
-      placeholder="Ej: Juan PÃ©rez, Directora, Cliente..."
-              className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition"
-              autoFocus
-              onKeyDown={(e) => e.key === 'Enter' && handleConfirmSpeakerHint()}
-            />
-            <div className="flex gap-3 mt-4">
-              <button
-                
-                className="flex-1 glass border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 py-3 rounded-xl font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-              >
-                Saltar
-              </button>
-              <button
-                
-                
-                className="flex-1 gradient-primary text-white py-3 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition disabled:opacity-50"
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+    );
+  }
 }
-
-
