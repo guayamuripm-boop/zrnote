@@ -109,7 +109,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     const durationSec = Math.round((Date.now() - segmentStartTimeRef.current) / 1000);
     
     // Use confirmed speaker hint for this segment
-    const hintToUse = speakerHint ? speakerHint : undefined;
+    const hintToUse = undefined;
     
     const uploadPromise = uploadSegment(blob, currentSegment, hintToUse, durationSec).catch((err) => {
       console.error(`Segment ${currentSegment} upload failed after retries:`, err);
