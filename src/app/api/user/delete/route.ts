@@ -2,6 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { logger } from '@/lib/logger';
 
 const deleteSchema = z.object({
   confirmation: z.literal('DELETE_MY_ACCOUNT'),
@@ -97,13 +98,13 @@ export async function POST(request: Request) {
     const { error: deleteAuthError } = await adminSupabase.auth.admin.deleteUser(userId);
 
     if (deleteAuthError) {
-      console.error('Auth delete error:', deleteAuthError);
+      logger.error('Auth delete error', { error: deleteAuthError.message });
       return NextResponse.json({ error: 'Error al eliminar cuenta de autenticación' }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true, message: 'Cuenta eliminada permanentemente' });
   } catch (error) {
-    console.error('Delete account error:', error);
+    logger.error('Delete account error', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
   }
 }

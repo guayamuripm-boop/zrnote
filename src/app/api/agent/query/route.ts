@@ -2,6 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { embedSingle } from '@/lib/embeddings';
+import { logger } from '@/lib/logger';
 
 const querySchema = z.object({
   query: z.string().min(1).max(2000),
@@ -114,7 +115,7 @@ Sé conciso pero completo.
 
     return NextResponse.json({ answer, sources });
   } catch (err) {
-    console.error('Agent query error:', err);
+    logger.error('Agent query error', { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: 'Error processing query' }, { status: 500 });
   }
 }

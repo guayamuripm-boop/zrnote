@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { logger } from '@/lib/logger';
 
 const STALE_PROCESSING_MS = 10 * 60 * 1000;
 
@@ -16,7 +17,7 @@ export async function GET() {
     .or(`status.eq.processing,status.eq.failed`);
 
   if (error) {
-    console.error('[cron/retry-stuck] Error fetching meetings:', error.message);
+    logger.error('[cron/retry-stuck] Error fetching meetings', { error: error.message });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -60,7 +61,7 @@ export async function GET() {
         }).catch(() => {});
 
         retried++;
-        console.log(`[cron/retry-stuck] Retried meeting ${meeting.id} from step ${nextStep}`);
+        logger.info('[cron/retry-stuck] Retried meeting', { meetingId: meeting.id, step: nextStep });
       }
     }
   }
