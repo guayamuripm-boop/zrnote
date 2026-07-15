@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { maybeCompressAudio } from '@/lib/audio-compression';
@@ -158,9 +158,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const setupMediaSession = () => {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: meetingTitle || 'ZRNote Grabación',
+        title: meetingTitle || 'ZRNote GrabaciÃ³n',
         artist: 'ZRNote',
-        album: 'Grabación en curso',
+        album: 'GrabaciÃ³n en curso',
       });
 
       navigator.mediaSession.setActionHandler('pause', () => pauseRecording());
@@ -294,9 +294,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
       streamRef.current = stream;
 
-      // Detect best supported mimeType - FORCE audio/webm (sin codecs=opus) para compatibilidad móvil
+      // Detect best supported mimeType - FORCE audio/webm (sin codecs=opus) para compatibilidad mÃ³vil
       const mimeTypes = [
-        'audio/webm',           // MÁS COMPATIBLE - sin codecs=opus
+        'audio/webm',           // MÃS COMPATIBLE - sin codecs=opus
         'audio/webm;codecs=opus',
         'audio/ogg;codecs=opus',
         'audio/mp4',
@@ -348,7 +348,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
     } catch (err) {
       console.error('Error starting recording:', err);
-      setError('No se pudo acceder al micrófono. Verifica los permisos.');
+      setError('No se pudo acceder al micrÃ³fono. Verifica los permisos.');
     }
   };
 
@@ -416,7 +416,7 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
   const stepMessages: Record<ProcessingStep, string> = {
     transcribe: 'Transcribiendo audio...',
     analyze: 'Generando minuta con IA...',
-    vectorize: 'Indexando para búsqueda inteligente...',
+    vectorize: 'Indexando para bÃºsqueda inteligente...',
     emails: 'Enviando correos...',
   };
 
@@ -441,7 +441,7 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
     }
 
     setProcessingStep(null);
-    setProcessingMessage('¡Completado!');
+    setProcessingMessage('Â¡Completado!');
     onFinalized?.();
   };
 
@@ -481,7 +481,7 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
         const errData = await res.json().catch(() => ({}));
         return { ok: false, error: errData.error || `HTTP ${res.status}` };
       } catch (err) {
-        return { ok: false, error: 'Error de conexión' };
+        return { ok: false, error: 'Error de conexiÃ³n' };
       }
 
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -707,39 +707,21 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
         )}
       </div>
 
-      {showSpeakerHintModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="glass-strong rounded-2xl p-6 w-full max-w-md animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">¿Quién está hablando ahora?</h3>
-            </div>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-              Segmento de 30 min #{pendingSpeakerHintSegment !== null ? pendingSpeakerHintSegment + 1 : '?'}. Ingresa el nombre del orador principal para mejorar la transcripción.
-            </p>
-            <input
-              type="text"
-              value={speakerHint}
-              onChange={(e) => setSpeakerHint(e.target.value)}
-              placeholder="Ej: Juan Pérez, Directora, Cliente..."
+      placeholder="Ej: Juan PÃ©rez, Directora, Cliente..."
               className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition"
               autoFocus
               onKeyDown={(e) => e.key === 'Enter' && handleConfirmSpeakerHint()}
             />
             <div className="flex gap-3 mt-4">
               <button
-                onClick={handleSkipSpeakerHint}
+                
                 className="flex-1 glass border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 py-3 rounded-xl font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition"
               >
                 Saltar
               </button>
               <button
-                onClick={handleConfirmSpeakerHint}
-                disabled={!speakerHint.trim()}
+                
+                
                 className="flex-1 gradient-primary text-white py-3 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition disabled:opacity-50"
               >
                 Confirmar
@@ -751,3 +733,5 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
     </div>
   );
 }
+
+
