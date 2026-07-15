@@ -7,10 +7,13 @@
  */
 export function escapeHtml(unsafe: unknown): string {
   if (unsafe === null || unsafe === undefined) return '';
+  let safe: string;
   if (typeof unsafe !== 'string') {
-    unsafe = String(unsafe);
+    safe = String(unsafe);
+  } else {
+    safe = unsafe;
   }
-  return unsafe
+  return safe
     .replace(/&/g, '&')
     .replace(/</g, '<')
     .replace(/>/g, '>')
