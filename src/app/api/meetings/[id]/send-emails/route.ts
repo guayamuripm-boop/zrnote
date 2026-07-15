@@ -2,13 +2,29 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { sendMail } from '@/lib/smtp';
 import { generateICS, icsToBuffer, CalendarEvent } from '@/lib/ics';
-import { buildMinuteHtml, buildActionItemsHtml, buildMyItemsHtml, buildOtherItemsHtml, matchItemsToParticipant, sendWithRetry } from '@/lib/email-service';
+import {
+  buildMinuteHtml,
+  buildActionItemsHtml,
+  buildMyItemsHtml,
+  buildOtherItemsHtml,
+  matchItemsToParticipant,
+  sendWithRetry,
+} from '@/lib/email-service';
+import { escapeHtml } from '@/lib/safe-html';
+import { escapeIcsText } from '@/lib/validators';
 
+/**
+ * POST /api/meetings/[id]/send-emails
+ *
+ * On-demand email send (creator can manually re-trigger after failures).
+ * The pipeline step uses `processing.ts:sendMeetingEmails` (identical logic
+ * but runs server-side after analyze).
+ */
 export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
+  _request: Request,
+  { params }: { params: { id: string } },
 ) {
-  const authHeader = request.headers.get('authorization') || '';
+  const authHeader = _request.headers.get('authorization') || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
   const isInternal = authHeader === `Bearer ${serviceKey}`;
 
@@ -19,9 +35,7 @@ export async function POST(
     userId = null;
   } else {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     userId = user.id;
   }
 
@@ -29,20 +43,17 @@ export async function POST(
     return NextResponse.json({ error: 'Gmail SMTP not configured on server' }, { status: 500 });
   }
 
-  const meetingQuery = supabase
+  let meetingQuery = supabase
     .from('meetings')
     .select('id, title, created_by')
     .eq('id', params.id);
 
   if (!isInternal) {
-    meetingQuery.eq('created_by', userId);
+    meetingQuery = meetingQuery.eq('created_by', userId);
   }
 
   const { data: meeting } = await meetingQuery.single();
-
-  if (!meeting) {
-    return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
-  }
+  if (!meeting) return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
 
   if (!isInternal && meeting.created_by !== userId) {
     return NextResponse.json({ error: 'Solo el creador puede enviar correos' }, { status: 403 });
@@ -61,18 +72,27 @@ export async function POST(
   const participantsRaw = participantsResult.data;
   const creatorEmail = creatorResult.data?.email_override || creatorUserResult.data?.email;
 
-  const participants = (participantsRaw || []).map((p: any) => ({
-    name: p.name || p.email_override?.split('@')[0] || 'Participante',
-    email: p.email_override || '',
-  })).filter((p) => p.email);
+  const participants = (participantsRaw || [])
+    .map((p: any) => ({
+      name: p.name || p.email_override?.split('@')[0] || 'Participante',
+      email: p.email_override || '',
+    }))
+    .filter((p) => p.email);
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
   const minuteHtml = buildMinuteHtml(minute);
   const allItemsHtml = buildActionItemsHtml(allItems);
 
-  const emailQueue: Array<{ to: string; subject: string; html: string; label: string; attachments?: Array<{ filename: string; content: Buffer; contentType: string }> }> = [];
+  // Email subjects are user-provided content (meeting title) – escape before concatenation
+  // into headers to avoid header-injection issues.
+  const safeTitle = escapeHtml(meeting.title);
+  const safeMeetingId = params.id;
+
+  type EmailJob = { to: string; subject: string; html: string; label: string; attachments?: Array<{ filename: string; content: Buffer; contentType: string }> };
+  const emailQueue: EmailJob[] = [];
 
   for (const p of participants) {
+    const safeName = escapeHtml(p.name);
     if (creatorEmail && p.email.toLowerCase() === creatorEmail.toLowerCase()) continue;
 
     const myItems = matchItemsToParticipant(allItems, p.name, p.email);
@@ -86,7 +106,9 @@ export async function POST(
       .map((i) => ({
         uid: `${i.id}@zrnote`,
         summary: i.description,
-        description: `Prioridad: ${i.priority}\\nReunión: ${meeting.title}\\nResponsable: ${p.name}`,
+        // Real newline, NOT literal \\n (the original ICS library escapes it downstream
+        // but only if input is plain text).
+        description: `Prioridad: ${i.priority}\nReunión: ${safeTitle}\nResponsable: ${p.name}`,
         dueDate: i.due_date,
         priority: i.priority,
         assigneeName: p.name,
@@ -103,26 +125,25 @@ export async function POST(
 
     emailQueue.push({
       to: p.email,
-      subject: `[ZRNote] ${meeting.title} — Minuta y compromisos`,
-      html: `<p>Hola ${p.name},</p><p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa y tus compromisos.</p>${calendarNote}${myItemsHtml}${otherItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
+      subject: `[ZRNote] ${safeTitle} — Minuta y compromisos`,
+      html: `<p>Hola ${safeName},</p><p>Reunión <b>${safeTitle}</b> procesada. Aquí tienes la minuta completa y tus compromisos.</p>${calendarNote}${myItemsHtml}${otherItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${safeMeetingId}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
       label: p.email,
       attachments,
     });
   }
 
-  const creatorItems = matchItemsToParticipant(allItems, '', creatorEmail || '');
-  const creatorCalendarEvents: CalendarEvent[] = allItems
+  const creatorEvents: CalendarEvent[] = allItems
     .filter((i) => i.due_date)
     .map((i) => ({
       uid: `${i.id}@zrnote`,
       summary: i.description,
-      description: `Prioridad: ${i.priority}\\nReunión: ${meeting.title}\\nResponsable: ${i.assignee_name || 'Sin asignar'}`,
+      description: `Prioridad: ${i.priority}\nReunión: ${safeTitle}\nResponsable: ${i.assignee_name || 'Sin asignar'}`,
       dueDate: i.due_date,
       priority: i.priority,
       assigneeName: i.assignee_name || '',
     }));
 
-  const creatorIcs = generateICS(creatorCalendarEvents);
+  const creatorIcs = generateICS(creatorEvents);
   const creatorAttachments = creatorIcs
     ? [{ filename: 'compromisos_todos.ics', content: icsToBuffer(creatorIcs), contentType: 'text/calendar; charset=utf-8' }]
     : undefined;
@@ -130,8 +151,8 @@ export async function POST(
   if (creatorEmail) {
     emailQueue.push({
       to: creatorEmail,
-      subject: `[ZRNote] ${meeting.title} — Minuta completa + todas las tareas`,
-      html: `<p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa con todas las tareas asignadas.</p>${creatorCalendarEvents.length > 0 ? `<p style="background:#eff6ff;border-left:3px solid #3b82f6;padding:10px 14px;margin:12px 0;border-radius:0 8px 8px 0;font-size:13px;color:#1e40af">📅 Se adjuntó un archivo de calendario con ${creatorCalendarEvents.length} compromiso(s).</p>` : ''}${allItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${params.id}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
+      subject: `[ZRNote] ${safeTitle} — Minuta completa + todas las tareas`,
+      html: `<p>Reunión <b>${safeTitle}</b> procesada. Aquí tienes la minuta completa con todas las tareas asignadas.</p>${creatorEvents.length > 0 ? `<p style="background:#eff6ff;border-left:3px solid #3b82f6;padding:10px 14px;margin:12px 0;border-radius:0 8px 8px 0;font-size:13px;color:#1e40af">📅 Se adjuntó un archivo de calendario con ${creatorEvents.length} compromiso(s).</p>` : ''}${allItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><p style="text-align:center"><a href="${appUrl}/dashboard/meetings/${safeMeetingId}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>`,
       label: `coordinator (${creatorEmail})`,
       attachments: creatorAttachments,
     });
@@ -139,24 +160,29 @@ export async function POST(
 
   const results: Array<{ email: string; ok: boolean; error?: string }> = [];
 
-  for (const job of emailQueue) {
+  for (let i = 0; i < emailQueue.length; i++) {
+    const job = emailQueue[i];
     const result = await sendWithRetry(() =>
       sendMail({ to: job.to, subject: job.subject, html: job.html, attachments: job.attachments })
     );
     results.push({ email: job.label, ...result });
-    if (emailQueue.indexOf(job) < emailQueue.length - 1) {
+    // Throttle entre emails para evitar rate limit de Gmail/SMTP
+    if (i < emailQueue.length - 1) {
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
 
   await supabase.from('email_logs').insert(
     results.map((r) => ({
-      meeting_id: params.id,
+      meeting_id: safeMeetingId,
       recipient_email: r.email,
       type: r.email.includes('coordinator') ? 'coordinator_summary' : 'personal',
       status: r.ok ? 'sent' : 'failed',
-    }))
+    })),
   );
 
-  return NextResponse.json({ ok: true, results: results.map((r) => `${r.email}: ${r.ok ? 'enviado' : `error: ${r.error}`}`) });
+  return NextResponse.json({
+    ok: true,
+    results: results.map((r) => `${r.email}: ${r.ok ? 'enviado' : `error: ${r.error}`}`),
+  });
 }

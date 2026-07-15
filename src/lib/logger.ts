@@ -21,20 +21,17 @@ class StructuredLogger {
       ...context,
     };
     
-    // Console output with colors for development
+    // SIEMPRE JSON en producción - NUNCA format strings
+    // En dev también JSON para evitar RangeError con timestamps %Z
+    const out = JSON.stringify(entry);
     if (process.env.NODE_ENV !== 'production') {
       const colors = {
-        debug: '\x1b[90m',   // gray
-        info: '\x1b[36m',    // cyan
-        warn: '\x1b[33m',    // yellow
-        error: '\x1b[31m',   // red
+        debug: '\x1b[90m', info: '\x1b[36m', warn: '\x1b[33m', error: '\x1b[31m',
       };
       const reset = '\x1b[0m';
-      console.log(`${colors[level]}[${level.toUpperCase()}]${reset} ${message}`, 
-        Object.keys(context).length > 0 ? context : '');
+      console.log(`${colors[level]}[${level.toUpperCase()}]${reset} ${out}`);
     } else {
-      // JSON for production (can be piped to log aggregator)
-      console.log(JSON.stringify(entry));
+      console.log(out);
     }
   }
 

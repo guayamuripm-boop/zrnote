@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { logger } from '@/lib/logger';
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -30,7 +31,7 @@ export async function sendMail({ to, subject, html, attachments }: SendMailOptio
     });
     return { ok: true };
   } catch (err: any) {
-    console.error('SMTP error:', err.message);
+    logger.error('SMTP error', { to, subject, error: err.message });
     return { ok: false, error: err.message };
   }
 }

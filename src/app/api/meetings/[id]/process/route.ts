@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { transcribeMeeting } from '@/lib/processing';
 import { checkRateLimit, cleanupExpiredRateLimits } from '@/lib/rate-limiter';
+import { logger } from '@/lib/logger';
 
 const processSchema = z.object({
   step: z.enum(['transcribe', 'analyze', 'emails', 'vectorize']).optional(),
@@ -183,12 +184,12 @@ export async function POST(
     try {
       emailResult = await sendMeetingEmails(meetingId);
     } catch (err: any) {
-      console.error('Email step crashed:', err);
+      logger.error('Email step crashed', { meetingId, error: err?.message, stack: err?.stack });
       emailResult = { success: false, sent: 0, failed: 0, error: err?.message || 'Unknown error' };
     }
 
     if (!emailResult.success) {
-      console.error('Email send failed:', emailResult.error);
+      logger.error('Email send failed', { meetingId, error: emailResult.error });
     }
 
     await markMeetingCompleted(meetingId);

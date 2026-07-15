@@ -1,5 +1,6 @@
 import { google, calendar_v3 } from 'googleapis';
 import { format, addMinutes, addHours } from 'date-fns';
+import { logger } from '@/lib/logger';
 
 export interface CalendarEventData {
   summary: string;
@@ -79,7 +80,7 @@ export async function createCalendarEvent(
       htmlLink: response.data.htmlLink ?? undefined,
     };
   } catch (error: any) {
-    console.error('Google Calendar create error:', error);
+    logger.error('Google Calendar create error', { error: error.message });
     return { success: false, error: error.message };
   }
 }

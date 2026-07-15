@@ -1,8 +1,4 @@
-/**
- * Audio Compression Utility
- * Comprime audio WebM/Opus a bitrate objetivo usando MediaRecorder
- * Útil para reducir archivos de móviles antes de subir
- */
+import { logger } from '@/lib/logger';
 
 export interface CompressionOptions {
   targetBitrate?: number;      // kbps (default: 32kbps para voz)
@@ -117,17 +113,17 @@ export async function maybeCompressAudio(audioBlob: Blob, maxSizeMB = 2): Promis
     return audioBlob; // Ya es suficientemente pequeño
   }
 
-  console.log(`[AudioCompressor] Comprimiendo ${(audioBlob.size / 1024 / 1024).toFixed(1)}MB → target 32kbps...`);
-  
-  try {
-    const result = await compressAudioBlob(audioBlob, { targetBitrate: 32000 });
-    console.log(`[AudioCompressor] ${(result.originalSize / 1024 / 1024).toFixed(1)}MB → ${(result.compressedSize / 1024 / 1024).toFixed(1)}MB (${result.compressionRatio.toFixed(1)}x)`);
-    return result.blob;
-  } catch (e) {
-    console.warn('[AudioCompressor] Falló compresión, subiendo original:', e);
-    return audioBlob; // Fallback: original
+logger.info('Comprimiendo audio', { sizeMB: (audioBlob.size / 1024 / 1024).toFixed(1), targetBitrate: 32000 });
+    
+    try {
+      const result = await compressAudioBlob(audioBlob, { targetBitrate: 32000 });
+      logger.info('Audio comprimido', { originalMB: (result.originalSize / 1024 / 1024).toFixed(1), compressedMB: (result.compressedSize / 1024 / 1024).toFixed(1), ratio: result.compressionRatio.toFixed(1) });
+      return result.blob;
+    } catch (e) {
+      logger.warn('Fallo compresión, subiendo original', { error: String(e) });
+      return audioBlob; // Fallback: original
+    }
   }
-}
 
 /**
  * Hook React para usar en RecordButton

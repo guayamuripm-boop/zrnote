@@ -39,6 +39,9 @@
 | **Transcripción por lotes** | ✅ | `segments_transcribed_offset` + `more: true` → evita timeout Vercel 60s en reuniones largas |
 | **Email service compartido** | ✅ | `email-service.ts` — `buildMinuteHtml`, `buildActionItemsHtml`, `matchItemsToParticipant`, `sendWithRetry` extraídos |
 | **Rate limit cleanup cron** | ✅ | Limpieza automática de rate_limits + processing_queue expirados en el cron de retención |
+| **MediaRecorder mimeType fallback** | ✅ | Detecta `audio/webm;codecs=opus` → `audio/webm` → `audio/ogg;codecs=opus` → `audio/mp4` (evita chunks corruptos después del 1er segmento) |
+| **Retry segmentos fallidos** | ✅ | `transcribeMeeting` avanza offset solo por éxitos; si todo falla, salta el batch y continúa |
+| **Emails a prueba de fallos** | ✅ | `sendMeetingEmails` + `email_logs` insert en try/catch → errores se loguean, NO rompen pipeline |
 
 ---
 
@@ -331,6 +334,29 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
+## 🔍 DEBUGGING — Comandos exactos para ver errores
+
+| Qué buscar | Comando |
+|------------|---------|
+| **Errores 500 en producción** | `npx vercel logs --level error --limit 20 --no-branch --expand` |
+| **Pipeline completo (últimos 30 min)** | `npx vercel logs --level info --limit 50 --no-branch --expand --since 30m` |
+| **Errores de transcripción (Groq)** | `npx vercel logs --query "Segment transcription failed" --level error --no-branch --expand` |
+| **Errores de emails** | `npx vercel logs --query "Email step crashed" --level error --no-branch --expand` |
+| **Tests locales** | `npx vitest run` |
+| **Build local** | `npm run build` |
+| **Estado migraciones Supabase** | `psql -h db.xxx.supabase.co -U postgres -d postgres -c "SELECT * FROM pg_catalog.pg_tables WHERE schemaname='public' ORDER BY tablename;"` |
+
+### Logs clave a vigilar en cada paso:
+
+| Paso | Log éxito | Log fallo |
+|------|-----------|-----------|
+| `transcribe` | `Segment transcribed` + `Transcription batch completed` | `Segment transcription failed` (status 400 = archivo corrupto) |
+| `analyze` | `Minute generated` + `actionItems: N` | `LLM error` / `Failed to parse LLM JSON` |
+| `vectorize` | `Vectorization completed` + `chunksCreated: N` | `Could not find table meeting_chunks` (falta migración 012) |
+| `emails` | `Email send failed:` (solo log, no crashea) | `Email step crashed:` (RangeError = bug en logger/format) |
+
+---
+
 ## 📝 NOTAS PARA PRÓXIMA SESIÓN
 
 1. **Leer este archivo completo** al inicio
@@ -341,4 +367,4 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
-*Última actualización: 2026-07-14 — Sesión 3: Rate limiter DB, transcripción por lotes, email service compartido, cleanup cron*
+*Última actualización: 2026-07-14 — Sesión 4: MediaRecorder mimeType fallback, retry segmentos fallidos, emails blindados, debugging commands*
