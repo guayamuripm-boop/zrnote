@@ -62,7 +62,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     return mt.includes('mp4') ? 'mp4' : mt.includes('ogg') ? 'ogg' : 'webm';
   }, []);
 
-  const uploadSegmentOnce = useCallback(async (blob: Blob, index: number, speakerHint?: string, durationSec?: number) => {
+  const uploadSegmentOnce = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number) => {
     const blobToUpload = await maybeCompressAudio(blob, 2);
     
     const ext = getExt();
