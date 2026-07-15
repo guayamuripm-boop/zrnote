@@ -44,7 +44,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const [failedSegments, setFailedSegments] = useState(0);
-  const [speakerHint, setSpeakerHint] = useState<string>('');
   const mimeTypeRef = useRef<string>('audio/webm');
 
   meetingIdRef.current = meetingId;
@@ -110,7 +109,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     const durationSec = Math.round((Date.now() - segmentStartTimeRef.current) / 1000);
     
     // Use confirmed speaker hint for this segment
-    const hintToUse = speakerHint && pendingSpeakerHintSegment === currentSegment ? speakerHint : undefined;
+    const hintToUse = speakerHint ? speakerHint : undefined;
     
     const uploadPromise = uploadSegment(blob, currentSegment, hintToUse, durationSec).catch((err) => {
       console.error(`Segment ${currentSegment} upload failed after retries:`, err);
@@ -129,7 +128,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     setSegmentCount(segmentCountRef.current);
 
     pendingUploadsRef.current.push(uploadPromise);
-  }, [speakerHint, pendingSpeakerHintSegment]);
+  }, [speakerHint]);
 
   const handleDataAvailable = useCallback((event: BlobEvent) => {
     if (event.data.size > 0) {
