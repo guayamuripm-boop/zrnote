@@ -1,6 +1,51 @@
 // ZRNote Meet Recorder - Content Script (JavaScript)
 // Se inyecta en meet.google.com
 
+// Audio compression utility (same as PWA)
+async function maybeCompressAudio(audioBlob, maxSizeMB = 2) {
+  const maxSizeBytes = maxSizeMB * 1024 * 1024;
+  if (audioBlob.size <= maxSizeBytes) return audioBlob;
+
+  try {
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === 'suspended') await audioContext.resume();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    const targetBitrate = 32000; // 32 kbps for voice
+    const stream = audioContext.createMediaStreamDestination();
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(stream);
+    source.start(0);
+
+    const mediaRecorder = new MediaRecorder(stream.stream, {
+      mimeType: 'audio/webm;codecs=opus',
+      audioBitsPerSecond: targetBitrate,
+    });
+
+    const chunks = [];
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(chunks, { type: 'audio/webm;codecs=opus' });
+      resolve(blob);
+    };
+
+    return new Promise((resolve, reject) => {
+      mediaRecorder.onerror = reject;
+      mediaRecorder.start(1000);
+      setTimeout(() => {
+        mediaRecorder.stop();
+        source.stop();
+        audioContext.close().catch(() => {});
+      }, (audioBuffer.duration + 0.5) * 1000);
+    });
+  } catch (e) {
+    console.warn('[ZRNote] Compression failed, uploading original:', e);
+    return audioBlob;
+  }
+}
+
 class MeetRecorder {
   constructor() {
     this.mediaRecorder = null;
@@ -467,11 +512,17 @@ class MeetRecorder {
   async flushSegment() {
     if (this.chunks.length === 0) return;
 
-    const blob = new Blob(this.chunks, { type: 'audio/webm;codecs=opus' });
+    const blob = new Blob(this.chunks, { type: this.mimeType });
     this.chunks = [];
 
+    // Compress if > 2MB (Vercel 4MB limit, Groq 25MB)
+    const blobToUpload = blob.size > 2 * 1024 * 1024
+      ? await maybeCompressAudio(blob)
+      : blob;
+
     const formData = new FormData();
-    formData.append('audio', blob, `segment_${this.segmentIndex}.webm`);
+    const ext = this.mimeType.includes('mp4') ? 'mp4' : this.mimeType.includes('ogg') ? 'ogg' : 'webm';
+    formData.append('audio', blobToUpload, `segment_${this.segmentIndex}.${ext}`);
     formData.append('segmentIndex', this.segmentIndex.toString());
     formData.append('meetingId', this.meetingId);
 
