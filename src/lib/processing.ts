@@ -3,23 +3,16 @@ import { logger, withTiming } from '@/lib/logger';
 import { embedTexts } from '@/lib/embeddings';
 import { buildMinuteHtml, buildActionItemsHtml, buildMyItemsHtml, buildOtherItemsHtml, matchItemsToParticipant, sendWithRetry } from '@/lib/email-service';
 
-// Override console globally to prevent RangeError from format strings (e.g., ISO timestamps with 'Z')
+// Override console.error ONLY (not log/warn) to prevent RangeError from format strings in deps (e.g., nodemailer)
+// Use a simple stderr write to avoid any logger recursion
 if (typeof console !== 'undefined') {
   const originalError = console.error.bind(console);
-  const originalLog = console.log.bind(console);
-  const originalWarn = console.warn.bind(console);
-  
   console.error = (...args: any[]) => {
-    logger.error('console.error', { args: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)) });
+    try {
+      // Write directly to stderr to avoid any logger recursion
+      process.stderr.write('[ERROR] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') + '\n');
+    } catch {}
     originalError(...args);
-  };
-  console.log = (...args: any[]) => {
-    logger.debug('console.log', { args: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)) });
-    originalLog(...args);
-  };
-  console.warn = (...args: any[]) => {
-    logger.warn('console.warn', { args: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)) });
-    originalWarn(...args);
   };
 }
 
