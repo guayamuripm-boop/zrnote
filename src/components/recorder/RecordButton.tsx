@@ -12,8 +12,7 @@ interface RecordButtonProps {
   onFinalized?: () => void;
 }
 
-const SEGMENT_DURATION_MS = 30 * 60 * 1000;
-const FLUSH_INTERVAL_MS = 30 * 1000;
+const SEGMENT_DURATION_MS = 30 * 1000;
 const POLL_INTERVAL_MS = 3000;
 const MAX_POLL_ATTEMPTS = 120;
 
@@ -32,7 +31,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const segmentTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const flushTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pendingUploadsRef = useRef<Promise<void>[]>([]);
   const segmentCountRef = useRef(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -48,7 +46,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const [failedSegments, setFailedSegments] = useState(0);
   const [speakerHint, setSpeakerHint] = useState<string>('');
   const [showSpeakerHintModal, setShowSpeakerHintModal] = useState(false);
-  const mimeTypeRef = useRef<string>('audio/webm;codecs=opus');
   const [pendingSpeakerHintSegment, setPendingSpeakerHintSegment] = useState<number | null>(null);
 
   meetingIdRef.current = meetingId;
@@ -126,32 +123,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     segmentStartTimeRef.current = Date.now();
     segmentCountRef.current++;
     setSegmentCount(segmentCountRef.current);
-
-    pendingUploadsRef.current.push(uploadPromise);
-  }, [speakerHint, pendingSpeakerHintSegment]);
-
-  const flushChunks = useCallback(async () => {
-    if (chunksRef.current.length === 0) return;
-    const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current });
-    chunksRef.current = [];
-
-    const currentSegment = segmentCountRef.current;
-    segmentCountRef.current++;
-    setSegmentCount(segmentCountRef.current);
-    const durationSec = Math.round((Date.now() - segmentStartTimeRef.current) / 1000);
-    segmentStartTimeRef.current = Date.now();
-    
-    const hintToUse = speakerHint && pendingSpeakerHintSegment === currentSegment ? speakerHint : undefined;
-    
-    const uploadPromise = uploadSegment(blob, currentSegment, hintToUse, durationSec).catch((err) => {
-      console.error(`Segment ${currentSegment} upload failed after retries:`, err);
-      setFailedSegments((prev) => prev + 1);
-    });
-
-    if (hintToUse) {
-      setSpeakerHint('');
-      setPendingSpeakerHintSegment(null);
-    }
 
     pendingUploadsRef.current.push(uploadPromise);
   }, [speakerHint, pendingSpeakerHintSegment]);
@@ -372,12 +343,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       mediaRecorder.ondataavailable = handleDataAvailable;
       mediaRecorder.start(1000);
 
-      flushTimerRef.current = setInterval(() => {
-        if (isRecordingRef.current && chunksRef.current.length > 0) {
-          flushChunks();
-        }
-      }, FLUSH_INTERVAL_MS);
-
       segmentTimerRef.current = setInterval(() => {
         if (isRecordingRef.current) {
           flushSegment();
@@ -412,7 +377,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       stopVisualizer();
       if (timerRef.current) clearInterval(timerRef.current);
       if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
-      if (flushTimerRef.current) clearInterval(flushTimerRef.current);
       setState('paused');
     }
   };
@@ -426,15 +390,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         setElapsed((prev) => prev + 1);
       }, 1000);
 
-      flushTimerRef.current = setInterval(() => {
-        if (isRecordingRef.current && chunksRef.current.length > 0) {
-          flushChunks();
-        }
-      }, FLUSH_INTERVAL_MS);
-
       segmentTimerRef.current = setInterval(() => {
         if (isRecordingRef.current) {
-          flushChunks();
+          flushSegment();
           const nextSegmentIndex = segmentCountRef.current;
           setPendingSpeakerHintSegment(nextSegmentIndex);
           setShowSpeakerHintModal(true);
@@ -449,7 +407,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     isRecordingRef.current = false;
     if (timerRef.current) clearInterval(timerRef.current);
     if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
-    if (flushTimerRef.current) clearInterval(flushTimerRef.current);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
 
     if (mediaRecorderRef.current) {
@@ -575,7 +532,6 @@ const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'e
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') audioContextRef.current.close();
       if (timerRef.current) clearInterval(timerRef.current);
       if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
-      if (flushTimerRef.current) clearInterval(flushTimerRef.current);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       releaseWakeLock();
 

@@ -42,6 +42,8 @@
 | **MediaRecorder mimeType fallback** | ✅ | Detecta `audio/webm;codecs=opus` → `audio/webm` → `audio/ogg;codecs=opus` → `audio/mp4` (evita chunks corruptos después del 1er segmento) |
 | **Retry segmentos fallidos** | ✅ | `transcribeMeeting` avanza offset solo por éxitos; si todo falla, salta el batch y continúa |
 | **Emails a prueba de fallos** | ✅ | `sendMeetingEmails` + `email_logs` insert en try/catch → errores se loguean, NO rompen pipeline |
+| **MediaRecorder mobile optimizado** | ✅ | Fuerza `audio/webm` (SIN `codecs=opus`) + `audioBitsPerSecond: 128000` → chunks válidos en grabaciones 30min-2hr en móvil |
+| **Console.error override seguro** | ✅ | Override `console.error` en `processing.ts` → captura `util.format` de nodemailer/deps antes de `RangeError: %Z` |
 
 ---
 
@@ -367,4 +369,4 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
-*Última actualización: 2026-07-14 — Sesión 4: MediaRecorder mimeType fallback, retry segmentos fallidos, emails blindados, debugging commands*
+*Última actualización: 2026-07-15 — Sesión 5: Pipeline completo fixado — MediaRecorder mobile (audio/webm + 128kbps), extension audio compression, email crash fix (console.error override), segment retry logic, cron logging cleanup. App lista para grabaciones 30min-2hr sin cortes.*

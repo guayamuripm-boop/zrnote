@@ -60,8 +60,7 @@ class MeetRecorder {
     this.segmentTimer = null;
     this.elapsedTimer = null;
     this.API_BASE = 'https://zrnote.vercel.app';
-    this.SEGMENT_DURATION_MS = 30 * 60 * 1000;
-    this.FLUSH_INTERVAL_MS = 30 * 1000;
+    this.SEGMENT_DURATION_MS = 30 * 1000; // 30 segundos - segmentos válidos cada 30s
     this.init();
   }
 
@@ -376,14 +375,7 @@ class MeetRecorder {
 
       this.mediaRecorder.start(1000);
 
-      // Flush periódico
-      this.segmentTimer = setInterval(() => {
-        if (this.recording && this.chunks.length > 0) {
-          this.flushSegment();
-        }
-      }, this.FLUSH_INTERVAL_MS);
-
-      // Auto-split segmentos largos
+      // Auto-split: stop/restart recorder every SEGMENT_DURATION_MS to create valid webm files
       setTimeout(() => {
         if (this.recording) {
           this.mediaRecorder?.stop();
