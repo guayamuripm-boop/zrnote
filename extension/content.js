@@ -295,14 +295,14 @@ class MeetRecorder {
         if (this.recording) this.stopRecording();
       });
 
-      // Detectar mejor mimeType soportado
+      // FORZAR audio/webm (SIN codecs=opus) para compatibilidad móvil
       const mimeTypes = [
+        'audio/webm',           // MÁS COMPATIBLE
         'audio/webm;codecs=opus',
-        'audio/webm',
         'audio/ogg;codecs=opus',
         'audio/mp4',
       ];
-      let mimeType = 'audio/webm;codecs=opus';
+      let mimeType = 'audio/webm';
       for (const mt of mimeTypes) {
         if (MediaRecorder.isTypeSupported(mt)) {
           mimeType = mt;
@@ -313,7 +313,7 @@ class MeetRecorder {
 
       this.mediaRecorder = new MediaRecorder(this.stream, {
         mimeType,
-        audioBitsPerSecond: 32000,
+        audioBitsPerSecond: 128000,  // Bitrate fijo alto
       });
 
       this.chunks = [];

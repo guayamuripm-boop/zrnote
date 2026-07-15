@@ -3,6 +3,26 @@ import { logger, withTiming } from '@/lib/logger';
 import { embedTexts } from '@/lib/embeddings';
 import { buildMinuteHtml, buildActionItemsHtml, buildMyItemsHtml, buildOtherItemsHtml, matchItemsToParticipant, sendWithRetry } from '@/lib/email-service';
 
+// Override console globally to prevent RangeError from format strings (e.g., ISO timestamps with 'Z')
+if (typeof console !== 'undefined') {
+  const originalError = console.error.bind(console);
+  const originalLog = console.log.bind(console);
+  const originalWarn = console.warn.bind(console);
+  
+  console.error = (...args: any[]) => {
+    logger.error('console.error', { args: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)) });
+    originalError(...args);
+  };
+  console.log = (...args: any[]) => {
+    logger.debug('console.log', { args: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)) });
+    originalLog(...args);
+  };
+  console.warn = (...args: any[]) => {
+    logger.warn('console.warn', { args: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)) });
+    originalWarn(...args);
+  };
+}
+
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
 export interface ProcessingResult {

@@ -337,14 +337,14 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
       streamRef.current = stream;
 
-      // Detect best supported mimeType
+      // Detect best supported mimeType - FORCE audio/webm (sin codecs=opus) para compatibilidad móvil
       const mimeTypes = [
+        'audio/webm',           // MÁS COMPATIBLE - sin codecs=opus
         'audio/webm;codecs=opus',
-        'audio/webm',
         'audio/ogg;codecs=opus',
         'audio/mp4',
       ];
-      let mimeType = 'audio/webm;codecs=opus';
+      let mimeType = 'audio/webm';
       for (const mt of mimeTypes) {
         if (MediaRecorder.isTypeSupported(mt)) {
           mimeType = mt;
@@ -356,7 +356,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType,
-        audioBitsPerSecond: 32000,
+        audioBitsPerSecond: 128000,  // Bitrate fijo alto para evitar cambios de codec mid-stream
       });
 
       mediaRecorderRef.current = mediaRecorder;
