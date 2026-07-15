@@ -89,12 +89,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   };
 
   const uploadSegment = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number, maxAttempts = 3) => {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || 'Upload failed');
-    }
-  };
-
-  const uploadSegment = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number, maxAttempts = 3) => {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await uploadSegmentOnce(blob, index, speakerHint, durationSec);
