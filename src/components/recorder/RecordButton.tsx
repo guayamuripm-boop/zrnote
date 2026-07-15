@@ -57,12 +57,36 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const uploadSegmentOnce = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number) => {
+  const getExt = useCallback(() => {
+    const mt = mimeTypeRef.current;
+    return mt.includes('mp4') ? 'mp4' : mt.includes('ogg') ? 'ogg' : 'webm';
+  }, []);
+
+  const uploadSegmentOnce = useCallback(async (blob: Blob, index: number, speakerHint?: string, durationSec?: number) => {
     const blobToUpload = await maybeCompressAudio(blob, 2);
     
-    const ext = mimeTypeRef.current.includes('mp4') ? 'mp4' : mimeTypeRef.current.includes('ogg') ? 'ogg' : 'webm';
+    const ext = getExt();
     
     const formData = new FormData();
+    formData.append('audio', blobToUpload, `segment_${index}.${ext}`);
+    formData.append('segmentIndex', index.toString());
+    if (speakerHint) {
+      formData.append('speakerHint', speakerHint);
+    }
+    if (durationSec !== undefined) {
+      formData.append('durationSec', durationSec.toString());
+    }
+
+    const response = await fetch(`/api/meetings/${meetingIdRef.current}/upload-segment`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Upload failed');
+    }
+  }, []);
     formData.append('audio', blobToUpload, `segment_${index}.${ext}`);
     formData.append('segmentIndex', index.toString());
     if (speakerHint) {
