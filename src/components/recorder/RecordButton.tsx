@@ -86,22 +86,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || 'Upload failed');
     }
-  }, []);
-    formData.append('audio', blobToUpload, `segment_${index}.${ext}`);
-    formData.append('segmentIndex', index.toString());
-    if (speakerHint) {
-      formData.append('speakerHint', speakerHint);
-    }
-    if (durationSec !== undefined) {
-      formData.append('durationSec', durationSec.toString());
-    }
+  };
 
-    const response = await fetch(`/api/meetings/${meetingIdRef.current}/upload-segment`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
+  const uploadSegment = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number, maxAttempts = 3) => {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || 'Upload failed');
     }
