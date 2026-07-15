@@ -45,8 +45,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const animFrameRef = useRef<number | null>(null);
   const [failedSegments, setFailedSegments] = useState(0);
   const [speakerHint, setSpeakerHint] = useState<string>('');
-  const [showSpeakerHintModal, setShowSpeakerHintModal] = useState(false);
-  const [pendingSpeakerHintSegment, setPendingSpeakerHintSegment] = useState<number | null>(null);
   const mimeTypeRef = useRef<string>('audio/webm');
 
   meetingIdRef.current = meetingId;
@@ -187,17 +185,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       }
     }
   }, [flushSegment]);
-
-  const handleConfirmSpeakerHint = useCallback(() => {
-    // The hint will be used in the next flushSegment call
-    setShowSpeakerHintModal(false);
-  }, []);
-
-  const handleSkipSpeakerHint = useCallback(() => {
-    setSpeakerHint('');
-    setShowSpeakerHintModal(false);
-    setPendingSpeakerHintSegment(null);
-  }, []);
 
   const stopVisualizer = useCallback(() => {
     if (animFrameRef.current !== null) {
@@ -399,9 +386,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       segmentTimerRef.current = setInterval(() => {
         if (isRecordingRef.current) {
           flushSegment();
-          const nextSegmentIndex = segmentCountRef.current;
-          setPendingSpeakerHintSegment(nextSegmentIndex);
-          setShowSpeakerHintModal(true);
         }
       }, SEGMENT_DURATION_MS);
 
