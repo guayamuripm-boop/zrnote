@@ -116,19 +116,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       setFailedSegments((prev) => prev + 1);
     });
 
-    // Clear hint after using it
-    if (hintToUse) {
-      setSpeakerHint('');
-      setPendingSpeakerHintSegment(null);
-    }
-
     // Reset segment start time for next segment
     segmentStartTimeRef.current = Date.now();
     segmentCountRef.current++;
     setSegmentCount(segmentCountRef.current);
 
     pendingUploadsRef.current.push(uploadPromise);
-  }, [speakerHint]);
+  }, []);
 
   const handleDataAvailable = useCallback((event: BlobEvent) => {
     if (event.data.size > 0) {
@@ -338,10 +332,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       segmentTimerRef.current = setInterval(() => {
         if (isRecordingRef.current) {
           flushSegment();
-          // Show speaker hint modal for the next 30-min segment
-          const nextSegmentIndex = segmentCountRef.current;
-          setPendingSpeakerHintSegment(nextSegmentIndex);
-          setShowSpeakerHintModal(true);
         }
       }, SEGMENT_DURATION_MS);
 
