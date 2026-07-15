@@ -47,6 +47,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const [speakerHint, setSpeakerHint] = useState<string>('');
   const [showSpeakerHintModal, setShowSpeakerHintModal] = useState(false);
   const [pendingSpeakerHintSegment, setPendingSpeakerHintSegment] = useState<number | null>(null);
+  const mimeTypeRef = useRef<string>('audio/webm');
 
   meetingIdRef.current = meetingId;
 
