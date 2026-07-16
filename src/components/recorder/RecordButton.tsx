@@ -25,6 +25,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const [processingStep, setProcessingStep] = useState<ProcessingStep | null>(null);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [processingMessage, setProcessingMessage] = useState('');
+  const [failedSegments, setFailedSegments] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -43,7 +44,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
-  const [failedSegments, setFailedSegments] = useState(0);
   const mimeTypeRef = useRef<string>('audio/webm');
 
   meetingIdRef.current = meetingId;
@@ -60,7 +60,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     return mt.includes('mp4') ? 'mp4' : mt.includes('ogg') ? 'ogg' : 'webm';
   }, []);
 
-  const uploadSegmentOnce = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number) => {
+  const uploadSegmentOnce = async (blob: Blob, index: number, durationSec?: number) => {
     const blobToUpload = await maybeCompressAudio(blob, 2);
     
     const ext = getExt();
@@ -83,10 +83,10 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   };
 
-  const uploadSegment = async (blob: Blob, index: number, speakerHint?: string, durationSec?: number, maxAttempts = 3) => {
+  const uploadSegment = async (blob: Blob, index: number, durationSec?: number, maxAttempts = 3) => {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await uploadSegmentOnce(blob, index, undefined, durationSec);
+        await uploadSegmentOnce(blob, index, durationSec);
         return;
       } catch (err) {
         if (attempt === maxAttempts) throw err;
@@ -187,6 +187,72 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       audioContextRef.current = null;
     }
     analyserRef.current = null;
+  }, []);
+
+  const initCanvasSize = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.scale(dpr, dpr);
+  }, []);
+
+  const drawVisualizer = useCallback(() => {
+    const canvas = canvasRef.current;
+    const analyser = analyserRef.current;
+    if (!canvas || !analyser) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.width / dpr;
+    const h = canvas.height / dpr;
+    ctx.clearRect(0, 0, w, h);
+
+    const barCount = 48;
+    const gap = 2;
+    const barWidth = (w - (barCount - 1) * gap) / barCount;
+
+    const avg = dataArray.reduce((a, b) => a + b, 0) / bufferLength;
+    const isSilent = avg < 12;
+
+    for (let i = 0; i < barCount; i++) {
+      const idx = Math.floor((i / barCount) * bufferLength);
+      const raw = dataArray[idx] / 255;
+      const value = isSilent ? 0.02 + Math.sin(Date.now() / 800 + i * 0.5) * 0.01 : raw;
+
+      const barH = Math.max(value * h * 0.9, 1.5);
+      const x = i * (barWidth + gap);
+      const y = h - barH;
+
+      if (isSilent) {
+        const gray = 200 + Math.sin(Date.now() / 1000 + i * 0.3) * 15;
+        ctx.fillStyle = `rgba(${gray}, ${gray}, ${gray}, 0.3)`;
+      } else {
+        const hue = 210 + value * 50;
+        const sat = 70 + value * 25;
+        const lit = 45 + value * 35;
+        ctx.fillStyle = `hsl(${hue}, ${sat}%, ${lit}%)`;
+      }
+
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(x, y, barWidth, barH, 2);
+      } else {
+        ctx.rect(x, y, barWidth, barH);
+      }
+      ctx.fill();
+    }
+
+    animFrameRef.current = requestAnimationFrame(drawVisualizer);
   }, []);
 
   const setupVisualizer = useCallback(async (stream: MediaStream) => {
@@ -315,13 +381,27 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
 
-    if (mediaRecorderRef.current) {
+    // Wait for MediaRecorder onstop to ensure final chunks are captured
+    const stopped = new Promise<void>((resolve) => {
+      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
+        resolve();
+        return;
+      }
+      const handler = () => {
+        mediaRecorderRef.current?.removeEventListener('stop', handler);
+        resolve();
+      };
+      mediaRecorderRef.current?.addEventListener('stop', handler);
+      
       if (mediaRecorderRef.current.state === 'recording' || mediaRecorderRef.current.state === 'paused') {
         mediaRecorderRef.current.stop();
         mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      } else {
+        resolve();
       }
-    }
+    });
 
+    await stopped;
     stopVisualizer();
     await releaseWakeLock();
     setState('uploading');
@@ -413,93 +493,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     return { ok: false, error: `Timeout en paso: ${step}` };
   };
 
-  const initCanvasSize = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(dpr, dpr);
-  }, []);
-
-  const drawVisualizer = useCallback(() => {
-    const canvas = canvasRef.current;
-    const analyser = analyserRef.current;
-    if (!canvas || !analyser) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    analyser.getByteFrequencyData(dataArray);
-
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.width / dpr;
-    const h = canvas.height / dpr;
-    ctx.clearRect(0, 0, w, h);
-
-    const barCount = 48;
-    const gap = 2;
-    const barWidth = (w - (barCount - 1) * gap) / barCount;
-
-    const avg = dataArray.reduce((a, b) => a + b, 0) / bufferLength;
-    const isSilent = avg < 12;
-
-    for (let i = 0; i < barCount; i++) {
-      const idx = Math.floor((i / barCount) * bufferLength);
-      const raw = dataArray[idx] / 255;
-      const value = isSilent ? 0.02 + Math.sin(Date.now() / 800 + i * 0.5) * 0.01 : raw;
-
-      const barH = Math.max(value * h * 0.9, 1.5);
-      const x = i * (barWidth + gap);
-      const y = h - barH;
-
-      if (isSilent) {
-        const gray = 200 + Math.sin(Date.now() / 1000 + i * 0.3) * 15;
-        ctx.fillStyle = `rgba(${gray}, ${gray}, ${gray}, 0.3)`;
-      } else {
-        const hue = 210 + value * 50;
-        const sat = 70 + value * 25;
-        const lit = 45 + value * 35;
-        ctx.fillStyle = `hsl(${hue}, ${sat}%, ${lit}%)`;
-      }
-
-      ctx.beginPath();
-      if (ctx.roundRect) {
-        ctx.roundRect(x, y, barWidth, barH, 2);
-      } else {
-        ctx.rect(x, y, barWidth, barH);
-      }
-      ctx.fill();
-    }
-
-    animFrameRef.current = requestAnimationFrame(drawVisualizer);
-  }, []);
-
-  const setupVisualizer = useCallback(async (stream: MediaStream) => {
-    stopVisualizer();
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-      }
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
-      audioContextRef.current = audioCtx;
-      analyserRef.current = analyser;
-      sourceRef.current = source;
-      initCanvasSize();
-      drawVisualizer();
-    } catch (e) {
-      console.warn('Audio visualizer not supported:', e);
-    }
-  }, [stopVisualizer, drawVisualizer, initCanvasSize]);
-
   useEffect(() => {
     if (state === 'recording' && streamRef.current && canvasRef.current) {
       setupVisualizer(streamRef.current);
@@ -528,7 +521,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
+  }, [handleVisibilityChange]);
 
   return (
     <div className="flex flex-col items-center gap-8">
@@ -711,6 +704,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           </div>
         )}
       </div>
-    );
-  }
+    </div>
+  );
 }

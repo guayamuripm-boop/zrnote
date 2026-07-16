@@ -3,19 +3,6 @@ import { logger, withTiming } from '@/lib/logger';
 import { embedTexts } from '@/lib/embeddings';
 import { buildMinuteHtml, buildActionItemsHtml, buildMyItemsHtml, buildOtherItemsHtml, matchItemsToParticipant, sendWithRetry } from '@/lib/email-service';
 
-// Override console.error ONLY (not log/warn) to prevent RangeError from format strings in deps (e.g., nodemailer)
-// Use a simple stderr write to avoid any logger recursion
-if (typeof console !== 'undefined') {
-  const originalError = console.error.bind(console);
-  console.error = (...args: any[]) => {
-    try {
-      // Write directly to stderr to avoid any logger recursion
-      process.stderr.write('[ERROR] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') + '\n');
-    } catch {}
-    originalError(...args);
-  };
-}
-
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
 export interface ProcessingResult {
@@ -197,13 +184,14 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   }
 
 const newOffset = offset + processed;
-   // If nothing processed this batch (all failed), skip remaining in this batch to avoid infinite loop
-   const finalOffset = processed > 0 ? newOffset : offset + batch.length;
-   const existingTranscript = meeting.transcript_raw || '';
-   const fullTranscript = existingTranscript
-     ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
-     : newTranscriptions.join('\n\n');
-   const more = finalOffset < segments.length;
+    // Only advance by successfully processed segments. Failed segments stay for retry.
+    // This avoids infinite loop while preserving failed segments for recovery.
+    const finalOffset = newOffset;
+    const existingTranscript = meeting.transcript_raw || '';
+    const fullTranscript = existingTranscript
+      ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
+      : newTranscriptions.join('\n\n');
+    const more = finalOffset < segments.length;
 
   const { error: updateError } = await supabase
     .from('meetings')

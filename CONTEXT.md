@@ -44,6 +44,11 @@
 | **Emails a prueba de fallos** | ✅ | `sendMeetingEmails` + `email_logs` insert en try/catch → errores se loguean, NO rompen pipeline |
 | **MediaRecorder mobile optimizado** | ✅ | Fuerza `audio/webm` (SIN `codecs=opus`) + `audioBitsPerSecond: 128000` → chunks válidos en grabaciones 30min-2hr en móvil |
 | **Console.error override seguro** | ✅ | Override `console.error` en `processing.ts` → captura `util.format` de nodemailer/deps antes de `RangeError: %Z` |
+| **Fix: Race condition finalizeRecording** | ✅ | `mediaRecorder.stop()` + espera evento `onstop` antes de `flushSegment()` → no se pierden chunks finales |
+| **Fix: transcribeMeeting no salta segmentos fallidos** | ✅ | Línea 201: avanza offset solo por éxitos; fallos quedan para retry (cron los recupera) |
+| **Fix: Upload page divide audio largo** | ✅ | `splitAudioFile()` usa Web Audio API → divide en segmentos 30s + compresión automática 3.5MB |
+| **Worker asíncrono con processing_queue** | ✅ | Edge Function `process-meeting` procesa queue sin límite 60s Vercel; cron cada 2 min dispara worker |
+| **Cron retry-stuck cada 2 min** | ✅ | Resetea queue items atascados + crea entradas para meetings sin queue + dispara Edge Function |
 
 ---
 
@@ -140,6 +145,7 @@ C:\Dev\ZR Note\
 
 ## 🔧 PIPELINE DE PROCESAMIENTO (4 Steps)
 
+### Modo Legacy (In-process, límite 60s Vercel)
 ```
 POST /api/meetings/[id]/finalize
     │
@@ -164,6 +170,29 @@ status=completed
 ```
 
 **Cada step < 60s** (límite Vercel). Polling desde UI cada 3s.
+
+### Modo Worker (Async, sin límite 60s) — **RECOMENDADO**
+```
+POST /api/meetings/[id]/finalize
+    │
+    ▼ status=processing
+Crea entradas en processing_queue (transcribe, analyze, vectorize, emails)
+    │
+    ▼
+Cron */2 * * * * → Dispara Edge Function `process-queue`
+    │
+    ▼
+Edge Function procesa queue items (máx 5 concurrentes)
+    - transcribe: batch 9 segmentos, actualiza batch_offset, re-queue si more
+    - analyze: genera minuta + action_items
+    - vectorize: embeddings Jina AI → pgvector
+    - emails: envía emails + marca meeting completed
+    │
+    ▼
+status=completed
+```
+
+**Ventajas**: Sin timeout 60s, reintentos automáticos (max_attempts=5), visibilidad en `processing_queue` table.
 
 ---
 
@@ -365,8 +394,8 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 2. **Verificar**: `npx vitest run` y `npm run build` pasan
 3. **Continuar** desde donde quedamos (ver "PRÓXIMOS PASOS" arriba)
 4. **Actualizar** este archivo al final de cada sesión
-5. **Migraciones pendientes**: Las migraciones `015_rate_limiter_and_queue.sql` deben ejecutarse en Supabase SQL Editor ANTES de grabar una reunión
+5. **Migraciones pendientes**: Las migraciones `012` a `016` deben ejecutarse en Supabase SQL Editor ANTES de grabar una reunión (012=RAG, 013=índices, 014=RGPD, 015=rate_limiter+queue, 016=RLS multi-tenant)
 
 ---
 
-*Última actualización: 2026-07-15 — Sesión 5: Pipeline completo fixado — MediaRecorder mobile (audio/webm + 128kbps), extension audio compression, email crash fix (console.error override), segment retry logic, cron logging cleanup. App lista para grabaciones 30min-2hr sin cortes.*
+*Última actualización: 2026-07-15 — Sesión 7: **Build + Tests pasan** — Worker real con `processing_queue` (migración 015), cron cada 2 min, Edge Function sin límite 60s Vercel. Pipeline 100% async para reuniones >2hr.*
