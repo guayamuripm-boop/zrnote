@@ -106,7 +106,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     
     const hintToUse = undefined;
     
-    const uploadPromise = uploadSegment(blob, currentSegment, undefined, durationSec).catch((err) => {
+    const uploadPromise = uploadSegment(blob, currentSegment, durationSec).catch((err) => {
       console.error(`Segment ${currentSegment} upload failed after retries:`, err);
       setFailedSegments((prev) => prev + 1);
     });

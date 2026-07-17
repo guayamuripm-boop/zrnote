@@ -501,13 +501,14 @@ async function _sendMeetingEmails(meetingId: string): Promise<EmailResult> {
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
+  const emailStatuses: Array<{ job: typeof emailQueue[0]; status: 'sent' | 'failed' }> = [];
 
   for (const job of emailQueue) {
     const result = await sendWithRetry(() =>
       sendMail({ to: job.to, subject: job.subject, html: job.html, attachments: job.attachments })
     );
-    if (result.ok) sent++;
-    else { failed++; errors.push(`${job.label}: ${result.error}`); }
+    if (result.ok) { sent++; emailStatuses.push({ job, status: 'sent' }); }
+    else { failed++; errors.push(`${job.label}: ${result.error}`); emailStatuses.push({ job, status: 'failed' }); }
     if (emailQueue.indexOf(job) < emailQueue.length - 1) {
       await new Promise((r) => setTimeout(r, 1000));
     }
@@ -515,11 +516,11 @@ async function _sendMeetingEmails(meetingId: string): Promise<EmailResult> {
 
   try {
     await supabase.from('email_logs').insert(
-      emailQueue.map((job, idx) => ({
+      emailStatuses.map(({ job, status }) => ({
         meeting_id: meetingId,
-        recipient_email: job.label,
+        recipient_email: job.to,
         type: job.label.includes('coordinator') ? 'coordinator_summary' : 'personal',
-        status: idx < sent ? 'sent' : 'failed',
+        status,
       }))
     );
   } catch (logErr: any) {

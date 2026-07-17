@@ -2,6 +2,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
+const JINA_EMBED_URL = 'https://api.jina.ai/v1/embeddings';
+const JINA_MODEL = 'jina-embeddings-v3';
+const EMBED_DIMENSIONS = 1024;
+const SMTP_HOST = 'smtp.gmail.com';
+const SMTP_PORT = 465;
 
 interface QueueItem {
   id: string;
@@ -23,10 +28,10 @@ function getSupabaseAdmin() {
 
 function escapeHtml(text: string): string {
   return text
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
 
@@ -61,6 +66,8 @@ async function completeQueueItem(supabase: any, itemId: string, success: boolean
     .eq('id', itemId);
 }
 
+// ─── TRANSCRIBE ────────────────────────────────────────────────────────────────
+
 async function transcribeSegment(supabase: any, segment: any, groqKey: string, meetingId: string, speakerHints: string): Promise<string | null> {
   const { data: audioData, error: downloadError } = await supabase.storage
     .from('meeting-audio')
@@ -69,10 +76,6 @@ async function transcribeSegment(supabase: any, segment: any, groqKey: string, m
   if (downloadError || audioData.size < 10000) return null;
 
   const ext = segment.r2_key.split('.').pop() || 'webm';
-  let whisperPrompt = '';
-  if (speakerHints) {
-    whisperPrompt = `Participantes de la reunión: ${speakerHints}. Identifica a cada orador por su nombre.`;
-  }
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     const formData = new FormData();
@@ -114,7 +117,8 @@ async function transcribeMeeting(supabase: any, meetingId: string, batchOffset: 
   const segments = meeting.audio_segments || [];
   if (segments.length === 0) return { success: false, more: false, offset: batchOffset, error: 'No audio segments' };
 
-  const offset = batchOffset || meeting.segments_transcribed_offset || 0;
+  // Use batchOffset from queue item; fall back to meeting's stored offset
+  const offset = batchOffset > 0 ? batchOffset : (meeting.segments_transcribed_offset || 0);
   const pendingSegments = segments.slice(offset);
   const batch = pendingSegments.slice(0, maxSegments);
 
@@ -166,6 +170,8 @@ async function transcribeMeeting(supabase: any, meetingId: string, batchOffset: 
 
   return { success: true, more, offset: finalOffset };
 }
+
+// ─── ANALYZE ───────────────────────────────────────────────────────────────────
 
 const MINUTE_PROMPT = (transcript: string) => `
 Eres ZRNote, sistema de minutas de ZR Mecacademy.
@@ -303,21 +309,431 @@ async function analyzeMeeting(supabase: any, meetingId: string, transcript: stri
   return { success: true, minuteId: minute.id };
 }
 
+// ─── VECTORIZAR ────────────────────────────────────────────────────────────────
+
+function createChunks(minute: any, transcript: string): Array<{ index: number; section: string; text: string; speaker?: string }> {
+  const chunks: Array<{ index: number; section: string; text: string; speaker?: string }> = [];
+  let index = 0;
+
+  if (minute.summary) {
+    chunks.push({ index: index++, section: 'summary', text: minute.summary, speaker: 'system' });
+  }
+
+  for (const topic of minute.discussion || []) {
+    chunks.push({ index: index++, section: 'discussion', text: `${topic.topic}: ${topic.details}`, speaker: topic.speaker });
+  }
+
+  for (const decision of minute.decisions || []) {
+    chunks.push({ index: index++, section: 'decisions', text: typeof decision === 'string' ? decision : `${decision.decision} ${decision.context || ''}`, speaker: 'system' });
+  }
+
+  for (const ps of minute.project_statuses || []) {
+    chunks.push({ index: index++, section: 'project_statuses', text: `${ps.project} (${ps.status}): ${ps.details}`, speaker: 'system' });
+  }
+
+  for (const blocker of minute.blockers || []) {
+    chunks.push({ index: index++, section: 'blockers', text: `${blocker.issue}: ${blocker.impact}${blocker.owner ? ` — ${blocker.owner}` : ''}`, speaker: 'system' });
+  }
+
+  for (const idea of minute.ideas || []) {
+    chunks.push({ index: index++, section: 'ideas', text: idea, speaker: 'system' });
+  }
+
+  for (const item of minute.action_items || []) {
+    chunks.push({ index: index++, section: 'action_items', text: `${item.assignee_name}: ${item.description} (${item.priority})${item.due_date ? `, vence ${item.due_date}` : ''}`, speaker: item.assignee_name });
+  }
+
+  for (const step of minute.next_steps || []) {
+    const text = typeof step === 'string' ? step : `${step.step}${step.owner ? ` — ${step.owner}` : ''}`;
+    chunks.push({ index: index++, section: 'next_steps', text, speaker: 'system' });
+  }
+
+  // Transcript in ~500 char chunks
+  const transcriptChunks = transcript.match(/.{1,500}/g) || [];
+  for (const tc of transcriptChunks) {
+    chunks.push({ index: index++, section: 'transcript', text: tc, speaker: 'unknown' });
+  }
+
+  return chunks;
+}
+
+async function embedTexts(texts: string[]): Promise<number[][]> {
+  const jinaKey = Deno.env.get('JINA_API_KEY');
+  if (!jinaKey) throw new Error('JINA_API_KEY not configured');
+
+  const res = await fetch(JINA_EMBED_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${jinaKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: JINA_MODEL,
+      input: texts,
+      dimensions: EMBED_DIMENSIONS,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Jina embedding error (${res.status}): ${err}`);
+  }
+
+  const data = await res.json();
+  return data.data.map((d: any) => d.embedding);
+}
+
 async function vectorizeMeeting(supabase: any, meetingId: string): Promise<{ success: boolean; error?: string }> {
-  // Vectorization would use Jina AI embeddings
-  // For now, just mark as done
+  const { data: meeting, error: meetingError } = await supabase
+    .from('meetings')
+    .select('org_id, transcript_raw')
+    .eq('id', meetingId)
+    .single();
+
+  if (meetingError || !meeting) return { success: false, error: `Meeting not found: ${meetingError?.message || 'null'}` };
+  if (!meeting.transcript_raw) return { success: false, error: 'No transcript available for vectorization' };
+
+  const { data: minute, error: minuteError } = await supabase
+    .from('minutes')
+    .select('*')
+    .eq('meeting_id', meetingId)
+    .single();
+
+  if (minuteError || !minute) return { success: false, error: 'Minute not found. Run analyze step first.' };
+
+  const chunks = createChunks(minute, meeting.transcript_raw);
+
+  const BATCH_SIZE = 20;
+  let created = 0;
+
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batch = chunks.slice(i, i + BATCH_SIZE);
+    const texts = batch.map(c => c.text);
+
+    try {
+      const embeddings = await embedTexts(texts);
+
+      const records = batch.map((chunk, j) => ({
+        org_id: meeting.org_id,
+        meeting_id: meetingId,
+        chunk_index: chunk.index,
+        content: chunk.text,
+        embedding: embeddings[j],
+        metadata: {
+          section: chunk.section,
+          speaker: chunk.speaker,
+        },
+      }));
+
+      const { error: insertError } = await supabase
+        .from('meeting_chunks')
+        .insert(records);
+
+      if (insertError) {
+        console.error('Vector insert error:', insertError.message);
+      } else {
+        created += batch.length;
+      }
+    } catch (err) {
+      console.error('Embedding error:', err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return { success: true };
 }
 
+// ─── EMAILS (SMTP via Deno TLS) ────────────────────────────────────────────────
+
+function base64Encode(text: string): string {
+  return btoa(text);
+}
+
+async function smtpCommand(writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamDefaultReader<Uint8Array>, command: string, expectCode?: number): Promise<string> {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+
+  await writer.write(encoder.encode(command + '\r\n'));
+
+  const buffer = new Uint8Array(4096);
+  let response = '';
+  
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    response += decoder.decode(value, { stream: true });
+    // SMTP responses end with a line not containing '-' after the code
+    const lines = response.split('\r\n');
+    for (const line of lines) {
+      if (line.length >= 4 && line[3] === ' ' && /^\d{3}/.test(line)) {
+        if (expectCode && !line.startsWith(String(expectCode))) {
+          throw new Error(`SMTP error: ${line}`);
+        }
+        return response;
+      }
+    }
+  }
+  return response;
+}
+
+async function sendSmtpEmail(to: string, subject: string, htmlBody: string): Promise<{ ok: boolean; error?: string }> {
+  const gmailUser = Deno.env.get('GMAIL_USER');
+  const gmailPass = Deno.env.get('GMAIL_APP_PASSWORD');
+  if (!gmailUser || !gmailPass) return { ok: false, error: 'GMAIL_USER or GMAIL_APP_PASSWORD not configured' };
+
+  try {
+    const conn = await Deno.connectTls({ hostname: SMTP_HOST, port: SMTP_PORT });
+    const reader = conn.readable.getReader();
+    const writer = conn.writable.getWriter();
+
+    // Read server greeting
+    await smtpCommand(writer, reader, '', 220);
+
+    // EHLO
+    await smtpCommand(writer, reader, 'EHLO zrnote.vercel.app', 250);
+
+    // AUTH LOGIN
+    await smtpCommand(writer, reader, 'AUTH LOGIN', 334);
+    await smtpCommand(writer, reader, base64Encode(gmailUser), 334);
+    await smtpCommand(writer, reader, base64Encode(gmailPass), 235);
+
+    // MAIL FROM
+    await smtpCommand(writer, reader, `MAIL FROM:<${gmailUser}>`, 250);
+
+    // RCPT TO
+    await smtpCommand(writer, reader, `RCPT TO:<${to}>`, 250);
+
+    // DATA
+    await smtpCommand(writer, reader, 'DATA', 354);
+
+    // Build MIME message
+    const boundary = `----=_Part_${Date.now()}`;
+    const mimeMessage = [
+      `From: "ZRNote" <${gmailUser}>`,
+      `To: <${to}>`,
+      `Subject: =?UTF-8?B?${base64Encode(subject)}?=`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      base64Encode('Minuta procesada. Ver en ZRNote para el contenido completo.'),
+      '',
+      `--${boundary}`,
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      base64Encode(htmlBody),
+      '',
+      `--${boundary}--`,
+      '.',
+    ].join('\r\n');
+
+    await smtpCommand(writer, reader, mimeMessage, 250);
+
+    // QUIT
+    await smtpCommand(writer, reader, 'QUIT', 221);
+
+    await writer.close();
+    await reader.cancel();
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function buildMinuteHtml(minute: any): string {
+  if (!minute) return '<p>Minuta no disponible.</p>';
+  let html = '';
+  html += `<h2>Resumen</h2><p>${escapeHtml(minute.summary) || 'No disponible'}</p>`;
+
+  if (Array.isArray(minute.discussion) && minute.discussion.length > 0) {
+    html += `<h2>Temas Discutidos</h2>`;
+    for (const d of minute.discussion) {
+      html += `<div><h3>${escapeHtml(d.topic || '')}</h3>`;
+      if (d.speaker) html += `<p style="font-size:12px;color:#999">Liderado por: ${escapeHtml(d.speaker)}</p>`;
+      html += `<p>${escapeHtml(d.details || '')}</p></div>`;
+    }
+  }
+
+  if (Array.isArray(minute.decisions) && minute.decisions.length > 0) {
+    html += `<h2>Decisiones</h2><ul>`;
+    for (const d of minute.decisions) {
+      const text = typeof d === 'string' ? d : `${d.decision ?? ''}${d.context ? ` (${d.context})` : ''}`;
+      html += `<li>${escapeHtml(text)}</li>`;
+    }
+    html += `</ul>`;
+  }
+
+  if (Array.isArray(minute.project_statuses) && minute.project_statuses.length > 0) {
+    html += `<h2>Estados de Proyectos</h2>`;
+    for (const p of minute.project_statuses) {
+      html += `<div><strong>${escapeHtml(p.project)}</strong> <span>${escapeHtml(p.status)}</span><p>${escapeHtml(p.details)}</p></div>`;
+    }
+  }
+
+  if (Array.isArray(minute.blockers) && minute.blockers.length > 0) {
+    html += `<h2>Bloqueos</h2>`;
+    for (const b of minute.blockers) {
+      html += `<div><strong>${escapeHtml(b.issue)}</strong><p>Impacto: ${escapeHtml(b.impact)}</p>`;
+      if (b.owner) html += `<p>Responsable: ${escapeHtml(b.owner)}</p>`;
+      html += `</div>`;
+    }
+  }
+
+  if (Array.isArray(minute.ideas) && minute.ideas.length > 0) {
+    html += `<h2>Ideas</h2><ul>`;
+    for (const idea of minute.ideas) html += `<li>${escapeHtml(idea)}</li>`;
+    html += `</ul>`;
+  }
+
+  if (Array.isArray(minute.next_steps) && minute.next_steps.length > 0) {
+    html += `<h2>Próximos Pasos</h2><ul>`;
+    for (const n of minute.next_steps) {
+      const text = typeof n === 'string' ? n : `${n.step ?? ''}${n.owner ? ` — ${n.owner}` : ''}`;
+      html += `<li>${escapeHtml(text)}</li>`;
+    }
+    html += `</ul>`;
+  }
+
+  return html;
+}
+
+function buildActionItemsHtml(items: any[]): string {
+  if (!items || items.length === 0) return '<p>No se generaron action items.</p>';
+  const rows = items.map((i) => {
+    const assignee = escapeHtmlOrEmpty(i.assignee_name) || 'Sin asignar';
+    const description = escapeHtmlOrEmpty(i.description);
+    const priority = escapeHtmlOrEmpty(i.priority);
+    const dueDate = i.due_date ? escapeHtml(i.due_date) : '—';
+    return `<tr><td>${assignee}</td><td>${description}</td><td>${priority}</td><td>${dueDate}</td></tr>`;
+  }).join('');
+  return `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px">
+    <thead><tr style="background:#f3f4f6"><th>Responsable</th><th>Tarea</th><th>Prioridad</th><th>Fecha</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+function matchItemsToParticipant(items: any[], participantName: string, participantEmail: string): any[] {
+  if (!items || !participantName) return [];
+  const nameLower = participantName.toLowerCase().trim();
+  const emailLocal = (participantEmail || '').split('@')[0].toLowerCase().trim();
+  return items.filter((item: any) => {
+    if (item.assignee_email && item.assignee_email.toLowerCase() === (participantEmail || '').toLowerCase()) return true;
+    if (!item.assignee_name) return false;
+    const itemName = item.assignee_name.toLowerCase().trim();
+    if (itemName === nameLower) return true;
+    if (itemName.includes(nameLower) || nameLower.includes(itemName)) return true;
+    if (emailLocal && (itemName.includes(emailLocal) || emailLocal.includes(itemName))) return true;
+    return false;
+  });
+}
+
 async function sendMeetingEmails(supabase: any, meetingId: string): Promise<{ success: boolean; error?: string }> {
-  // Email sending logic here (uses Nodemailer equivalent for Deno)
-  // For now, just mark meeting as completed
-  await supabase
+  const { data: meeting } = await supabase
     .from('meetings')
-    .update({ status: 'completed' })
-    .eq('id', meetingId);
+    .select('id, title, created_by, started_at, ended_at')
+    .eq('id', meetingId)
+    .single();
+
+  if (!meeting) return { success: false, error: 'Meeting not found' };
+
+  const [actionItemsResult, minuteResult, participantsResult, creatorResult, creatorUserResult] = await Promise.all([
+    supabase.from('action_items').select('*').eq('meeting_id', meetingId),
+    supabase.from('minutes').select('*').eq('meeting_id', meetingId).single(),
+    supabase.from('meeting_participants').select('*').eq('meeting_id', meetingId),
+    supabase.from('meeting_participants').select('email_override').eq('meeting_id', meetingId).eq('user_id', meeting.created_by).single(),
+    supabase.from('users').select('email').eq('id', meeting.created_by).single(),
+  ]);
+
+  const allItems = actionItemsResult.data || [];
+  const minute = minuteResult.data;
+  const participantsRaw = participantsResult.data;
+  const creatorEmail = creatorResult.data?.email_override || creatorUserResult.data?.email;
+
+  const participants = (participantsRaw || []).map((p: any) => ({
+    name: p.name || p.email_override?.split('@')[0] || 'Participante',
+    email: p.email_override || '',
+  })).filter((p) => p.email);
+
+  const appUrl = Deno.env.get('NEXT_PUBLIC_APP_URL') || 'https://zrnote.vercel.app';
+
+  const minuteHtml = buildMinuteHtml(minute);
+  const allItemsHtml = buildActionItemsHtml(allItems);
+
+  const emailQueue: Array<{ to: string; subject: string; html: string; label: string }> = [];
+
+  // Calendar URL (public, no OAuth)
+  const calStart = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const calEnd = new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const calUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('Revisar: ' + meeting.title)}&dates=${calStart}/${calEnd}&details=${encodeURIComponent('Revisión de minuta: ' + meeting.title + '\n' + appUrl + '/dashboard/meetings/' + meetingId)}`;
+
+  for (const p of participants) {
+    if (creatorEmail && p.email.toLowerCase() === creatorEmail.toLowerCase()) continue;
+
+    const myItems = matchItemsToParticipant(allItems, p.name, p.email);
+    const otherItems = allItems.filter((i) => !myItems.includes(i));
+
+    const myItemsHtml = myItems.length > 0
+      ? `<div style="background:#ecfdf5;border-left:3px solid #22c55e;padding:12px;margin:16px 0;border-radius:0 8px 8px 0"><h3 style="margin:0 0 8px;color:#166534">Tus compromisos</h3><ul style="margin:0;padding-left:20px">${myItems.map((i: any) => `<li><strong>${escapeHtml(i.description || '')}</strong> — ${escapeHtml(i.priority || '')}${i.due_date ? `, vence ${escapeHtml(i.due_date)}` : ''}</li>`).join('')}</ul></div>`
+      : '';
+    const otherItemsHtml = otherItems.length > 0
+      ? `<div style="margin-top:16px"><h4 style="color:#666;font-size:13px">Otros compromisos:</h4><ul style="padding-left:20px;color:#666;font-size:13px">${otherItems.map((i: any) => `<li>${escapeHtml(i.assignee_name || 'Sin asignar')}: ${escapeHtml(i.description || '')}</li>`).join('')}</ul></div>`
+      : '';
+
+    emailQueue.push({
+      to: p.email,
+      subject: `[ZRNote] ${meeting.title} — Minuta y compromisos`,
+      html: `<p>Hola ${escapeHtml(p.name)},</p><p>Reunión <b>${escapeHtml(meeting.title)}</b> procesada.</p>${myItemsHtml}${otherItemsHtml}<hr/><h2>Minuta Completa</h2>${minuteHtml}<hr/><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver en ZRNote</a> | <a href="${calUrl}">Añadir a Calendar</a>`,
+      label: p.email,
+    });
+  }
+
+  if (creatorEmail) {
+    emailQueue.push({
+      to: creatorEmail,
+      subject: `[ZRNote] ${meeting.title} — Minuta completa + todas las tareas`,
+      html: `<p>Reunión <b>${escapeHtml(meeting.title)}</b> procesada. Todas las tareas:</p>${allItemsHtml}<hr/><h2>Minuta Completa</h2>${minuteHtml}<hr/><a href="${appUrl}/dashboard/meetings/${meetingId}">Ver en ZRNote</a> | <a href="${calUrl}">Añadir a Calendar</a>`,
+      label: `coordinator (${creatorEmail})`,
+    });
+  }
+
+  let sent = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const job of emailQueue) {
+    const result = await sendSmtpEmail(job.to, job.subject, job.html);
+    if (result.ok) {
+      sent++;
+    } else {
+      failed++;
+      errors.push(`${job.label}: ${result.error}`);
+    }
+    // Rate limit: 1 email per second
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  // Log results
+  try {
+    await supabase.from('email_logs').insert(
+      emailQueue.map((job) => ({
+        meeting_id: meetingId,
+        recipient_email: job.to,
+        type: job.label.includes('coordinator') ? 'coordinator_summary' : 'personal',
+        status: 'sent',
+      }))
+    );
+  } catch (_) { /* non-critical */ }
+
+  if (failed > 0) {
+    return { success: false, error: errors.join('; ') };
+  }
   return { success: true };
 }
+
+// ─── QUEUE PROCESSING ──────────────────────────────────────────────────────────
 
 async function processQueueItem(item: QueueItem, supabase: any): Promise<{ success: boolean; error?: string; more?: boolean }> {
   const locked = await lockQueueItem(supabase, item.id);
@@ -400,33 +816,42 @@ async function processQueueItem(item: QueueItem, supabase: any): Promise<{ succe
   }
 }
 
-serve(async (req) => {
+// ─── MAIN HANDLER (process up to 5 items per invocation) ───────────────────────
+
+serve(async (_req) => {
   const supabase = getSupabaseAdmin();
-  
-  // Get next pending item
-  const { data: item, error } = await supabase
+  const MAX_ITEMS_PER_INVOCATION = 5;
+  const results: Array<{ meetingId: string; step: string; success: boolean; more?: boolean; error?: string }> = [];
+
+  // Get pending items (batch)
+  const { data: items, error } = await supabase
     .from('processing_queue')
     .select('*')
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
-    .limit(1)
-    .single();
+    .limit(MAX_ITEMS_PER_INVOCATION);
 
-  if (error || !item) {
+  if (error || !items || items.length === 0) {
     return new Response(JSON.stringify({ processed: 0 }), { 
       headers: { 'Content-Type': 'application/json' } 
     });
   }
 
-  const result = await processQueueItem(item as QueueItem, supabase);
+  // Process each item sequentially (each item touches different meetings)
+  for (const item of items) {
+    const result = await processQueueItem(item as QueueItem, supabase);
+    results.push({
+      meetingId: item.meeting_id,
+      step: item.step,
+      success: result.success,
+      more: result.more,
+      error: result.error,
+    });
+  }
 
   return new Response(JSON.stringify({ 
-    processed: 1, 
-    meetingId: item.meeting_id,
-    step: item.step,
-    success: result.success,
-    more: result.more,
-    error: result.error 
+    processed: results.length, 
+    results 
   }), { 
     headers: { 'Content-Type': 'application/json' } 
   });

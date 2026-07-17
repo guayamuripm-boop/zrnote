@@ -398,4 +398,4 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
-*Última actualización: 2026-07-15 — Sesión 7: **Build + Tests pasan** — Worker real con `processing_queue` (migración 015), cron cada 2 min, Edge Function sin límite 60s Vercel. Pipeline 100% async para reuniones >2hr.*
+*Última actualización: 2026-07-16 17:00 — **DEPLOY COMPLETO** — Variables de entorno configuradas en Vercel (GROQ_API_KEY, JINA_API_KEY, GMAIL_USER, GMAIL_APP_PASSWORD, SUPABASE keys, NEXT_PUBLIC_APP_URL). Migraciones 012-016 aplicadas en Supabase SQL Editor. Sistema listo para testeo end-to-end con archivos de audio existentes.*

@@ -66,7 +66,7 @@ export async function GET() {
           .in('status', ['pending', 'running']);
 
         if (!existingQueue || existingQueue.length === 0) {
-          // Determine next step
+          // Determine next step by checking what's already been done
           let nextStep: 'transcribe' | 'analyze' | 'vectorize' | 'emails' = 'transcribe';
           if (meeting.transcript_raw && meeting.transcript_raw.trim().length > 0) {
             nextStep = 'analyze';
@@ -75,7 +75,17 @@ export async function GET() {
               .select('id')
               .eq('meeting_id', meeting.id)
               .single();
-            if (minute) nextStep = 'emails';
+            if (minute) {
+              nextStep = 'vectorize';
+              const { data: chunks } = await supabase
+                .from('meeting_chunks')
+                .select('id')
+                .eq('meeting_id', meeting.id)
+                .limit(1);
+              if (chunks && chunks.length > 0) {
+                nextStep = 'emails';
+              }
+            }
           }
 
           // Reset meeting status

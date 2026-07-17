@@ -20,13 +20,11 @@ $$;
 COMMENT ON FUNCTION public.current_user_org_id()
   IS 'Returns org_id of the current authenticated user. SECURITY DEFINER to bypass RLS.';
 
--- 2. Replace `Users read own` with a policy that ALSO allows reading users inside the same org
+-- 2. Replace `Users read own` with a policy that ONLY allows reading own row
+-- (helper function cannot be used here because it queries users -> recursion)
 DROP POLICY IF EXISTS "Users read own" ON users;
 CREATE POLICY "Users read own" ON users FOR SELECT
-  USING (
-    id = auth.uid()
-    OR org_id = public.current_user_org_id()
-  );
+  USING (id = auth.uid());
 
 -- 3. Drop the old `Org members read meetings` that depended on the broken sub-select and
 -- replace with one that uses the helper function.
