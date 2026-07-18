@@ -17,6 +17,7 @@ const POLL_INTERVAL_MS = 3000;
 const MAX_POLL_ATTEMPTS = 120;
 
 export default function RecordButton({ meetingId, meetingTitle, onFinalized }: RecordButtonProps) {
+  // Force fresh deploy: 2026-07-18
   const [state, setState] = useState<RecordingState>('idle');
   const [elapsed, setElapsed] = useState(0);
   const [segmentCount, setSegmentCount] = useState(0);
