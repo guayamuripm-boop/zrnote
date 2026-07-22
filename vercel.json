@@ -16,7 +16,7 @@
   "crons": [
     {
       "path": "/api/cron/retry-stuck",
-      "schedule": "*/2 * * * *"
+      "schedule": "0 2 * * *"
     },
     {
       "path": "/api/cron/retention",
