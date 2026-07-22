@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { maybeCompressAudio } from '@/lib/audio-compression';
+import { useAudioConverter, type ConversionOptions } from '@/lib/audio-conversion';
 import { createClient } from '@/lib/supabase/client';
 
 interface UploadedFile {
@@ -37,6 +38,9 @@ export default function UploadAudioPage() {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
+
+  // Audio converter (FFmpeg.wasm)
+  const { convert, loading: converting, progress: convertProgress, error: convertError } = useAudioConverter();
 
   // Initialize AudioContext on first interaction
   const getAudioContext = useCallback(() => {
@@ -283,6 +287,46 @@ export default function UploadAudioPage() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleConvert = async (index: number) => {
+    const file = files[index];
+    if (!file || file.status !== 'error') return;
+
+    const updated = [...files];
+    updated[index] = { ...updated[index], status: 'compressing' };
+    setFiles(updated);
+
+    try {
+      const options: ConversionOptions = {
+        targetFormat: 'mp3',
+        bitrateKbps: 64,
+        onProgress: (p) => {
+          // Progress is shown in the button text via converting/convertProgress
+        },
+      };
+
+      const result = await convert(file.originalFile, options);
+
+      updated[index] = {
+        ...updated[index],
+        file: result.file,
+        originalFile: file.originalFile,
+        status: result.file.size > MAX_FILE_SIZE ? 'error' : 'pending',
+        error: result.file.size > MAX_FILE_SIZE
+          ? `Muy grande (${(result.file.size / 1024 / 1024).toFixed(1)}MB). Máximo 4MB incluso tras convertir.`
+          : undefined,
+        compressed: true,
+        durationSec: result.durationSec,
+      };
+    } catch (e: any) {
+      updated[index] = {
+        ...updated[index],
+        status: 'error',
+        error: e?.message || 'Error al convertir audio',
+      };
+    }
+    setFiles(updated);
+  };
+
   const handleUpload = async () => {
     if (files.length === 0) return;
     setUploading(true);
@@ -504,6 +548,16 @@ export default function UploadAudioPage() {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
+                </button>
+              )}
+              {f.status === 'error' && !f.direct && (
+                <button
+                  onClick={() => handleConvert(i)}
+                  disabled={converting}
+                  className="ml-1 px-2 py-1 text-xs font-medium text-white bg-amber-500 rounded hover:bg-amber-600 disabled:opacity-50 transition"
+                  title="Convertir a MP3 y comprimir"
+                >
+                  {converting ? `Convirtiendo... ${convertProgress}%` : 'Convertir y comprimir'}
                 </button>
               )}
             </div>
