@@ -17,6 +17,18 @@
 - **Causa:** En `src/lib/safe-html.ts` (y `supabase/functions/_shared/safe-html.ts`) los `.replace()` sustituían `&`→`&`, `<`→`<`, etc. (las entidades HTML se habían colapsado a caracteres crudos). El escape no escapaba nada; el contenido del LLM se inyectaba tal cual en el HTML del email.
 - **Fix:** Restaurar las entidades reales: `&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`, `"`→`&quot;`, `'`→`&#039;`. Cubierto por `src/lib/safe-html.test.ts`.
 
+### 3b. 🔴 `infinite recursion detected in policy for relation "meetings"` (500 en producción)
+- **Síntoma:** `POST /api/meetings` devuelve 500; al crear reunión sale "Error al crear reunión: infinite recursion detected in policy for relation meetings".
+- **Causa:** Las migraciones RLS son ADITIVAS y cada una solo borra ALGUNAS políticas por nombre. La BD real quedó con un par recursivo vivo: una política de `meetings` que consulta `meeting_participants` **y** una de `meeting_participants` que consulta `meetings` → ciclo (Postgres 42P17).
+- **Fix:** `supabase/migrations/018_rls_reset_no_recursion.sql` — idempotente y agnóstico al estado: un bucle DO borra TODAS las políticas de las tablas afectadas y recrea un set limpio donde **todas las referencias entre tablas pasan por funciones `SECURITY DEFINER`** (`current_user_org_id`, `is_meeting_creator`, `is_meeting_participant`) que saltan el RLS → imposible que haya ciclo. Además restringe las políticas `USING(true)` a `TO service_role` (antes exponían TODO a cualquier usuario logueado = fuga entre orgs).
+- **⚠️ Aplicar manualmente:** pegar el archivo completo en Supabase → SQL Editor → Run. Vercel NO aplica migraciones de Supabase.
+- **Regla:** NO añadir más migraciones RLS aditivas. Si las políticas vuelven a divergir, re-ejecutar/adaptar la 018 (reset completo), nunca parchear por nombre.
+
+### 3c. Importar `.aac` (y formatos que el navegador no decodifica)
+- **Síntoma:** No se podían importar archivos `.aac` de grabadoras de voz. `decodeAudioData` de Chrome NO decodifica AAC crudo (ADTS), así que el troceo/compresión en el navegador fallaba y el archivo quedaba en un callejón sin salida ("Muy grande").
+- **Fix:** Nueva ruta `POST /api/meetings/[id]/direct-upload` (phase `sign`|`register`). Si `decodeAudioData` falla, la página de subida sube el archivo COMPLETO directo a Supabase Storage vía **signed upload URL** (evita el límite de 4.5MB de Vercel; máx 25MB de Whisper) y Whisper lo decodifica en el servidor. Requiere que la migración `002` (política de storage `Authenticated users upload audio`) esté aplicada.
+- **Nota:** los errores de consola "A listener indicated an asynchronous response... message channel closed" son ruido de una EXTENSIÓN de Chrome, NO de la app. Ignorar.
+
 ### 3. Race condition al subir segmentos (pérdida de segmentos)
 - **Causa:** `upload-segment` hace read-modify-write de `meetings.audio_segments`; subidas concurrentes se pisaban (last-write-wins) → segmentos perdidos.
 - **Fix (cliente):** Las subidas se serializan en `RecordButton` (`uploadChainRef`) — una a la vez, en orden.

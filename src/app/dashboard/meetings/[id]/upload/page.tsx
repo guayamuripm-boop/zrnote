@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { maybeCompressAudio } from '@/lib/audio-compression';
+import { createClient } from '@/lib/supabase/client';
 
 interface UploadedFile {
   file: File;
@@ -13,7 +14,13 @@ interface UploadedFile {
   compressed?: boolean;
   durationSec?: number;
   segments?: File[];
+  // true when the browser could not decode/split this file (e.g. raw .aac);
+  // it is uploaded whole, straight to Supabase Storage via a signed URL.
+  direct?: boolean;
 }
+
+// Whisper (Groq) accepts up to 25MB per file; direct uploads bypass Vercel's 4.5MB cap.
+const MAX_DIRECT_SIZE = 25 * 1024 * 1024;
 
 // Must stay under Vercel's hard 4.5MB request body limit for Serverless Functions.
 const MAX_FILE_SIZE = 4 * 1024 * 1024;
@@ -150,15 +157,36 @@ export default function UploadAudioPage() {
       let finalFile = file;
       let isCompressed = false;
       let durationSec = 0;
+      let decodable = true;
 
-      // Get duration first
+      // Get duration first. If decoding fails (e.g. raw .aac from a voice
+      // recorder, which Chrome's decodeAudioData cannot handle), we cannot
+      // split/compress it in the browser — fall back to a direct upload.
       try {
         const audioContext = getAudioContext();
         const arrayBuffer = await file.arrayBuffer();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
         durationSec = audioBuffer.duration;
       } catch {
-        // If we can't decode, proceed without duration
+        decodable = false;
+      }
+
+      if (!decodable) {
+        // Upload the whole file straight to Storage (Whisper decodes it server-side).
+        setFiles((prev) => [
+          ...prev,
+          {
+            file,
+            originalFile: file,
+            status: file.size > MAX_DIRECT_SIZE ? 'error' : 'pending',
+            error: file.size > MAX_DIRECT_SIZE
+              ? `Muy grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Máximo 25MB para subida directa. Convierte a MP3/M4A o usa "Grabar".`
+              : undefined,
+            direct: true,
+            durationSec: 0,
+          },
+        ]);
+        continue;
       }
 
       // If file is large OR duration > 30s, try to split first
@@ -262,9 +290,11 @@ export default function UploadAudioPage() {
     const updated = [...files];
     for (let i = 0; i < updated.length; i++) {
       if (updated[i].status !== 'pending') continue;
-      
-      // Final safety check - compress if somehow still too large
-      if (updated[i].file.size > MAX_FILE_SIZE) {
+
+      // Final safety check - compress if somehow still too large.
+      // Skip for direct uploads: they go straight to Storage (25MB limit) and
+      // are typically undecodable formats that cannot be compressed in-browser.
+      if (!updated[i].direct && updated[i].file.size > MAX_FILE_SIZE) {
         updated[i] = { ...updated[i], status: 'compressing' };
         setFiles([...updated]);
         try {
@@ -279,6 +309,43 @@ export default function UploadAudioPage() {
 
       updated[i] = { ...updated[i], status: 'uploading' };
       setFiles([...updated]);
+
+      // Direct-to-Storage path (undecodable formats like raw .aac): sign → upload → register.
+      if (updated[i].direct) {
+        try {
+          const ext = (updated[i].file.name.split('.').pop() || 'aac').toLowerCase();
+          const signRes = await fetch(`/api/meetings/${meetingId}/direct-upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phase: 'sign', segmentIndex: i, ext, size: updated[i].file.size }),
+          });
+          const signData = await signRes.json().catch(() => ({}));
+          if (!signRes.ok) throw new Error(signData.error || 'No se pudo firmar la subida');
+
+          const supabase = createClient();
+          const { error: upErr } = await supabase.storage
+            .from('meeting-audio')
+            .uploadToSignedUrl(signData.path, signData.token, updated[i].file, {
+              contentType: updated[i].file.type || 'audio/aac',
+            });
+          if (upErr) throw new Error(upErr.message);
+
+          const regRes = await fetch(`/api/meetings/${meetingId}/direct-upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phase: 'register', segmentIndex: i, path: signData.path, durationSec: Math.round(updated[i].durationSec || 0) }),
+          });
+          if (!regRes.ok) {
+            const err = await regRes.json().catch(() => ({}));
+            throw new Error(err.error || 'No se pudo registrar el segmento');
+          }
+          updated[i] = { ...updated[i], status: 'done' };
+        } catch (e: any) {
+          updated[i] = { ...updated[i], status: 'error', error: e?.message || 'Error subiendo archivo' };
+        }
+        setFiles([...updated]);
+        continue;
+      }
 
       const formData = new FormData();
       formData.append('audio', updated[i].file);
@@ -372,7 +439,7 @@ export default function UploadAudioPage() {
         <input
           ref={inputRef}
           type="file"
-          accept="audio/*"
+          accept="audio/*,.aac,.m4a,.mp3,.wav,.ogg,.oga,.webm,.3gp,.amr,.mp4"
           multiple
           onChange={(e) => addFiles(e.target.files)}
           className="hidden"

@@ -12,6 +12,10 @@ const ALLOWED_TYPES: Record<string, string> = {
   'audio/wav': 'wav',
   'audio/x-wav': 'wav',
   'audio/3gpp': '3gp',
+  'audio/aac': 'aac',
+  'audio/x-aac': 'aac',
+  'audio/aacp': 'aac',
+  'audio/amr': 'amr',
 };
 
 // Vercel Serverless Functions reject any request body over 4.5MB at the
