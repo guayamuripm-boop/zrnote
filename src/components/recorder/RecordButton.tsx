@@ -34,6 +34,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const segmentTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pendingUploadsRef = useRef<Promise<void>[]>([]);
+  // Serializes segment uploads so the server-side read-modify-write of
+  // meetings.audio_segments never races (concurrent uploads = lost segments).
+  const uploadChainRef = useRef<Promise<void>>(Promise.resolve());
+  // When a recorder stops, decide whether it's a segment rotation (restart)
+  // or the final stop (resolve finalize). See startNewRecorder().
+  const shouldRestartRef = useRef(false);
+  const finalizeResolveRef = useRef<(() => void) | null>(null);
   const segmentCountRef = useRef(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const isRecordingRef = useRef(false);
@@ -96,32 +103,84 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   };
 
-  const flushSegment = useCallback(async () => {
+  const handleDataAvailable = useCallback((event: BlobEvent) => {
+    if (event.data.size > 0) {
+      chunksRef.current.push(event.data);
+    }
+  }, []);
+
+  // Enqueue an upload on the serial chain. Uploads run one at a time so the
+  // server's read-modify-write of audio_segments cannot drop entries.
+  const enqueueUpload = useCallback((blob: Blob, index: number, durationSec: number) => {
+    const run = () =>
+      uploadSegment(blob, index, durationSec).catch((err) => {
+        console.error(`Segment ${index} upload failed after retries:`, err);
+        setFailedSegments((prev) => prev + 1);
+      });
+    uploadChainRef.current = uploadChainRef.current.then(run);
+    pendingUploadsRef.current.push(uploadChainRef.current);
+  }, []);
+
+  // Assemble ALL chunks of the current recorder session into ONE complete,
+  // self-contained media file (header + data) and queue it for upload.
+  // This is only ever called from a recorder's `onstop`, guaranteeing the
+  // container is properly finalized and therefore decodable by Whisper.
+  const collectSegment = useCallback(() => {
     if (chunksRef.current.length === 0) return;
     const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current });
     chunksRef.current = [];
+    if (blob.size === 0) return;
 
-    const currentSegment = segmentCountRef.current;
-    
+    const index = segmentCountRef.current;
     const durationSec = Math.round((Date.now() - segmentStartTimeRef.current) / 1000);
-    
-    const hintToUse = undefined;
-    
-    const uploadPromise = uploadSegment(blob, currentSegment, durationSec).catch((err) => {
-      console.error(`Segment ${currentSegment} upload failed after retries:`, err);
-      setFailedSegments((prev) => prev + 1);
-    });
-
     segmentStartTimeRef.current = Date.now();
     segmentCountRef.current++;
     setSegmentCount(segmentCountRef.current);
 
-    pendingUploadsRef.current.push(uploadPromise);
-  }, []);
+    enqueueUpload(blob, index, durationSec);
+  }, [enqueueUpload]);
 
-  const handleDataAvailable = useCallback((event: BlobEvent) => {
-    if (event.data.size > 0) {
-      chunksRef.current.push(event.data);
+  // Create and start a fresh MediaRecorder on the live stream. Each session
+  // begins a new container, so every produced segment carries its own header.
+  const startNewRecorder = useCallback(() => {
+    const stream = streamRef.current;
+    if (!stream) return;
+
+    const mr = new MediaRecorder(stream, {
+      mimeType: mimeTypeRef.current,
+      audioBitsPerSecond: 128000,
+    });
+    chunksRef.current = [];
+    segmentStartTimeRef.current = Date.now();
+
+    mr.ondataavailable = handleDataAvailable;
+    mr.onstop = () => {
+      // A stop finalizes the container → chunks form ONE valid file.
+      collectSegment();
+      if (shouldRestartRef.current) {
+        // Segment rotation: immediately begin the next segment.
+        shouldRestartRef.current = false;
+        startNewRecorder();
+        mediaRecorderRef.current?.start(1000);
+      } else if (finalizeResolveRef.current) {
+        // Final stop requested by finalizeRecording().
+        const resolve = finalizeResolveRef.current;
+        finalizeResolveRef.current = null;
+        resolve();
+      }
+    };
+
+    mediaRecorderRef.current = mr;
+  }, [handleDataAvailable, collectSegment]);
+
+  // Close the current segment and open the next one. Stopping the recorder
+  // is the ONLY way to get a standalone, decodable audio file — slicing a
+  // continuous stream yields headerless fragments Whisper rejects with 400.
+  const rotateSegment = useCallback(() => {
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state !== 'inactive') {
+      shouldRestartRef.current = true;
+      mr.stop();
     }
   }, []);
 
@@ -165,14 +224,14 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
   const handleVisibilityChange = useCallback(async () => {
     if (document.visibilityState === 'hidden' && isRecordingRef.current) {
-      console.log('Page hidden - flushing audio chunks');
-      await flushSegment();
+      console.log('Page hidden - closing current segment');
+      rotateSegment();
     } else if (document.visibilityState === 'visible' && isRecordingRef.current) {
       if (!wakeLockRef.current) {
         await requestWakeLock();
       }
     }
-  }, [flushSegment]);
+  }, [rotateSegment]);
 
   const stopVisualizer = useCallback(() => {
     if (animFrameRef.current !== null) {
@@ -305,27 +364,26 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       console.log('[RecordButton] Using mimeType:', mimeType);
       mimeTypeRef.current = mimeType;
 
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType,
-        audioBitsPerSecond: 128000,
-      });
-
-      mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
       segmentCountRef.current = 0;
       pendingUploadsRef.current = [];
+      uploadChainRef.current = Promise.resolve();
+      shouldRestartRef.current = false;
+      finalizeResolveRef.current = null;
       setSegmentCount(0);
       setFailedSegments(0);
       setElapsed(0);
       setError(null);
       isRecordingRef.current = true;
 
-      mediaRecorder.ondataavailable = handleDataAvailable;
-      mediaRecorder.start(1000);
+      // Start the first segment recorder. Each segment is a full recorder
+      // session (stop/restart), so every uploaded file is independently decodable.
+      startNewRecorder();
+      mediaRecorderRef.current?.start(1000);
 
       segmentTimerRef.current = setInterval(() => {
         if (isRecordingRef.current) {
-          flushSegment();
+          rotateSegment();
         }
       }, SEGMENT_DURATION_MS);
 
@@ -368,7 +426,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
       segmentTimerRef.current = setInterval(() => {
         if (isRecordingRef.current) {
-          flushSegment();
+          rotateSegment();
         }
       }, SEGMENT_DURATION_MS);
 
@@ -382,32 +440,28 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
 
-    // Wait for MediaRecorder onstop to ensure final chunks are captured
+    // Final stop: do NOT restart. The recorder's onstop collects the last
+    // (complete) segment and resolves this promise via finalizeResolveRef.
     const stopped = new Promise<void>((resolve) => {
-      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
+      const mr = mediaRecorderRef.current;
+      if (!mr || mr.state === 'inactive') {
+        collectSegment();
         resolve();
         return;
       }
-      const handler = () => {
-        mediaRecorderRef.current?.removeEventListener('stop', handler);
-        resolve();
-      };
-      mediaRecorderRef.current?.addEventListener('stop', handler);
-      
-      if (mediaRecorderRef.current.state === 'recording' || mediaRecorderRef.current.state === 'paused') {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
-      } else {
-        resolve();
-      }
+      shouldRestartRef.current = false;
+      finalizeResolveRef.current = resolve;
+      mr.stop();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
     });
 
     await stopped;
     stopVisualizer();
     await releaseWakeLock();
     setState('uploading');
-    await flushSegment();
-    await Promise.all(pendingUploadsRef.current);
+    // Drain the serial upload chain, then make sure every queued upload settled.
+    await uploadChainRef.current.catch(() => {});
+    await Promise.allSettled(pendingUploadsRef.current);
 
     if (failedSegments > 0) {
       setError(`${failedSegments} segmento(s) de audio no se pudieron subir. La minuta puede quedar incompleta.`);

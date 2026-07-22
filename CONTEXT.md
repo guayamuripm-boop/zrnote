@@ -3,6 +3,26 @@
 
 ---
 
+## ⚠️ BUGS CRÍTICOS RESUELTOS — **NO REVERTIR** (2026-07-21)
+
+> Estos fallos explican por qué "no funcionaba" durante semanas. Lee esto ANTES de tocar la grabación o los emails.
+
+### 1. 🔴 Segmentos de audio corruptos (LA causa raíz de "no funciona")
+- **Síntoma:** Solo el primer segmento (30s) se transcribía; el resto fallaba con Groq HTTP 400 ("archivo corrupto"). La minuta salía vacía o solo con los primeros 30s.
+- **Causa:** `RecordButton.tsx` usaba UN solo `MediaRecorder.start(1000)` y troceaba el stream continuo cada 30s (`flushSegment`). En WebM/OGG **la cabecera del contenedor va SOLO en el primer chunk**; los trozos siguientes son fragmentos sin cabecera → indecodificables por Whisper. Ninguna versión previa (ni el commit "stop/restart") lo hacía bien: todas troceaban.
+- **Fix (definitivo):** Rotación real de grabador. Cada segmento es una **sesión completa** de `MediaRecorder`: al cumplir 30s se hace `stop()` (esto FINALIZA el contenedor → archivo válido con cabecera) y en `onstop` se sube el blob y se arranca un `MediaRecorder` **nuevo** para el siguiente segmento (`startNewRecorder` / `rotateSegment`).
+- **Regla:** NUNCA subir un blob que no venga de un `onstop`. NUNCA volver a trocear un stream continuo (`start(timeslice)` + slice). Un segmento = un ciclo start→stop.
+
+### 2. 🔴 `escapeHtml` era un no-op (XSS real en emails)
+- **Causa:** En `src/lib/safe-html.ts` (y `supabase/functions/_shared/safe-html.ts`) los `.replace()` sustituían `&`→`&`, `<`→`<`, etc. (las entidades HTML se habían colapsado a caracteres crudos). El escape no escapaba nada; el contenido del LLM se inyectaba tal cual en el HTML del email.
+- **Fix:** Restaurar las entidades reales: `&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`, `"`→`&quot;`, `'`→`&#039;`. Cubierto por `src/lib/safe-html.test.ts`.
+
+### 3. Race condition al subir segmentos (pérdida de segmentos)
+- **Causa:** `upload-segment` hace read-modify-write de `meetings.audio_segments`; subidas concurrentes se pisaban (last-write-wins) → segmentos perdidos.
+- **Fix (cliente):** Las subidas se serializan en `RecordButton` (`uploadChainRef`) — una a la vez, en orden.
+
+---
+
 ## 📍 ESTADO ACTUAL: **MVP FUNCIONAL + RAG + EXTENSION CHROME** (100% Free Tier)
 
 ### ✅ YA IMPLEMENTADO Y FUNCIONANDO
@@ -11,7 +31,7 @@
 |------------|--------|----------|
 | **Auth** | ✅ | Supabase Auth (email/password), middleware protege `/dashboard` |
 | **CRUD Reuniones** | ✅ | Crear, listar, ver, editar, borrar + participantes |
-| **Grabación PWA** | ✅ | `RecordButton` robusto: segmentación 30min, wake lock, media session, retry, pause/resume, visibilidad |
+| **Grabación PWA** | ✅ | `RecordButton`: segmentos de **30s por rotación stop/restart** (cada segmento = archivo válido con cabecera), wake lock, media session, retry, pause/resume, subidas serializadas |
 | **Subida archivos** | ✅ | Drag & drop, validación 4MB, multiarchivo, progress UI |
 | **Transcripción** | ✅ | Groq Whisper (whisper-large-v3) en Edge Function, batch 3 segmentos |
 | **Generación minuta** | ✅ | Groq Llama-3.3-70b con prompt detallado en español |
@@ -20,10 +40,10 @@
 | **Emails** | ✅ | Nodemailer/Gmail SMTP, plantillas HTML ricas, adjuntos ICS, retry, logs |
 | **Speaker mapping** | ✅ | UI para mapear "Speaker 1" → nombres reales |
 | **Pipeline por pasos** | ✅ | `/process?step=transcribe\|analyze\|emails\|vectorize` + polling UI |
-| **Auto-recovery (cron)** | ✅ | Vercel Cron `*/5 * * * *` reintenta stuck/failed |
+| **Auto-recovery (cron)** | ✅ | Vercel Cron **`*/2 * * * *`** (ver `vercel.json`) reintenta stuck/failed vía `processing_queue` + Edge Function `process-meeting` |
 | **Rate limiting** | ✅ | 10 req/min por user/meeting en `/process` |
 | **Logs estructurados** | ✅ | `logger.ts` JSON en prod, colores en dev |
-| **Tests** | ✅ | 9 tests Vitest pasando (`processing.test.ts`) |
+| **Tests** | ✅ | 14 tests Vitest pasando. `safe-html.test.ts` = XSS real (habría atrapado el bug del escape). `processing.test.ts` = solo smoke (typeof), poca cobertura |
 | **RGPD endpoints** | ✅ | `GET /api/user/export`, `POST /api/user/delete` |
 | **Security headers** | ✅ | CSP, HSTS, X-Frame-Options, Permissions-Policy |
 | **Retención datos (cron)** | ✅ | Diario 3AM: borra audio >30d, archiva >1a, limpia orphans |
@@ -145,7 +165,9 @@ C:\Dev\ZR Note\
 
 ## 🔧 PIPELINE DE PROCESAMIENTO (4 Steps)
 
-### Modo Legacy (In-process, límite 60s Vercel)
+> **IMPORTANTE — cuál corre de verdad:** El path ACTIVO tras grabar/subir es el **frontend-driven** (abajo "Modo Legacy"): `RecordButton`/upload llaman a `finalize` y luego hacen polling de `/process?step=...`. El **"Modo Worker" (processing_queue + Edge Function) NO se dispara desde `finalize`** — solo lo activa el cron `retry-stuck` como RECUPERACIÓN de reuniones atascadas/fallidas. No son el mismo flujo; comparten solo la BD.
+
+### Modo Legacy (In-process, límite 60s Vercel) — **PATH ACTIVO**
 ```
 POST /api/meetings/[id]/finalize
     │
@@ -171,7 +193,7 @@ status=completed
 
 **Cada step < 60s** (límite Vercel). Polling desde UI cada 3s.
 
-### Modo Worker (Async, sin límite 60s) — **RECOMENDADO**
+### Modo Worker (Async) — **SOLO RECUPERACIÓN vía cron, no el path normal**
 ```
 POST /api/meetings/[id]/finalize
     │
@@ -398,4 +420,4 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
-*Última actualización: 2026-07-16 17:00 — **DEPLOY COMPLETO** — Variables de entorno configuradas en Vercel (GROQ_API_KEY, JINA_API_KEY, GMAIL_USER, GMAIL_APP_PASSWORD, SUPABASE keys, NEXT_PUBLIC_APP_URL). Migraciones 012-016 aplicadas en Supabase SQL Editor. Sistema listo para testeo end-to-end con archivos de audio existentes.*
+*Última actualización: 2026-07-21 — **AUDITORÍA + FIX FUNCIONAL**. Encontrada y corregida LA causa raíz de "no funciona": segmentos de audio sin cabecera (troceo de stream continuo) → ahora rotación stop/restart en `RecordButton.tsx`. Además: `escapeHtml` era un no-op (XSS) → corregido en `safe-html.ts` y copia de Edge Function; subidas de segmentos serializadas (race). Verificado: `npx next build` ✅ (19 rutas), `npx tsc --noEmit` ✅ limpio, `npx vitest run` ✅ 14 tests. Pendiente: prueba end-to-end real grabando en móvil/desktop con micrófono (no reproducible sin hardware de audio en el entorno de dev). Ver sección "⚠️ BUGS CRÍTICOS RESUELTOS" arriba.*

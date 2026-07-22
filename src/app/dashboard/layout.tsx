@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { createServerSupabase } from '@/lib/supabase/server';
 import ThemeToggle from '@/components/ThemeToggle';
+import { VersionLogger } from '@/components/VersionLogger';
+import { VERSION, COMMIT_SHA } from '@/lib/version';
 
 export default async function DashboardLayout({
   children,
@@ -12,6 +14,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen gradient-mesh">
+      <VersionLogger version={`ZRNote v${VERSION}`} commitSha={COMMIT_SHA} />
       {/* Desktop Nav */}
       <nav className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl sticky top-0 z-50 border-b border-slate-200/50 dark:border-slate-700/50 hidden sm:block">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -22,6 +25,9 @@ export default async function DashboardLayout({
               </div>
               <span className="text-slate-900 dark:text-slate-100 font-bold text-lg tracking-tight hidden sm:block">
                 ZRNote
+              </span>
+              <span className="hidden sm:inline-flex ml-1.5 px-1.5 py-0.5 text-[10px] font-mono font-medium text-blue-500 bg-blue-50 dark:bg-blue-950/50 rounded-md border border-blue-200 dark:border-blue-800">
+                v{VERSION}
               </span>
             </Link>
 

@@ -43,6 +43,7 @@ describe('TypeScript types', () => {
       transcript: 'test',
       segmentsProcessed: 1,
       segmentsTotal: 1,
+      more: false,
     };
     expect(result.success).toBe(true);
   });
