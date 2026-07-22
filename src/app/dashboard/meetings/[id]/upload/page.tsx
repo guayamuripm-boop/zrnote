@@ -550,7 +550,7 @@ export default function UploadAudioPage() {
                   </svg>
                 </button>
               )}
-              {f.status === 'error' && !f.direct && (
+              {f.status === 'error' && (f.error?.includes('Muy grande') || f.error?.includes('25MB')) && (
                 <button
                   onClick={() => handleConvert(i)}
                   disabled={converting}

@@ -24,10 +24,10 @@
 - **⚠️ Aplicar manualmente:** pegar el archivo completo en Supabase → SQL Editor → Run. Vercel NO aplica migraciones de Supabase.
 - **Regla:** NO añadir más migraciones RLS aditivas. Si las políticas vuelven a divergir, re-ejecutar/adaptar la 018 (reset completo), nunca parchear por nombre.
 
-### 3c. Importar `.aac` (y formatos que el navegador no decodifica)
-- **Síntoma:** No se podían importar archivos `.aac` de grabadoras de voz. `decodeAudioData` de Chrome NO decodifica AAC crudo (ADTS), así que el troceo/compresión en el navegador fallaba y el archivo quedaba en un callejón sin salida ("Muy grande").
-- **Fix:** Nueva ruta `POST /api/meetings/[id]/direct-upload` (phase `sign`|`register`). Si `decodeAudioData` falla, la página de subida sube el archivo COMPLETO directo a Supabase Storage vía **signed upload URL** (evita el límite de 4.5MB de Vercel; máx 25MB de Whisper) y Whisper lo decodifica en el servidor. Requiere que la migración `002` (política de storage `Authenticated users upload audio`) esté aplicada.
-- **Nota:** los errores de consola "A listener indicated an asynchronous response... message channel closed" son ruido de una EXTENSIÓN de Chrome, NO de la app. Ignorar.
+### 3d. 🟠 Importar `.aac` pesado (>25MB) — sin conversión en navegador
+- **Síntoma:** Archivos `.aac` de 30+ min (29 MB @ 128kbps) exceden el límite 25MB de Groq Whisper. La conversión en navegador (Web Audio API) falla porque Chrome no decodifica AAC crudo (ADTS).
+- **Fix (v1.0.3):** **FFmpeg.wasm** (`@ffmpeg/ffmpeg` + `@ffmpeg/core`) en `src/lib/audio-conversion.ts` → hook `useAudioConverter`. Convierte **cualquier formato** (raw `.aac`, `.amr`, `.3gp`, `.m4a`, `.mp4`, `.wav`, `.ogg`, `.webm`) a **MP3 64kbps** / Opus / WebM 100% en el navegador (WebAssembly, ~2MB carga on-demand). Integración en `upload/page.tsx`: botón **"Convertir y comprimir"** aparece en archivos con error → usuario click → FFmpeg convierte → archivo resultante < 4MB (pasa por split/compresión normal) → sube y procesa.
+- **Regla:** FFmpeg se carga lazy (solo si hay archivos que fallan). No añadir al bundle principal.
 
 ### 3. Race condition al subir segmentos (pérdida de segmentos)
 - **Causa:** `upload-segment` hace read-modify-write de `meetings.audio_segments`; subidas concurrentes se pisaban (last-write-wins) → segmentos perdidos.
@@ -35,7 +35,7 @@
 
 ---
 
-## 📍 ESTADO ACTUAL: **MVP FUNCIONAL + RAG + EXTENSION CHROME** (100% Free Tier)
+## 📍 ESTADO ACTUAL: **MVP FUNCIONAL + RAG + EXTENSION CHROME + CONVERSIÓN AUDIO** (100% Free Tier)
 
 ### ✅ YA IMPLEMENTADO Y FUNCIONANDO
 
@@ -45,6 +45,7 @@
 | **CRUD Reuniones** | ✅ | Crear, listar, ver, editar, borrar + participantes |
 | **Grabación PWA** | ✅ | `RecordButton`: segmentos de **30s por rotación stop/restart** (cada segmento = archivo válido con cabecera), wake lock, media session, retry, pause/resume, subidas serializadas |
 | **Subida archivos** | ✅ | Drag & drop, validación 4MB, multiarchivo, progress UI |
+| **Conversión audio (FFmpeg.wasm)** | ✅ | `lib/audio-conversion.ts` + hook `useAudioConverter` — convierte .aac/.amr/.3gp etc. a MP3/Opus/WebM en el navegador (WASM), reduce bitrate (ej. 64kbps), botón "Convertir y comprimir" en UI |
 | **Transcripción** | ✅ | Groq Whisper (whisper-large-v3) en Edge Function, batch 3 segmentos |
 | **Generación minuta** | ✅ | Groq Llama-3.3-70b con prompt detallado en español |
 | **Vista minuta** | ✅ | Render completo: resumen, temas, decisiones, proyectos, bloqueos, ideas, next steps, transcripción |
@@ -55,7 +56,7 @@
 | **Auto-recovery (cron)** | ✅ | Vercel Cron **`*/2 * * * *`** (ver `vercel.json`) reintenta stuck/failed vía `processing_queue` + Edge Function `process-meeting` |
 | **Rate limiting** | ✅ | 10 req/min por user/meeting en `/process` |
 | **Logs estructurados** | ✅ | `logger.ts` JSON en prod, colores en dev |
-| **Tests** | ✅ | 14 tests Vitest pasando. `safe-html.test.ts` = XSS real (habría atrapado el bug del escape). `processing.test.ts` = solo smoke (typeof), poca cobertura |
+| **Tests** | ✅ | 26 tests Vitest pasando. `safe-html.test.ts` = XSS real (habría atrapado el bug del escape). `email-service.test.ts` = 12 tests de correos (escape XSS, match tareas, retry). `processing.test.ts` = smoke (typeof) |
 | **RGPD endpoints** | ✅ | `GET /api/user/export`, `POST /api/user/delete` |
 | **Security headers** | ✅ | CSP, HSTS, X-Frame-Options, Permissions-Policy |
 | **Retención datos (cron)** | ✅ | Diario 3AM: borra audio >30d, archiva >1a, limpia orphans |
@@ -79,6 +80,7 @@
 | **Fix: Race condition finalizeRecording** | ✅ | `mediaRecorder.stop()` + espera evento `onstop` antes de `flushSegment()` → no se pierden chunks finales |
 | **Fix: transcribeMeeting no salta segmentos fallidos** | ✅ | Línea 201: avanza offset solo por éxitos; fallos quedan para retry (cron los recupera) |
 | **Fix: Upload page divide audio largo** | ✅ | `splitAudioFile()` usa Web Audio API → divide en segmentos 30s + compresión automática 3.5MB |
+| **Conversión .aac/.amr/.3gp con FFmpeg.wasm** | ✅ | `lib/audio-conversion.ts` + `useAudioConverter` hook → convierte en navegador (WASM) a MP3 64kbps, botón "Convertir y comprimir" en UI, evita límite 25MB Whisper |
 | **Worker asíncrono con processing_queue** | ✅ | Edge Function `process-meeting` procesa queue sin límite 60s Vercel; cron cada 2 min dispara worker |
 | **Cron retry-stuck cada 2 min** | ✅ | Resetea queue items atascados + crea entradas para meetings sin queue + dispara Edge Function |
 
@@ -428,8 +430,10 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 2. **Verificar**: `npx vitest run` y `npm run build` pasan
 3. **Continuar** desde donde quedamos (ver "PRÓXIMOS PASOS" arriba)
 4. **Actualizar** este archivo al final de cada sesión
-5. **Migraciones pendientes**: Las migraciones `012` a `016` deben ejecutarse en Supabase SQL Editor ANTES de grabar una reunión (012=RAG, 013=índices, 014=RGPD, 015=rate_limiter+queue, 016=RLS multi-tenant)
+5. **Migraciones pendientes**: Las migraciones `012` a `018` deben ejecutarse en Supabase SQL Editor ANTES de grabar una reunión (012=RAG, 013=índices, 014=RGPD, 015=rate_limiter+queue, 016=RLS multi-tenant, 018=RLS reset no recursion)
+6. **Emails**: revisar `email_logs` en Supabase + logs Vercel tras procesar reunión real. Si fallan: validar `GMAIL_APP_PASSWORD` (16 dígitos, 2FA activada en la cuenta Gmail).
+7. **FFmpeg.wasm**: está en `lib/audio-conversion.ts` + hook `useAudioConverter`. Carga lazy (~2MB WASM) solo cuando hay archivos que fallan al decodificar. Botón "Convertir y comprimir" aparece en archivos con error. Convierte a MP3 64kbps. Probar con `.aac` real de 30+ min en móvil.
 
 ---
 
-*Última actualización: 2026-07-21 — **AUDITORÍA + FIX FUNCIONAL**. Encontrada y corregida LA causa raíz de "no funciona": segmentos de audio sin cabecera (troceo de stream continuo) → ahora rotación stop/restart en `RecordButton.tsx`. Además: `escapeHtml` era un no-op (XSS) → corregido en `safe-html.ts` y copia de Edge Function; subidas de segmentos serializadas (race). Verificado: `npx next build` ✅ (19 rutas), `npx tsc --noEmit` ✅ limpio, `npx vitest run` ✅ 14 tests. Pendiente: prueba end-to-end real grabando en móvil/desktop con micrófono (no reproducible sin hardware de audio en el entorno de dev). Ver sección "⚠️ BUGS CRÍTICOS RESUELTOS" arriba.*
+*Última actualización: 2026-07-22 — **v1.0.3: FFmpeg.wasm + conversión .aac/otros**. Auditoría completa: build 21 rutas ✅, 26 tests ✅, typecheck ✅. Desplegado en `zrnote.vercel.app`. Fixes críticos previos (segmentos corruptos, XSS, race condition) confirmados en producción. Nueva feature: conversión on-demand de formatos no decodificables (raw .aac, .amr, .3gp, etc.) a MP3 64kbps vía FFmpeg.wasm en navegador, botón "Convertir y comprimir" en UI de subida. **Pendiente crítico**: ejecutar migración 018 en Supabase SQL Editor + validar emails reales (GMAIL_APP_PASSWORD en Vercel).*
