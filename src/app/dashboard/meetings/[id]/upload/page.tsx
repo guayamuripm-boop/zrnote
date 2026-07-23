@@ -18,6 +18,8 @@ interface UploadedFile {
   // true when the browser could not decode/split this file (e.g. raw .aac);
   // it is uploaded whole, straight to Supabase Storage via a signed URL.
   direct?: boolean;
+  // true while FFmpeg.wasm is converting an undecodable file
+  converting?: boolean;
 }
 
 // Whisper (Groq) accepts up to 25MB per file; direct uploads bypass Vercel's 4.5MB cap.
@@ -176,20 +178,128 @@ export default function UploadAudioPage() {
       }
 
       if (!decodable) {
-        // Upload the whole file straight to Storage (Whisper decodes it server-side).
+        // Auto-convert with FFmpeg.wasm instead of direct upload
+        // This handles raw .aac, .amr, .3gp, etc. that Chrome can't decode
         setFiles((prev) => [
           ...prev,
           {
             file,
             originalFile: file,
-            status: file.size > MAX_DIRECT_SIZE ? 'error' : 'pending',
-            error: file.size > MAX_DIRECT_SIZE
-              ? `Muy grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Máximo 25MB para subida directa. Convierte a MP3/M4A o usa "Grabar".`
-              : undefined,
-            direct: true,
+            status: 'compressing',
+            error: undefined,
+            direct: false,
             durationSec: 0,
+            converting: true,
           },
         ]);
+
+        // Convert in background
+        (async () => {
+          try {
+            const options: ConversionOptions = {
+              targetFormat: 'mp3',
+              bitrateKbps: 64,
+            };
+            const result = await convert(file, options);
+            
+            // Now the converted file IS decodable - re-process it through normal flow
+            const convertedFile = result.file;
+            let durationSec = result.durationSec;
+            
+            // If still large or long, split it
+            const needsSplitting = convertedFile.size > MAX_FILE_SIZE || durationSec > SEGMENT_DURATION_SEC;
+            
+            if (needsSplitting) {
+              let segments: File[] = [];
+              try {
+                segments = await splitAudioFile(convertedFile);
+              } catch (e) {
+                console.error('Splitting failed after conversion:', e);
+                try {
+                  const compressed = await compressFile(convertedFile);
+                  if (compressed.size <= MAX_FILE_SIZE) {
+                    segments = [compressed];
+                  }
+                } catch {}
+              }
+              
+              if (segments.length > 0) {
+                // Compress segments that are too large before updating state
+                const processedSegments = await Promise.all(segments.map(async (segment) => {
+                  let finalSegment = segment;
+                  let segmentCompressed = false;
+                  if (segment.size > MAX_FILE_SIZE) {
+                    try {
+                      finalSegment = await compressFile(segment);
+                      segmentCompressed = true;
+                    } catch {}
+                  }
+                  return {
+                    file: finalSegment,
+                    originalFile: file,
+                    status: finalSegment.size > MAX_FILE_SIZE ? 'error' as const : 'pending' as const,
+                    error: finalSegment.size > MAX_FILE_SIZE
+                      ? `Muy grande (${(finalSegment.size / 1024 / 1024).toFixed(1)}MB). Máximo 4MB incluso tras comprimir.`
+                      : undefined,
+                    compressed: true,
+                    durationSec: Math.min(SEGMENT_DURATION_SEC, durationSec),
+                  };
+                }));
+
+                setFiles((prev) => {
+                  const withoutConverting = prev.filter(f => f.originalFile !== file || !f.converting);
+                  return [...withoutConverting, ...processedSegments];
+                });
+                return;
+              }
+            }
+            
+            // Single file path
+            let finalFile = convertedFile;
+            if (convertedFile.size > MAX_FILE_SIZE) {
+              try {
+                finalFile = await compressFile(convertedFile);
+              } catch {}
+            }
+            
+            setFiles((prev) => {
+              const withoutConverting = prev.filter(f => f.originalFile !== file || !f.converting);
+              return [
+                ...withoutConverting,
+                {
+                  file: finalFile,
+                  originalFile: file,
+                  status: finalFile.size > MAX_FILE_SIZE ? 'error' as const : 'pending' as const,
+                  error: finalFile.size > MAX_FILE_SIZE
+                    ? `Muy grande (${(finalFile.size / 1024 / 1024).toFixed(1)}MB). Máximo 4MB incluso tras convertir.`
+                    : undefined,
+                  compressed: true,
+                  durationSec,
+                },
+              ];
+            });
+          } catch (e: any) {
+            // Conversion failed - fall back to direct upload
+            console.error('Auto-conversion failed:', e);
+            setFiles((prev) => {
+              const withoutConverting = prev.filter(f => f.originalFile !== file || !f.converting);
+              return [
+                ...withoutConverting,
+                {
+                  file,
+                  originalFile: file,
+                  status: file.size > MAX_DIRECT_SIZE ? 'error' : 'pending',
+                  error: file.size > MAX_DIRECT_SIZE
+                    ? `Muy grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Máximo 25MB para subida directa. Convierte a MP3/M4A o usa "Grabar".`
+                    : undefined,
+                  direct: true,
+                  durationSec: 0,
+                },
+              ];
+            });
+          }
+        })();
+        
         continue;
       }
 
@@ -525,6 +635,9 @@ export default function UploadAudioPage() {
               )}
               {f.status === 'splitting' && (
                 <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" title="Dividiendo en segmentos..." />
+              )}
+              {converting && (
+                <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" title="Convirtiendo a MP3..." />
               )}
               {f.status === 'uploading' && (
                 <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" title="Subiendo..." />
