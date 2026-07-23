@@ -29,11 +29,15 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com",
+              // 'unsafe-eval' + blob: are required by FFmpeg.wasm (blob-URL core script
+              // + WebAssembly compile). It is lazy-loaded only for exotic audio formats.
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://apis.google.com",
+              // FFmpeg.wasm runs in a Web Worker created from a blob: URL.
+              "worker-src 'self' blob:",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' data: https://fonts.gstatic.com",
               "img-src 'self' data: blob: https:",
-              "connect-src 'self' https://api.groq.com https://*.supabase.co wss://*.supabase.co",
+              "connect-src 'self' blob: https://api.groq.com https://*.supabase.co wss://*.supabase.co",
               "media-src 'self' blob:",
               "frame-src 'self' https://accounts.google.com",
               "base-uri 'self'",

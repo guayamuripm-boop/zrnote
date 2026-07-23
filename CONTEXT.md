@@ -24,10 +24,15 @@
 - **⚠️ Aplicar manualmente:** pegar el archivo completo en Supabase → SQL Editor → Run. Vercel NO aplica migraciones de Supabase.
 - **Regla:** NO añadir más migraciones RLS aditivas. Si las políticas vuelven a divergir, re-ejecutar/adaptar la 018 (reset completo), nunca parchear por nombre.
 
-### 3d. 🟠 Importar `.aac` pesado (>25MB) — sin conversión en navegador
-- **Síntoma:** Archivos `.aac` de 30+ min (29 MB @ 128kbps) exceden el límite 25MB de Groq Whisper. La conversión en navegador (Web Audio API) falla porque Chrome no decodifica AAC crudo (ADTS).
-- **Fix (v1.0.3):** **FFmpeg.wasm** (`@ffmpeg/ffmpeg` + `@ffmpeg/core`) en `src/lib/audio-conversion.ts` → hook `useAudioConverter`. Convierte **cualquier formato** (raw `.aac`, `.amr`, `.3gp`, `.m4a`, `.mp4`, `.wav`, `.ogg`, `.webm`) a **MP3 64kbps** / Opus / WebM 100% en el navegador (WebAssembly, ~2MB carga on-demand). Integración en `upload/page.tsx`: botón **"Convertir y comprimir"** aparece en archivos con error → usuario click → FFmpeg convierte → archivo resultante < 4MB (pasa por split/compresión normal) → sube y procesa.
-- **Regla:** FFmpeg se carga lazy (solo si hay archivos que fallan). No añadir al bundle principal.
+### 3d. 🟢 Subida de audio largo/pesado (40min+ .aac) — ESTRATEGIA POR NIVELES (v1.0.4)
+- **Problemas del enfoque anterior:** (1) `splitAudioFile` troceaba reproduciendo en TIEMPO REAL → 40 min tardaban ~40 min. (2) FFmpeg cargaba el core desde `unpkg` pero la CSP `connect-src` no lo permitía → nunca cargaba en prod → `.aac` roto. (3) el core single-thread NO tiene `ffmpeg-core.worker.js` pero el código lo pedía.
+- **Fix — `upload/page.tsx` reescrito, 4 niveles** (cada chunk ≤24MB, subida directa a Storage vía signed URL, evita el límite 4.5MB de Vercel; menos llamadas Whisper = menos espera):
+  1. **≤24MB → subida entera** (1 llamada Whisper, sin procesar).
+  2. **`.aac` >24MB → `splitAdtsAac`** (`lib/audio-split.ts`): corta por frames ADTS SIN decodificar → instantáneo, ligero en memoria (mobile-safe).
+  3. **m4a/mp3/wav >24MB → `decodeToMono`+`chunkFloatToWav`** (`lib/audio-wav.ts`): OfflineAudioContext (más rápido que tiempo real) → WAV 16kHz mono (ideal para Whisper).
+  4. **Exótico → FFmpeg.wasm** self-hosteado en `public/ffmpeg/` (carga diferida ~31MB SOLO aquí) → mp3 → re-aplica niveles.
+- **FFmpeg arreglado:** `audio-conversion.ts` carga `/ffmpeg/*` same-origin sin `workerURL`; CSP en `next.config.js`: `script-src ... blob:` + `worker-src 'self' blob:`.
+- **Tests:** `audio-split.test.ts` (4) + `audio-wav.test.ts` (6). Requiere política de storage de migración `002`.
 
 ### 3. Race condition al subir segmentos (pérdida de segmentos)
 - **Causa:** `upload-segment` hace read-modify-write de `meetings.audio_segments`; subidas concurrentes se pisaban (last-write-wins) → segmentos perdidos.
@@ -436,4 +441,4 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
-*Última actualización: 2026-07-22 — **v1.0.3: FFmpeg.wasm + conversión .aac/otros**. Auditoría completa: build 21 rutas ✅, 26 tests ✅, typecheck ✅. Desplegado en `zrnote.vercel.app`. Fixes críticos previos (segmentos corruptos, XSS, race condition) confirmados en producción. Nueva feature: conversión on-demand de formatos no decodificables (raw .aac, .amr, .3gp, etc.) a MP3 64kbps vía FFmpeg.wasm en navegador, botón "Convertir y comprimir" en UI de subida. **Pendiente crítico**: ejecutar migración 018 en Supabase SQL Editor + validar emails reales (GMAIL_APP_PASSWORD en Vercel).*
+*Última actualización: 2026-07-23 — **v1.0.4: subida de audio por niveles (aac 40min+) + FFmpeg self-hosted + CSP**. Rediseño de la subida: 4 niveles (entero ≤24MB → ADTS split → decode+WAV 16kHz → FFmpeg) con subida directa a Storage vía signed URL. Corregidos 3 bugs que rompían audio largo: troceo en tiempo real, FFmpeg bloqueado por CSP, workerURL inexistente. FFmpeg self-hosteado en `public/ffmpeg/`. Nuevas libs puras testeadas: `audio-split.ts` + `audio-wav.ts`. Verificado: build ✅, typecheck ✅, 36 tests ✅. **Pendiente de validar por el usuario**: subir un `.aac` real de 40min desde el móvil + confirmar emails (GMAIL_APP_PASSWORD en Vercel). Migración 018 (RLS) ya aplicada en Supabase.*

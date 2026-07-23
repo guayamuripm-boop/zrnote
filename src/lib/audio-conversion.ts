@@ -19,7 +19,10 @@ export interface ConversionResult {
   compressionRatio: number;
 }
 
-const FFMPEG_BASE_URL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+// Self-hosted core (public/ffmpeg/*) — loading from a CDN is blocked by the app's
+// CSP connect-src, and the single-thread UMD core has NO worker file, so we load
+// only coreURL + wasmURL from the same origin. See next.config.js CSP (blob:).
+const FFMPEG_BASE_URL = '/ffmpeg';
 
 let ffmpegInstance: FFmpeg | null = null;
 let ffmpegLoadPromise: Promise<FFmpeg> | null = null;
@@ -30,7 +33,7 @@ async function loadFFmpeg(): Promise<FFmpeg> {
 
   ffmpegLoadPromise = (async () => {
     const ffmpeg = new FFmpeg();
-    
+
     ffmpeg.on('log', ({ message }) => {
       console.debug('[FFmpeg]', message);
     });
@@ -38,7 +41,6 @@ async function loadFFmpeg(): Promise<FFmpeg> {
     await ffmpeg.load({
       coreURL: await toBlobURL(`${FFMPEG_BASE_URL}/ffmpeg-core.js`, 'text/javascript'),
       wasmURL: await toBlobURL(`${FFMPEG_BASE_URL}/ffmpeg-core.wasm`, 'application/wasm'),
-      workerURL: await toBlobURL(`${FFMPEG_BASE_URL}/ffmpeg-core.worker.js`, 'text/javascript'),
     });
 
     ffmpegInstance = ffmpeg;
