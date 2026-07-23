@@ -35,6 +35,7 @@ export default function UploadAudioPage() {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   // FFmpeg.wasm — only used as a last-resort transcoder for exotic formats.
   const { convert, progress: convertProgress } = useAudioConverter();
@@ -201,10 +202,13 @@ export default function UploadAudioPage() {
     const allDone = updated.every((f) => f.status === 'done');
     if (allDone && updated.length > 0) {
       setProcessing(true);
+      setPipelineError(null);
       try {
         await fetch(`/api/meetings/${meetingId}/finalize`, { method: 'POST' });
 
         const processSteps = ['transcribe', 'analyze', 'vectorize', 'emails'];
+        let failure: string | null = null;
+
         for (const step of processSteps) {
           let more = false;
           do {
@@ -214,15 +218,36 @@ export default function UploadAudioPage() {
               body: JSON.stringify({ step }),
             });
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) break;
+            // A step that reports ok:false (or an HTTP error) is a real failure —
+            // stop and surface it instead of marching on to a false "completado".
+            if (!res.ok || data.ok === false) {
+              const label =
+                step === 'transcribe' ? 'transcribir el audio'
+                : step === 'analyze' ? 'generar la minuta'
+                : step === 'vectorize' ? 'indexar'
+                : 'enviar los correos';
+              failure = data.error ? `Error al ${label}: ${data.error}` : `Error al ${label}.`;
+              break;
+            }
             more = step === 'transcribe' ? data.more || false : false;
-            await new Promise((r) => setTimeout(r, 1000));
+            if (more) await new Promise((r) => setTimeout(r, 1500));
           } while (more);
+
+          // Emails failing should NOT block a successful minute — keep going.
+          if (failure && step !== 'emails') break;
+          if (failure && step === 'emails') failure = null;
+        }
+
+        if (failure) {
+          setProcessing(false);
+          setPipelineError(failure);
+          return;
         }
 
         router.push(`/dashboard/meetings/${meetingId}`);
-      } catch {
+      } catch (e: any) {
         setProcessing(false);
+        setPipelineError(e?.message || 'Error de conexión durante el procesamiento.');
       }
     }
   };
@@ -379,6 +404,19 @@ export default function UploadAudioPage() {
           <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="font-medium text-slate-900 dark:text-slate-100">Procesando audio y generando minuta…</p>
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Esto puede tomar unos minutos</p>
+        </div>
+      )}
+
+      {pipelineError && !processing && (
+        <div className="bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-2xl p-5">
+          <p className="text-sm font-semibold text-rose-700 dark:text-rose-300 mb-1">No se pudo completar el procesamiento</p>
+          <p className="text-xs text-rose-600 dark:text-rose-400 break-words">{pipelineError}</p>
+          <button
+            onClick={() => router.push(`/dashboard/meetings/${meetingId}`)}
+            className="mt-3 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            Ver la reunión de todos modos →
+          </button>
         </div>
       )}
     </div>

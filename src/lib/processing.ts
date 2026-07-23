@@ -62,7 +62,12 @@ async function transcribeSegment(
     return null;
   }
 
-  const ext = segment.r2_key.split('.').pop() || 'webm';
+  const rawExt = (segment.r2_key.split('.').pop() || 'webm').toLowerCase();
+  // Groq Whisper only accepts these extensions. Raw .aac is NOT in the list and
+  // is rejected with 400, so we relabel it to .m4a — Groq's ffmpeg backend
+  // probes the actual content and decodes the AAC regardless of the name.
+  const GROQ_EXTS = new Set(['flac', 'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'ogg', 'wav', 'webm']);
+  const ext = GROQ_EXTS.has(rawExt) ? rawExt : 'm4a';
 
   // Build global speaker hint from ALL segments
   let whisperPrompt = '';

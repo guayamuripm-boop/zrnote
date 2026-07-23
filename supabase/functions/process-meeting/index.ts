@@ -75,7 +75,10 @@ async function transcribeSegment(supabase: any, segment: any, groqKey: string, m
 
   if (downloadError || audioData.size < 10000) return null;
 
-  const ext = segment.r2_key.split('.').pop() || 'webm';
+  const rawExt = (segment.r2_key.split('.').pop() || 'webm').toLowerCase();
+  // Groq rejects .aac (not in its allowlist); relabel to .m4a so ffmpeg decodes it.
+  const GROQ_EXTS = new Set(['flac', 'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'ogg', 'wav', 'webm']);
+  const ext = GROQ_EXTS.has(rawExt) ? rawExt : 'm4a';
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     const formData = new FormData();

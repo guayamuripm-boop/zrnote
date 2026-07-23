@@ -180,6 +180,23 @@ export async function POST(
   if (step === 'emails') {
     const { sendMeetingEmails, markMeetingCompleted } = await import('@/lib/processing');
 
+    // Guard: never mark a meeting "completed" if no minute was ever generated.
+    // Otherwise a failed transcribe/analyze would silently end as a completed
+    // meeting with "Minuta no disponible" — a false success.
+    const { data: minute } = await supabase
+      .from('minutes')
+      .select('id')
+      .eq('meeting_id', meetingId)
+      .maybeSingle();
+
+    if (!minute) {
+      await supabase.from('meetings').update({ status: 'failed' }).eq('id', meetingId);
+      return NextResponse.json({
+        ok: false,
+        error: 'No hay minuta: la transcripción o el análisis no produjeron resultado. Revisa que el audio tenga voz audible.',
+      });
+    }
+
     let emailResult;
     try {
       emailResult = await sendMeetingEmails(meetingId);

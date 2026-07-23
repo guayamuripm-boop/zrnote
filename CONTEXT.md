@@ -34,6 +34,16 @@
 - **FFmpeg arreglado:** `audio-conversion.ts` carga `/ffmpeg/*` same-origin sin `workerURL`; CSP en `next.config.js`: `script-src ... blob:` + `worker-src 'self' blob:`.
 - **Tests:** `audio-split.test.ts` (4) + `audio-wav.test.ts` (6). Requiere política de storage de migración `002`.
 
+### 3e. 🔴 Groq Whisper NO acepta `.aac` + reunión "completado sin minuta" (v1.0.5)
+- **Síntoma:** subes un `.aac`, la reunión queda **`completado` pero "Minuta no disponible"**. No se ve error en consola.
+- **Causa 1 (raíz):** Groq Whisper solo acepta `flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm`. **`.aac` da HTTP 400.** → transcripción vacía.
+- **Causa 2:** el bucle del pipeline en `upload/page.tsx` solo miraba `res.ok` (HTTP), no `data.ok`; y el paso `emails` llamaba `markMeetingCompleted` SIN verificar que existiera minuta → falso "completado".
+- **Fix:**
+  - `processing.ts` + Edge Function `transcribeSegment`: reetiquetan `.aac`→`.m4a` al enviar a Groq (su ffmpeg detecta el contenido real). Set `GROQ_EXTS`.
+  - `process/route.ts` paso `emails`: si NO hay minuta → marca `failed` y devuelve `ok:false` (no completa en falso).
+  - `upload/page.tsx`: el bucle para en `data.ok===false` y **muestra el error real en la UI** (`pipelineError`). Emails que fallan NO bloquean una minuta buena.
+- **Además:** FFmpeg dejó de cargarse EAGER (quitado el `useEffect` en `useAudioConverter`) → abrir la página de subida ya NO descarga 31MB; solo carga si un formato exótico lo necesita.
+
 ### 3. Race condition al subir segmentos (pérdida de segmentos)
 - **Causa:** `upload-segment` hace read-modify-write de `meetings.audio_segments`; subidas concurrentes se pisaban (last-write-wins) → segmentos perdidos.
 - **Fix (cliente):** Las subidas se serializan en `RecordButton` (`uploadChainRef`) — una a la vez, en orden.
@@ -441,4 +451,4 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
-*Última actualización: 2026-07-23 — **v1.0.4: subida de audio por niveles (aac 40min+) + FFmpeg self-hosted + CSP**. Rediseño de la subida: 4 niveles (entero ≤24MB → ADTS split → decode+WAV 16kHz → FFmpeg) con subida directa a Storage vía signed URL. Corregidos 3 bugs que rompían audio largo: troceo en tiempo real, FFmpeg bloqueado por CSP, workerURL inexistente. FFmpeg self-hosteado en `public/ffmpeg/`. Nuevas libs puras testeadas: `audio-split.ts` + `audio-wav.ts`. Verificado: build ✅, typecheck ✅, 36 tests ✅. **Pendiente de validar por el usuario**: subir un `.aac` real de 40min desde el móvil + confirmar emails (GMAIL_APP_PASSWORD en Vercel). Migración 018 (RLS) ya aplicada en Supabase.*
+*Última actualización: 2026-07-23 (tarde) — **v1.0.5: fix Groq no acepta .aac + reunión "completado sin minuta"**. Groq Whisper rechaza `.aac` (400) → ahora se reetiqueta a `.m4a` en el servidor. El paso emails ya no marca "completado" sin minuta; el bucle de subida para y MUESTRA el error real. FFmpeg ya no carga eager (0 coste al abrir subida). Build ✅, tsc ✅, 36 tests ✅. Ver bug 3e arriba. — v1.0.4 previo: subida de audio por niveles (aac 40min+) + FFmpeg self-hosted + CSP**. Rediseño de la subida: 4 niveles (entero ≤24MB → ADTS split → decode+WAV 16kHz → FFmpeg) con subida directa a Storage vía signed URL. Corregidos 3 bugs que rompían audio largo: troceo en tiempo real, FFmpeg bloqueado por CSP, workerURL inexistente. FFmpeg self-hosteado en `public/ffmpeg/`. Nuevas libs puras testeadas: `audio-split.ts` + `audio-wav.ts`. Verificado: build ✅, typecheck ✅, 36 tests ✅. **Pendiente de validar por el usuario**: subir un `.aac` real de 40min desde el móvil + confirmar emails (GMAIL_APP_PASSWORD en Vercel). Migración 018 (RLS) ya aplicada en Supabase.*

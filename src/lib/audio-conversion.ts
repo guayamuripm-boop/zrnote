@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
@@ -56,19 +56,13 @@ export function useAudioConverter() {
   const [error, setError] = useState<string | null>(null);
   const ffmpegRef = useRef<FFmpeg | null>(null);
 
-  useEffect(() => {
-    loadFFmpeg().then((ffmpeg) => {
-      ffmpegRef.current = ffmpeg;
-    }).catch((e) => {
-      console.error('FFmpeg load failed:', e);
-      setError('No se pudo cargar el convertidor de audio');
-    });
-  }, []);
+  // FFmpeg (~31MB) is loaded LAZILY — only the first time convert() is actually
+  // called (exotic formats). Never on mount, so opening the upload page costs 0.
 
   const convert = useCallback(
     async (file: File, options: ConversionOptions): Promise<ConversionResult> => {
       if (!ffmpegRef.current) {
-        await loadFFmpeg();
+        ffmpegRef.current = await loadFFmpeg();
       }
       const ffmpeg = ffmpegRef.current!;
 
