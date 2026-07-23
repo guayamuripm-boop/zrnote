@@ -97,10 +97,16 @@ export default async function DashboardLayout({
             <span className="text-[10px] font-medium">Tareas</span>
           </Link>
           <Link href="/dashboard/profile" className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all">
-            <div className="w-6 h-6 gradient-primary rounded-full flex items-center justify-center">
+<div className="w-6 h-6 gradient-primary rounded-full flex items-center justify-center">
               <span className="text-white text-[8px] font-bold">{user?.email?.charAt(0).toUpperCase() || '?'}</span>
             </div>
           </Link>
+          {/* Version badge mobile */}
+          <div className="flex items-center justify-center px-2">
+            <span className="px-2 py-0.5 text-[9px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded">
+              v{VERSION}
+            </span>
+          </div>
         </div>
       </nav>
     </div>
