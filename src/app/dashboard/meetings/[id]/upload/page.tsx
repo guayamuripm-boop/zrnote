@@ -20,8 +20,35 @@ interface UploadedFile {
 
 // Groq Whisper accepts up to 25MB per file. We keep every chunk under 24MB and
 // upload it straight to Supabase Storage (signed URL), bypassing Vercel's 4.5MB
-// request-body cap. Fewer, larger chunks = fewer Whisper calls = less waiting.
+// request-body cap.
 const WHISPER_MAX = 24 * 1024 * 1024;
+
+// `/api/meetings/[id]/process` runs with a 60s server function limit. A cap on
+// BYTES alone (WHISPER_MAX) is not enough: a low-bitrate voice recording can
+// pack 20-40+ minutes into well under 24MB, and transcribing that much audio
+// in a single Whisper call risks blowing the 60s window (504 Gateway Timeout).
+// So every chunk is also capped by real DURATION, computed from the actual
+// sample rate — never guessed from file size or assumed bitrate.
+const TARGET_CHUNK_SEC = 180; // ~3 min: few round-trips, safely fast per call
+
+// Cheap, non-blocking duration probe via the <audio> element's metadata —
+// works for containers with duration info (mp4/m4a/mp3/wav/ogg) WITHOUT a
+// full decode. Returns null if it can't tell (e.g. raw ADTS aac has no
+// container duration — that case is handled by parsing ADTS frames instead).
+function probeDurationSec(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    const url = URL.createObjectURL(file);
+    const done = (v: number | null) => { URL.revokeObjectURL(url); resolve(v); };
+    const timer = setTimeout(() => done(null), 4000);
+    audio.onloadedmetadata = () => {
+      clearTimeout(timer);
+      done(Number.isFinite(audio.duration) ? audio.duration : null);
+    };
+    audio.onerror = () => { clearTimeout(timer); done(null); };
+    audio.src = url;
+  });
+}
 
 let idCounter = 0;
 const nextId = () => `f${Date.now()}_${idCounter++}`;
@@ -41,27 +68,31 @@ export default function UploadAudioPage() {
   const { convert, progress: convertProgress } = useAudioConverter();
 
   /**
-   * Turn one input file into a list of upload-ready chunks (each ≤24MB), using
-   * the cheapest strategy that works — decoding/transcoding only when forced to.
+   * Turn one input file into a list of upload-ready chunks, using the cheapest
+   * strategy that works. The decision to split is ALWAYS based on real audio
+   * DURATION (never file size alone) — see TARGET_CHUNK_SEC above for why.
    */
   const prepareChunks = useCallback(
     async (file: File): Promise<{ file: File; durationSec: number; note?: string }[]> => {
       const base = file.name.replace(/\.[^.]+$/, '');
 
-      // Tier 1 — small enough for a single Whisper call: upload whole, no work.
-      if (file.size <= WHISPER_MAX) return [{ file, durationSec: 0 }];
-
-      // Tier 2 — raw ADTS AAC (phone recorders): split by frame boundaries with
-      // NO decoding. Instant and memory-light, so it works on mobile.
+      // Path A — raw ADTS AAC (phone recorders, the format Chrome can't decode).
+      // Parse frame-by-frame (cheap, synchronous, no decode) to get the exact
+      // duration from the real sample rate, then decide whether to split.
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const adts = splitAdtsAac(bytes, WHISPER_MAX);
-        if (adts) {
+        const wholeParse = splitAdtsAac(bytes, { maxBytes: Infinity, maxDurationSec: Infinity });
+        if (wholeParse) {
+          const totalDurationSec = wholeParse.reduce((a, c) => a + c.durationSec, 0);
+          if (totalDurationSec <= TARGET_CHUNK_SEC && file.size <= WHISPER_MAX) {
+            return [{ file, durationSec: totalDurationSec }];
+          }
+          const adts = splitAdtsAac(bytes, { maxBytes: WHISPER_MAX, maxDurationSec: TARGET_CHUNK_SEC })!;
           return adts.map((c, i) => ({
-            // Copy the subarray into a fresh ArrayBuffer-backed view (also lets the
-            // original file buffer be freed) — File wants a BufferSource.
+            // Copy into a fresh ArrayBuffer-backed view — File wants a BufferSource,
+            // and this also lets the original file's buffer be garbage-collected.
             file: new File([new Uint8Array(c.bytes)], `${base}_part${i + 1}.aac`, { type: 'audio/aac' }),
-            durationSec: 0,
+            durationSec: c.durationSec,
             note: `parte ${i + 1}/${adts.length}`,
           }));
         }
@@ -69,23 +100,38 @@ export default function UploadAudioPage() {
         /* fall through */
       }
 
-      // Tier 3 — decodable (m4a/mp3/wav/ogg/webm): decode once + write 16kHz mono
-      // WAV chunks. OfflineAudioContext renders faster than real time (instant).
+      // Path B — decodable containers (m4a/mp3/wav/ogg/webm). Cheap metadata
+      // probe first (no decode); only decode+re-encode if we must split.
+      const probed = await probeDurationSec(file);
+      if (probed !== null && probed <= TARGET_CHUNK_SEC && file.size <= WHISPER_MAX) {
+        return [{ file, durationSec: probed }];
+      }
+
       try {
         const { data, sampleRate } = await decodeToMono(file);
-        const blobs = chunkFloatToWav(data, sampleRate, WHISPER_MAX);
-        const perChunk = Math.round(data.length / sampleRate / blobs.length);
+        const totalDurationSec = data.length / sampleRate;
+        if (totalDurationSec <= TARGET_CHUNK_SEC && file.size <= WHISPER_MAX) {
+          return [{ file, durationSec: totalDurationSec }];
+        }
+        // OfflineAudioContext renders faster than real time, so re-encoding to
+        // duration-capped 16kHz mono WAV chunks here is effectively instant.
+        const maxBytesForTarget = Math.min(WHISPER_MAX, TARGET_CHUNK_SEC * sampleRate * 2);
+        const blobs = chunkFloatToWav(data, sampleRate, maxBytesForTarget);
         return blobs.map((b, i) => ({
           file: new File([b], `${base}_part${i + 1}.wav`, { type: 'audio/wav' }),
-          durationSec: perChunk,
+          durationSec: Math.min(TARGET_CHUNK_SEC, totalDurationSec - i * TARGET_CHUNK_SEC),
           note: blobs.length > 1 ? `parte ${i + 1}/${blobs.length}` : undefined,
         }));
       } catch {
         /* fall through */
       }
 
-      // Tier 4 — exotic/undecodable (amr, weird 3gp): transcode to mp3 with
-      // FFmpeg.wasm, then re-run the tiers on the result (mp3 is always decodable).
+      // Path C — exotic/undecodable (amr, weird 3gp) that's also small enough
+      // to upload as-is: no duration info available, but nothing else to do.
+      if (file.size <= WHISPER_MAX) return [{ file, durationSec: 0 }];
+
+      // Path D — too big AND undecodable: transcode to mp3 with FFmpeg.wasm,
+      // then re-run this same logic on the (now decodable) result.
       const converted = await convert(file, { targetFormat: 'mp3', bitrateKbps: 64 });
       const chunks = await prepareChunks(converted.file);
       return chunks.map((c) => ({ ...c, note: c.note ? `${c.note} · convertido` : 'convertido' }));

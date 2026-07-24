@@ -171,7 +171,22 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   const segErrors: string[] = [];
   let processed = 0;
 
+  // Defense in depth: this function runs inside a server function capped at
+  // 60s (see vercel.json). The upload page now caps each segment's DURATION
+  // client-side so a single Whisper call stays fast, but this guard protects
+  // any other path that produces segments (e.g. the recovery Edge Function) —
+  // stop starting new mini-batches once we're within the danger zone, and let
+  // `more: true` hand the rest to the next /process call (already-polled by
+  // every caller of this pipeline).
+  const startedAt = Date.now();
+  const TIME_BUDGET_MS = 40_000; // leaves ~20s margin under the 60s hard cap
+
   for (let i = 0; i < batch.length; i += BATCH_SIZE) {
+    if (i > 0 && Date.now() - startedAt > TIME_BUDGET_MS) {
+      logger.warn('Transcription batch stopping early: time budget reached', { meetingId, processedSoFar: processed, remaining: batch.length - i });
+      break;
+    }
+
     const miniBatch = batch.slice(i, i + BATCH_SIZE);
 
     const results = await Promise.allSettled(

@@ -457,6 +457,16 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
+## 🔴 504 Gateway Timeout al transcribir — chunks por BYTES, no por DURACIÓN (v1.2.2)
+- **Síntoma:** tras el fix del candado de 10 min, "Reintentar" avanzaba a "Transcribiendo..." pero terminaba en `POST /process` → `504 (Gateway Timeout)`.
+- **Causa raíz:** la subida por niveles (v1.0.4) topaba los trozos en **24MB** (límite de Whisper), pero un `.aac` de voz de baja tasa de bits puede meter **20-40+ minutos** en 24MB — incluso por debajo (el caso real: 18.1MB → Tier 1 "subir entero", SIN protección de duración). Un solo trozo así de largo excede los **60s** que Vercel permite por llamada a `/process` → 504.
+- **Fix — la subida ahora decide SIEMPRE por duración real, nunca por tamaño de archivo:**
+  - **AAC crudo (ADTS)**: se parsea el header para sacar la frecuencia de muestreo real y calcular la duración exacta (sin decodificar) → si excede `TARGET_CHUNK_SEC=180s`, se divide por duración, no por bytes. `splitAdtsAac()` ahora acepta `{ maxBytes, maxDurationSec }`.
+  - **Formatos decodificables** (m4a/mp3/wav/ogg/webm): sondeo barato de duración vía `<audio>` metadata (sin decodificar) antes de decidir; si hace falta trocear, cada trozo WAV se limita a 180s reales (`TARGET_CHUNK_SEC * sampleRate * 2` bytes), no a 24MB.
+  - **Defensa extra en el servidor**: `transcribeMeeting` ahora tiene un presupuesto de tiempo (40s) — si se acerca al límite de 60s de la función, para de agregar más mini-lotes y deja que el mecanismo existente de `more:true` (sondeo desde el frontend) continúe en la siguiente llamada, con presupuesto de tiempo fresco.
+- **Tests:** `audio-split.test.ts` ampliado a 7 casos, incluyendo el escenario real (audio de baja tasa de bits que antes generaba un solo trozo de varios minutos).
+- **Nota:** el mismo fix NO se aplicó a la Edge Function de recuperación (no tiene límite de 60s y no se despliega automáticamente).
+
 ## 🔴 CANDADO DE 10 MIN EN "REINTENTAR" — REUNIONES ATASCADAS SIN SALIDA (v1.2.1)
 - **Síntoma:** reunión queda en `procesando` para siempre (p.ej. si cierras la app o pierdes conexión a mitad del pipeline). Al pulsar "Reintentar" sale: `Error al reiniciar: La reunión ya se está procesando` — y sigue igual sin importar cuántas veces lo intentes en los primeros minutos.
 - **Causa:** `finalize/route.ts` tenía `STALE_PROCESSING_MS = 10 * 60 * 1000` — un candado anti-doble-click pensado para evitar llamadas duplicadas, pero cualquier interrupción real (pestaña cerrada, red caída, app en segundo plano) dejaba la reunión en `processing` sin que nada la moviera, y el usuario no podía forzar un reintento manual hasta pasados 10 minutos completos, sin ninguna pista de cuánto faltaba.
