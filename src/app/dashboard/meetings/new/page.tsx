@@ -18,12 +18,14 @@ export default function NewMeetingPage() {
   const [emailInput, setEmailInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [quickLoading, setQuickLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   // Quick record: create a meeting instantly with an auto title and jump straight
   // to recording — no form. The scheduled flow (below) stays for planned meetings.
   const handleQuickRecord = async () => {
     setQuickLoading(true);
+    setError(null);
     const now = new Date();
     const autoTitle = `Grabación ${now.toLocaleDateString('es', { day: 'numeric', month: 'short' })} ${now.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}`;
     const response = await fetch('/api/meetings', {
@@ -37,7 +39,7 @@ export default function NewMeetingPage() {
     } else {
       const err = await response.json().catch(() => ({}));
       setQuickLoading(false);
-      alert('Error al iniciar grabación: ' + (err.error || 'desconocido'));
+      setError('Error al iniciar grabación: ' + (err.error || 'desconocido'));
     }
   };
 
@@ -58,6 +60,7 @@ export default function NewMeetingPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
 
     const response = await fetch('/api/meetings', {
       method: 'POST',
@@ -69,9 +72,9 @@ export default function NewMeetingPage() {
       const { id } = await response.json();
       router.push(`/dashboard/meetings/${id}`);
     } else {
-      const err = await response.json();
+      const err = await response.json().catch(() => ({}));
       setLoading(false);
-      alert('Error al crear reunión: ' + (err.error || 'desconocido'));
+      setError('Error al crear reunión: ' + (err.error || 'desconocido'));
     }
   };
 
@@ -86,6 +89,12 @@ export default function NewMeetingPage() {
         </Link>
         <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Nueva Reunión</h1>
       </div>
+
+      {error && (
+        <div className="bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-2xl p-4">
+          <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>
+        </div>
+      )}
 
       {/* Quick record — one tap, start recording now */}
       <button

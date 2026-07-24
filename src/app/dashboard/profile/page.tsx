@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
+import DeleteAccountSection from '@/components/DeleteAccountSection';
 
 export default async function ProfilePage() {
   const supabase = createServerSupabase();
@@ -25,26 +26,12 @@ export default async function ProfilePage() {
           </div>
           <div className="min-w-0">
             <p className="text-lg font-semibold text-slate-900 dark:text-slate-100 truncate">{user?.email}</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Cuenta activa</p>
-          </div>
-        </div>
-
-        <div className="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
-            <span className="text-sm text-slate-500 dark:text-slate-400 w-32 shrink-0">Email</span>
-            <span className="text-sm text-slate-900 dark:text-slate-100 font-medium break-all">{user?.email}</span>
-          </div>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
-            <span className="text-sm text-slate-500 dark:text-slate-400 w-32 shrink-0">Miembro desde</span>
-            <span className="text-sm text-slate-900 dark:text-slate-100 font-medium">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Miembro desde{' '}
               {user?.created_at
                 ? new Date(user.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
                 : '—'}
-            </span>
-          </div>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
-            <span className="text-sm text-slate-500 dark:text-slate-400 w-32 shrink-0">ID de usuario</span>
-            <span className="text-sm text-slate-600 dark:text-slate-300 font-mono break-all">{user?.id}</span>
+            </p>
           </div>
         </div>
 
@@ -62,6 +49,8 @@ export default async function ProfilePage() {
             </button>
           </form>
         </div>
+
+        <DeleteAccountSection />
       </div>
     </div>
   );

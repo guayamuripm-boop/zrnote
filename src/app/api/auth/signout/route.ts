@@ -1,11 +1,15 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
-export async function GET() {
+// Redirect relative to the ACTUAL incoming request origin — never build the
+// target from NEXT_PUBLIC_APP_URL, which can drift from the real deployment
+// domain (preview URLs, trailing slash, domain changes) and send the user to
+// a dead page after logout.
+async function handleSignOut(request: Request) {
   const supabase = createServerSupabase();
   await supabase.auth.signOut();
 
-  const response = NextResponse.redirect(new URL('/login', process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app'), { status: 303 });
+  const response = NextResponse.redirect(new URL('/login', request.url), { status: 303 });
   response.cookies.set('sb-auth-token', '', { maxAge: 0, path: '/' });
   response.cookies.set('sb-access-token', '', { maxAge: 0, path: '/' });
   response.cookies.set('sb-refresh-token', '', { maxAge: 0, path: '/' });
@@ -13,14 +17,10 @@ export async function GET() {
   return response;
 }
 
-export async function POST() {
-  const supabase = createServerSupabase();
-  await supabase.auth.signOut();
+export async function GET(request: Request) {
+  return handleSignOut(request);
+}
 
-  const response = NextResponse.redirect(new URL('/login', process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app'), { status: 303 });
-  response.cookies.set('sb-auth-token', '', { maxAge: 0, path: '/' });
-  response.cookies.set('sb-access-token', '', { maxAge: 0, path: '/' });
-  response.cookies.set('sb-refresh-token', '', { maxAge: 0, path: '/' });
-
-  return response;
+export async function POST(request: Request) {
+  return handleSignOut(request);
 }

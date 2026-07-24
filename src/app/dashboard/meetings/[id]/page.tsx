@@ -7,6 +7,7 @@ import RetryButton from '@/components/RetryButton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import ShareWhatsApp from '@/components/ShareWhatsApp';
+import ActionItemStatus from '@/components/ActionItemStatus';
 
 export default async function MeetingDetailPage({
   params,
@@ -93,7 +94,8 @@ export default async function MeetingDetailPage({
                 <span className="ml-auto flex items-center gap-2">
                   <ShareWhatsApp
                     title={meeting.title}
-                    summary={minute.summary}
+                    date={meeting.created_at}
+                    minute={minute}
                     actionItems={(actionItems as any[]) || []}
                   />
                   <a
@@ -114,26 +116,66 @@ export default async function MeetingDetailPage({
             </div>
           </section>
 
-          {minute.discussion && (minute.discussion as any[]).length > 0 && (
-            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+          {/* Action Items — the most important part of the minute, promoted right
+              after the summary. Creator can toggle status here too (not just
+              from "Mis Tareas"), matching the API's authorization. */}
+          {actionItems && actionItems.length > 0 && (
+            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated ring-1 ring-blue-200/50 dark:ring-blue-800/30">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4 flex items-center gap-2">
                 <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
                   <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
                 </div>
-                Temas Discutidos
+                Compromisos
+                <span className="text-sm font-normal text-slate-400 dark:text-slate-500">({actionItems.length})</span>
               </h2>
-              <div className="space-y-4">
-                {(minute.discussion as any[]).map((d, i) => (
-                  <div key={i} className="border-l-4 border-blue-400 pl-4 py-1">
-                    <h3 className="font-semibold text-slate-900 dark:text-slate-100">{d.topic}</h3>
-                    {d.speaker && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Liderado por: {d.speaker}</p>}
-                    <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap leading-relaxed">{d.details}</p>
+              <div className="space-y-3">
+                {actionItems.map((item) => (
+                  <div key={item.id} className="glass rounded-xl p-4 hover:shadow-elevated transition-all">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-medium text-slate-900 dark:text-slate-100 ${item.status === 'completado' ? 'line-through opacity-60' : ''}`}>
+                          {item.description}
+                        </p>
+                        <div className="flex items-center gap-3 mt-2 flex-wrap">
+                          <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                            {item.assignee_name || 'Sin asignar'}
+                          </span>
+                          {item.due_date && (
+                            <span className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                              {new Date(item.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <PriorityBadge priority={item.priority} />
+                        <ActionItemStatus itemId={item.id} initialStatus={item.status} />
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
             </section>
+          )}
+
+          {(!actionItems || actionItems.length === 0) && meeting.status === 'completed' && (
+            <div className="glass-strong rounded-2xl p-6 text-center">
+              <p className="text-slate-500 dark:text-slate-400 text-sm">No se generaron action items para esta reunión.</p>
+              <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">El LLM no detectó compromisos específicos en la transcripción.</p>
+            </div>
+          )}
+
+          {/* Assign Action Items - show whenever there are unassigned items and participants */}
+          {actionItems && actionItems.length > 0 && participants.length > 0 && (
+            <AssignActionItems meetingId={meeting.id} actionItems={actionItems} participants={participants} />
           )}
 
           {minute.decisions && (minute.decisions as string[]).length > 0 && (
@@ -161,30 +203,6 @@ export default async function MeetingDetailPage({
             </section>
           )}
 
-          {minute.project_statuses && (minute.project_statuses as any[]).length > 0 && (
-            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
-                <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                </div>
-                Estados de Proyectos
-              </h2>
-              <div className="space-y-3">
-                {(minute.project_statuses as any[]).map((p, i) => (
-                  <div key={i} className="glass rounded-xl p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">{p.project}</h3>
-                      <span className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full text-xs font-medium">{p.status}</span>
-                    </div>
-                    <p className="text-sm text-slate-600 dark:text-slate-300">{p.details}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
           {minute.blockers && (minute.blockers as any[]).length > 0 && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
@@ -207,54 +225,89 @@ export default async function MeetingDetailPage({
             </section>
           )}
 
-          {minute.ideas && (minute.ideas as string[]).length > 0 && (
-            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
-                <div className="w-8 h-8 bg-blue-300 dark:bg-blue-600 rounded-lg flex items-center justify-center">
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                </div>
-                Ideas / Brainstorming
+          {/* Secondary detail — de-emphasized (lighter header, no big icon box)
+              to cut visual noise, since these are background info, not action. */}
+          {((minute.discussion && (minute.discussion as any[]).length > 0) ||
+            (minute.project_statuses && (minute.project_statuses as any[]).length > 0) ||
+            (minute.ideas && (minute.ideas as string[]).length > 0) ||
+            (minute.next_steps && (minute.next_steps as string[]).length > 0)) && (
+            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated space-y-5">
+              <h2 className="text-sm font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                Más detalle
               </h2>
-              <ul className="space-y-2">
-                {(minute.ideas as string[]).map((idea, i) => (
-                  <li key={i} className="flex items-start gap-2 text-slate-600 dark:text-slate-300 text-sm">
-                    <svg className="w-4 h-4 text-blue-400 mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                    </svg>
-                    {idea}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
 
-          {minute.next_steps && (minute.next_steps as string[]).length > 0 && (
-            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
-                <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
+              {minute.project_statuses && (minute.project_statuses as any[]).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="text-base">📊</span> Estado de proyectos
+                  </h3>
+                  <div className="space-y-2">
+                    {(minute.project_statuses as any[]).map((p, i) => (
+                      <div key={i} className="border-l-2 border-blue-300 dark:border-blue-700 pl-3 py-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm text-slate-800 dark:text-slate-200">{p.project}</span>
+                          <span className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full text-xs">{p.status}</span>
+                        </div>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">{p.details}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                Próximos Pasos
-              </h2>
-              <ul className="space-y-2">
-                {(minute.next_steps as string[]).map((n, i) => (
-                  <li key={i} className="flex items-start gap-2 text-slate-600 dark:text-slate-300 text-sm">
-                    <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-400">{i + 1}</span>
-                    {n}
-                  </li>
-                ))}
-              </ul>
+              )}
+
+              {minute.next_steps && (minute.next_steps as string[]).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="text-base">➡️</span> Próximos pasos
+                  </h3>
+                  <ul className="space-y-1.5">
+                    {(minute.next_steps as string[]).map((n, i) => (
+                      <li key={i} className="text-sm text-slate-600 dark:text-slate-300 pl-4 relative before:content-['·'] before:absolute before:left-0 before:text-slate-300 dark:before:text-slate-600">
+                        {n}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {minute.discussion && (minute.discussion as any[]).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="text-base">💬</span> Temas discutidos
+                  </h3>
+                  <div className="space-y-3">
+                    {(minute.discussion as any[]).map((d, i) => (
+                      <div key={i} className="border-l-2 border-slate-200 dark:border-slate-700 pl-3">
+                        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{d.topic}</p>
+                        {d.speaker && <p className="text-xs text-slate-400 dark:text-slate-500">{d.speaker}</p>}
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 whitespace-pre-wrap">{d.details}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {minute.ideas && (minute.ideas as string[]).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="text-base">💡</span> Ideas
+                  </h3>
+                  <ul className="space-y-1.5">
+                    {(minute.ideas as string[]).map((idea, i) => (
+                      <li key={i} className="text-sm text-slate-500 dark:text-slate-400 pl-4 relative before:content-['·'] before:absolute before:left-0 before:text-slate-300 dark:before:text-slate-600">
+                        {idea}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </section>
           )}
 
           {meeting.transcript_raw && (
             <details className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <summary className="text-lg font-semibold text-slate-900 dark:text-slate-100 cursor-pointer select-none flex items-center gap-2">
-                <svg className="w-5 h-5 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <summary className="text-sm font-medium text-slate-500 dark:text-slate-400 cursor-pointer select-none flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
                 Transcripción completa
@@ -262,92 +315,23 @@ export default async function MeetingDetailPage({
               <pre className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap mt-4 glass rounded-xl p-4">{meeting.transcript_raw}</pre>
             </details>
           )}
-        </>
-      )}
 
-      {/* Action Items */}
-      {actionItems && actionItems.length > 0 && (
-        <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4 flex items-center gap-2">
-            <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
-            </div>
-            Responsabilidades
-          </h2>
-          <div className="space-y-3">
-            {actionItems.map((item) => (
-              <div key={item.id} className="glass rounded-xl p-4 hover:shadow-elevated transition-all">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-900 dark:text-slate-100">{item.description}</p>
-                    <div className="flex items-center gap-3 mt-2">
-                      <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
-                        {item.assignee_name || 'Sin asignar'}
-                      </span>
-                      {item.due_date && (
-                        <span className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          {new Date(item.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <PriorityBadge priority={item.priority} />
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                      item.status === 'completado' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                      : item.status === 'en_progreso' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                      : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
-                    }`}>
-                      {item.status === 'completado' ? 'completado' : item.status === 'en_progreso' ? 'en progreso' : 'pendiente'}
-                    </span>
-                  </div>
-                </div>
+          {/* Participants */}
+          {meeting.status === 'completed' && participants.length > 0 && (
+            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+              <h2 className="text-sm font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-3">Participantes</h2>
+              <div className="flex flex-wrap gap-2">
+                {participants.map((p) => (
+                  <span key={p.email} className="glass rounded-full px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300">
+                    {p.name}
+                    <span className="text-slate-400 dark:text-slate-500 mx-1">·</span>
+                    <span className="text-slate-400 dark:text-slate-500 text-xs">{p.email}</span>
+                  </span>
+                ))}
               </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* No action items message */}
-      {(!actionItems || actionItems.length === 0) && minute && meeting.status === 'completed' && (
-        <div className="glass-strong rounded-2xl p-6 text-center">
-          <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-3">
-            <svg className="w-6 h-6 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
-          </div>
-          <p className="text-slate-500 dark:text-slate-400 text-sm">No se generaron action items para esta reunión</p>
-          <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">El LLM no detectó compromisos específicos en la transcripción</p>
-        </div>
-      )}
-
-      {/* Assign Action Items - show whenever there are unassigned items and participants */}
-      {actionItems && actionItems.length > 0 && participants.length > 0 && (
-        <AssignActionItems meetingId={meeting.id} actionItems={actionItems} participants={participants} />
-      )}
-
-      {/* Participants */}
-      {meeting.status === 'completed' && participants.length > 0 && (
-        <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Participantes</h2>
-          <div className="flex flex-wrap gap-2">
-            {participants.map((p) => (
-              <span key={p.email} className="glass rounded-full px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300">
-                {p.name}
-                <span className="text-slate-400 dark:text-slate-500 mx-1">·</span>
-                <span className="text-slate-400 dark:text-slate-500 text-xs">{p.email}</span>
-              </span>
-            ))}
-          </div>
-        </section>
+            </section>
+          )}
+        </>
       )}
 
       {/* Processing State — recovery in case the worker died without updating status */}

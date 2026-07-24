@@ -1,11 +1,28 @@
 import { createServerSupabase } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardHome() {
   const supabase = createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
+  const email = user?.email || '';
+
+  // Action items are assigned by name/email by the LLM, not by user_id, and RLS
+  // only exposes assignee_user_id = me rows. Same fix as "Mis Tareas": read via
+  // the service client, scoped strictly to this user's id/email, so the count
+  // here matches what "Mis Tareas" actually shows.
+  const admin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
+  );
+  const orFilter = [
+    user?.id ? `assignee_user_id.eq.${user.id}` : null,
+    email ? `assignee_email.ilike.${email}` : null,
+  ].filter(Boolean).join(',');
 
   const [meetingsResult, actionItemsResult] = await Promise.all([
     supabase
@@ -14,16 +31,19 @@ export default async function DashboardHome() {
       .eq('created_by', user?.id)
       .order('created_at', { ascending: false })
       .limit(10),
-    supabase
-      .from('action_items')
-      .select('id, description, priority, due_date, status')
-      .eq('assignee_user_id', user?.id)
-      .eq('status', 'pendiente')
-      .order('created_at', { ascending: false }),
+    orFilter
+      ? admin
+          .from('action_items')
+          .select('id, description, priority, due_date, status')
+          .or(orFilter)
+          .neq('status', 'completado')
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] as any[] }),
   ]);
 
   const meetings = meetingsResult.data || [];
-  const actionItems = actionItemsResult.data || [];
+  const actionItems = (actionItemsResult.data || []).slice(0, 5);
+  const pendingCount = actionItemsResult.data?.length || 0;
 
   return (
     <div className="space-y-8">
@@ -61,7 +81,7 @@ export default async function DashboardHome() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{actionItems.length}</p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{pendingCount}</p>
           <p className="text-xs text-slate-500 dark:text-slate-400">Tareas pendientes</p>
         </div>
         <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">

@@ -457,4 +457,31 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
+## ⚠️ FASE 1 + PASADA UX/UI COMPLETA (v1.1.0 → v1.2.0, 2026-07-23/24)
+
+### Backend / Fase 1
+- **Minuta híbrida Gemini/Groq**: si hay `GEMINI_API_KEY` usa Gemini 2.0 Flash (contexto 1M, sin truncar reuniones largas); si no, cae a Groq/Llama con el budget dinámico de tokens. No rompe si falta la key.
+- **Estados de action items**: `PATCH /api/action-items/[id]` (creador o responsable por email), componente `ActionItemStatus` (pendiente → en progreso → completado).
+- **Recordatorios**: `lib/reminders.ts`, enganchado al cron de retención diario (Hobby = máx 2 crons), avisa al responsable el día antes del vencimiento.
+- **Google Calendar por tarea**: link en el email personal para cada action item con fecha.
+- **Diagnóstico de email**: `GET /api/health/email` verifica SMTP sin enviar nada.
+
+### Bugs de UX corregidos
+- **404 al cerrar sesión**: `signout/route.ts` construía la URL de redirect con `NEXT_PUBLIC_APP_URL` (podía no coincidir con el dominio real) → ahora usa `new URL('/login', request.url)`, el origen real de la petición.
+- **404 al borrar reunión**: `DeleteMeetingButton` hacía `router.refresh()` en la misma URL de detalle (que ya no existe) → ahora `router.push('/dashboard/meetings')`.
+- **404 global feo**: no existía `src/app/not-found.tsx` → Next mostraba su 404 genérico. Ahora hay uno de marca con botones a Dashboard/Login.
+- **Conteo de "tareas pendientes" inconsistente**: dashboard home contaba solo por `assignee_user_id` (casi siempre vacío, la IA asigna por email); "Mis Tareas" ya incluía email. Unificado.
+- **`confirm()`/`alert()` nativos** reemplazados por `ConfirmDialog` y banners en línea (Delete, Retry, Nueva Reunión) — más coherente visualmente.
+- **Cuenta RGPD sin UI**: el endpoint `POST /api/user/delete` existía pero no tenía botón → añadido en Perfil (`DeleteAccountSection`, con contraseña de confirmación).
+
+### UX de la vista de reunión (reordenada)
+- **Action Items (ahora "Compromisos") promovidos** justo debajo del resumen — antes estaban casi al final, después de la transcripción. Ahora tienen el toggle de estado también desde aquí (no solo desde "Mis Tareas").
+- Decisiones y Bloqueos mantienen su peso visual fuerte (son críticos).
+- Discusión / Estados de proyecto / Ideas / Próximos pasos se agruparon en una sola sección "Más detalle" con estilo más ligero (sin caja-icono repetida) — menos sobrecarga visual.
+- **WhatsApp ahora comparte la minuta COMPLETA** (resumen, decisiones, bloqueos, compromisos con prioridad/fecha/responsable, próximos pasos) con emojis, no solo el resumen. Ver `ShareWhatsApp.tsx`.
+
+Verificado: build ✅, tsc ✅, 36 tests ✅. **Pendiente de validar por el usuario**: Redeploy en Vercel tras añadir `GEMINI_API_KEY`; recordatorios reales (depende de Gmail, ya confirmado SMTP OK).
+
+---
+
 *Última actualización: 2026-07-23 (tarde) — **v1.0.5: fix Groq no acepta .aac + reunión "completado sin minuta"**. Groq Whisper rechaza `.aac` (400) → ahora se reetiqueta a `.m4a` en el servidor. El paso emails ya no marca "completado" sin minuta; el bucle de subida para y MUESTRA el error real. FFmpeg ya no carga eager (0 coste al abrir subida). Build ✅, tsc ✅, 36 tests ✅. Ver bug 3e arriba. — v1.0.4 previo: subida de audio por niveles (aac 40min+) + FFmpeg self-hosted + CSP**. Rediseño de la subida: 4 niveles (entero ≤24MB → ADTS split → decode+WAV 16kHz → FFmpeg) con subida directa a Storage vía signed URL. Corregidos 3 bugs que rompían audio largo: troceo en tiempo real, FFmpeg bloqueado por CSP, workerURL inexistente. FFmpeg self-hosteado en `public/ffmpeg/`. Nuevas libs puras testeadas: `audio-split.ts` + `audio-wav.ts`. Verificado: build ✅, typecheck ✅, 36 tests ✅. **Pendiente de validar por el usuario**: subir un `.aac` real de 40min desde el móvil + confirmar emails (GMAIL_APP_PASSWORD en Vercel). Migración 018 (RLS) ya aplicada en Supabase.*
