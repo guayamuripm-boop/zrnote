@@ -17,7 +17,29 @@ export default function NewMeetingPage() {
   const [nameInput, setNameInput] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [quickLoading, setQuickLoading] = useState(false);
   const router = useRouter();
+
+  // Quick record: create a meeting instantly with an auto title and jump straight
+  // to recording — no form. The scheduled flow (below) stays for planned meetings.
+  const handleQuickRecord = async () => {
+    setQuickLoading(true);
+    const now = new Date();
+    const autoTitle = `Grabación ${now.toLocaleDateString('es', { day: 'numeric', month: 'short' })} ${now.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}`;
+    const response = await fetch('/api/meetings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: autoTitle, coordination: '', type: 'presencial', participants: [] }),
+    });
+    if (response.ok) {
+      const { id } = await response.json();
+      router.push(`/dashboard/meetings/${id}/record`);
+    } else {
+      const err = await response.json().catch(() => ({}));
+      setQuickLoading(false);
+      alert('Error al iniciar grabación: ' + (err.error || 'desconocido'));
+    }
+  };
 
   const addParticipant = () => {
     const name = nameInput.trim();
@@ -63,6 +85,42 @@ export default function NewMeetingPage() {
           Reuniones
         </Link>
         <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Nueva Reunión</h1>
+      </div>
+
+      {/* Quick record — one tap, start recording now */}
+      <button
+        type="button"
+        onClick={handleQuickRecord}
+        disabled={quickLoading}
+        className="w-full glass-strong rounded-2xl p-5 flex items-center gap-4 text-left hover:shadow-elevated transition-all duration-300 border border-transparent hover:border-blue-400/40 disabled:opacity-60"
+      >
+        <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center shrink-0">
+          {quickLoading ? (
+            <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : (
+            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+            </svg>
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="font-semibold text-slate-900 dark:text-slate-100">
+            {quickLoading ? 'Preparando…' : 'Grabar ahora'}
+          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Empieza a grabar al instante. Podrás añadir participantes después.
+          </p>
+        </div>
+      </button>
+
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+        <span className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider">o programa una reunión</span>
+        <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
