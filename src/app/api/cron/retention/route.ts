@@ -102,11 +102,23 @@ export async function GET() {
     }
   }
 
+  // Daily action-item reminders (piggybacked here — Vercel Hobby allows only 2
+  // cron jobs, so we don't add a third). Never let a reminder failure break
+  // retention.
+  let reminders = { sent: 0, failed: 0 } as { sent: number; failed: number; skipped?: string };
+  try {
+    const { sendDueReminders } = await import('@/lib/reminders');
+    reminders = await sendDueReminders();
+  } catch (err: any) {
+    reminders = { sent: 0, failed: 0, skipped: err?.message || 'reminders crashed' };
+  }
+
   return NextResponse.json({
     ok: true,
     deletedAudioFiles: deletedFiles,
     clearedSegments: deletedSegments,
     archivedMeetings: archivedMeetings?.length || 0,
+    reminders,
     errors: archiveError ? [archiveError.message] : [],
   });
 }

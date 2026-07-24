@@ -6,6 +6,7 @@ import DeleteMeetingButton from '@/components/DeleteMeetingButton';
 import RetryButton from '@/components/RetryButton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
+import ShareWhatsApp from '@/components/ShareWhatsApp';
 
 export default async function MeetingDetailPage({
   params,
@@ -33,16 +34,6 @@ export default async function MeetingDetailPage({
   const minute = minuteResult.data;
   const actionItems = actionItemsResult.data;
   const participantsRaw = participantsResult.data;
-
-  // Debug: log data issues
-  console.log('Meeting detail debug:', {
-    meetingId: params.id,
-    meetingStatus: meeting?.status,
-    hasMinute: !!minute,
-    actionItemsCount: actionItems?.length || 0,
-    actionItemsError: actionItemsResult.error?.message,
-    participantsCount: participantsRaw?.length || 0,
-  });
 
   const participants = (participantsRaw || []).map((p: any) => ({
     name: p.name || p.email_override?.split('@')[0] || 'Participante',
@@ -99,15 +90,22 @@ export default async function MeetingDetailPage({
               </div>
               Minuta
               {meeting.status === 'completed' && (
-                <a
-                  href={`/api/meetings/${params.id}/export-pdf`}
-                  className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  PDF
-                </a>
+                <span className="ml-auto flex items-center gap-2">
+                  <ShareWhatsApp
+                    title={meeting.title}
+                    summary={minute.summary}
+                    actionItems={(actionItems as any[]) || []}
+                  />
+                  <a
+                    href={`/api/meetings/${params.id}/export-pdf`}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    PDF
+                  </a>
+                </span>
               )}
             </h2>
             <div>
