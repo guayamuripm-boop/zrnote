@@ -1,4 +1,4 @@
-export const VERSION = '1.0.8';
+export const VERSION = '1.0.9';
 export const COMMIT_SHA =
   process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ||
   process.env.VERCEL_GIT_COMMIT_SHA ||

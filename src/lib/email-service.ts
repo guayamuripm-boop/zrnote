@@ -1,6 +1,23 @@
 import { escapeHtml, escapeHtmlOrEmpty } from '@/lib/safe-html';
+import { generateGoogleCalendarUrl } from '@/lib/google-calendar';
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
+
+// Build a "Add to Google Calendar" link for an action item that has a due date.
+// No OAuth — opens Google Calendar prefilled in the recipient's own account.
+function actionItemCalendarLink(item: any): string {
+  if (!item?.due_date) return '';
+  const start = new Date(`${item.due_date}T09:00:00`);
+  if (isNaN(start.getTime())) return '';
+  const end = new Date(start.getTime() + 30 * 60 * 1000);
+  const url = generateGoogleCalendarUrl({
+    title: item.description || 'Tarea (ZRNote)',
+    description: `Compromiso de reunión — ZRNote.\nPrioridad: ${item.priority || '—'}`,
+    startTime: start,
+    endTime: end,
+  });
+  return ` <a href="${url}" style="color:#2563eb;text-decoration:none;font-size:12px;white-space:nowrap">📅 Añadir a Calendar</a>`;
+}
 
 /**
  * Construye el HTML de una minuta con TODOS los campos LLM-derived escapados.
@@ -128,7 +145,7 @@ export function buildMyItemsHtml(myItems: any[]): string {
     const desc = escapeHtml(i.description || '');
     const priority = escapeHtml(i.priority || '');
     const dueDateSuffix = i.due_date ? `, Fecha: ${escapeHtml(i.due_date)}` : '';
-    return `<li style="margin-bottom:4px"><strong>${desc}</strong> — Prioridad: ${priority}${dueDateSuffix}</li>`;
+    return `<li style="margin-bottom:6px"><strong>${desc}</strong> — Prioridad: ${priority}${dueDateSuffix}${actionItemCalendarLink(i)}</li>`;
   }).join('');
   return `<div style="background:#ecfdf5;border-left:3px solid #22c55e;padding:12px;margin:16px 0;border-radius:0 8px 8px 0">
     <h3 style="margin:0 0 8px;color:#166534;font-size:16px">Tus compromisos</h3>
