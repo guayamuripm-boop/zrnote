@@ -11,14 +11,21 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  const handleRetry = async () => {
-    setLoading(true);
-    setError(null);
-
+  const runPipeline = async (attempt = 1): Promise<void> => {
     // First reset status via /finalize
     const finalizeRes = await fetch(`/api/meetings/${meetingId}/finalize`, { method: 'POST' });
     if (!finalizeRes.ok) {
       const data = await finalizeRes.json().catch(() => ({}));
+      // The server's short "is this still genuinely in flight?" lock (see
+      // finalize/route.ts) can still be hit right after an interruption.
+      // Instead of stranding the user on a dead error, wait it out once and
+      // retry automatically — a single /process step is capped at 60s, so
+      // the wait is short and bounded.
+      if (data.retryAfterSec && attempt < 3) {
+        setStepMsg(`Reintentando en ${data.retryAfterSec}s...`);
+        await new Promise((r) => setTimeout(r, (data.retryAfterSec + 1) * 1000));
+        return runPipeline(attempt + 1);
+      }
       setError('Error al reiniciar: ' + (data.error || 'desconocido'));
       setLoading(false);
       return;
@@ -61,6 +68,12 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
 
     setLoading(false);
     router.refresh();
+  };
+
+  const handleRetry = async () => {
+    setLoading(true);
+    setError(null);
+    await runPipeline();
   };
 
   return (

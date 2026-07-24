@@ -1,7 +1,14 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
-const STALE_PROCESSING_MS = 10 * 60 * 1000;
+// A single /process call is capped at 60s server-side (vercel.json maxDuration),
+// so if a step were genuinely in flight it resolves (success or failure) well
+// within that. This guard only exists to avoid a true double-submit race; 90s
+// is ample margin. It used to be 10 MINUTES, which turned any interrupted
+// pipeline (closed tab, dropped network, backgrounded app) into a dead end —
+// the user's own "Reintentar" click was blocked by this same lock for up to
+// 10 minutes with no way to know when it would clear.
+const STALE_PROCESSING_MS = 90 * 1000;
 
 export async function POST(
   request: Request,
@@ -31,9 +38,14 @@ export async function POST(
 
   if (meeting.status === 'processing') {
     const startedAt = meeting.ended_at ? new Date(meeting.ended_at).getTime() : 0;
-    const isStale = Date.now() - startedAt > STALE_PROCESSING_MS;
+    const elapsedMs = Date.now() - startedAt;
+    const isStale = elapsedMs > STALE_PROCESSING_MS;
     if (!isStale) {
-      return NextResponse.json({ error: 'La reunión ya se está procesando' }, { status: 400 });
+      const waitSec = Math.ceil((STALE_PROCESSING_MS - elapsedMs) / 1000);
+      return NextResponse.json({
+        error: `La reunión parece estar procesándose todavía. Espera ${waitSec}s e inténtalo de nuevo.`,
+        retryAfterSec: waitSec,
+      }, { status: 400 });
     }
   }
 

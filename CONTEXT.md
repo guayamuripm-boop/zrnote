@@ -457,6 +457,12 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
+## 🔴 CANDADO DE 10 MIN EN "REINTENTAR" — REUNIONES ATASCADAS SIN SALIDA (v1.2.1)
+- **Síntoma:** reunión queda en `procesando` para siempre (p.ej. si cierras la app o pierdes conexión a mitad del pipeline). Al pulsar "Reintentar" sale: `Error al reiniciar: La reunión ya se está procesando` — y sigue igual sin importar cuántas veces lo intentes en los primeros minutos.
+- **Causa:** `finalize/route.ts` tenía `STALE_PROCESSING_MS = 10 * 60 * 1000` — un candado anti-doble-click pensado para evitar llamadas duplicadas, pero cualquier interrupción real (pestaña cerrada, red caída, app en segundo plano) dejaba la reunión en `processing` sin que nada la moviera, y el usuario no podía forzar un reintento manual hasta pasados 10 minutos completos, sin ninguna pista de cuánto faltaba.
+- **Fix:** bajado a **90 segundos** (cada llamada a `/process` tiene `maxDuration: 60` en Vercel, así que si algo estuviera realmente en curso se resolvería en menos de un minuto — 90s es margen de sobra). El error ahora incluye `retryAfterSec`, y `RetryButton` **espera automáticamente y reintenta solo** si topa con el candado, en vez de dejar al usuario clicando a ciegas.
+- **Nota:** el cron `retry-stuck` (recuperación automática, corre 1x/día en plan Hobby) dispara una Edge Function de Supabase que requiere `supabase functions deploy` manual y no se mantiene sincronizada con los fixes de `processing.ts` (aac, Gemini, budget de tokens). No es crítico porque ahora "Reintentar" manual funciona de inmediato, pero es deuda técnica pendiente si se quiere recuperación 100% automática.
+
 ## ⚠️ FASE 1 + PASADA UX/UI COMPLETA (v1.1.0 → v1.2.0, 2026-07-23/24)
 
 ### Backend / Fase 1
