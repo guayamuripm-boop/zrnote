@@ -47,70 +47,71 @@ async function transcribeSegment(
   groqKey: string,
   meetingId: string,
   allSpeakerHints: string = '',
-): Promise<string | null> {
+): Promise<{ text: string | null; error?: string }> {
   const { data: audioData, error: downloadError } = await supabase.storage
     .from('meeting-audio')
     .download(segment.r2_key);
 
   if (downloadError) {
     logger.error('Error downloading segment', { meetingId, segmentIndex: segment.segment_index, error: downloadError.message });
-    return null;
+    return { text: null, error: `descarga fallida: ${downloadError.message}` };
   }
 
   if (audioData.size < 10000) {
     logger.warn('Skipping segment: too small', { meetingId, segmentIndex: segment.segment_index, size: audioData.size });
-    return null;
+    return { text: null, error: 'segmento demasiado pequeño (posible audio vacío)' };
   }
 
   const rawExt = (segment.r2_key.split('.').pop() || 'webm').toLowerCase();
-  // Groq Whisper only accepts these extensions. Raw .aac is NOT in the list and
-  // is rejected with 400, so we relabel it to .m4a — Groq's ffmpeg backend
-  // probes the actual content and decodes the AAC regardless of the name.
+  // Groq Whisper only accepts: flac,mp3,mp4,mpeg,mpga,m4a,ogg,wav,webm.
+  // Raw .aac is NOT accepted (HTTP 400). We can't decode/transcode server-side,
+  // so we present the SAME bytes under several accepted extensions — Groq's
+  // ffmpeg backend probes the real content and one of them decodes the AAC.
   const GROQ_EXTS = new Set(['flac', 'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'ogg', 'wav', 'webm']);
-  const ext = GROQ_EXTS.has(rawExt) ? rawExt : 'm4a';
+  const candidateExts = GROQ_EXTS.has(rawExt) ? [rawExt] : ['m4a', 'mp4', 'mpga', 'wav', 'ogg'];
 
-  // Build global speaker hint from ALL segments
-  let whisperPrompt = '';
-  if (allSpeakerHints) {
-    whisperPrompt = `Participantes de la reunión: ${allSpeakerHints}. Identifica a cada orador por su nombre.`;
-  }
+  let lastError = 'error desconocido';
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const formData = new FormData();
-    formData.append('file', audioData, `audio.${ext}`);
-    formData.append('model', 'whisper-large-v3');
-    formData.append('language', 'es');
-    formData.append('response_format', 'verbose_json');
-    if (allSpeakerHints) {
-      formData.append('prompt', allSpeakerHints);
-    }
-
-    logger.debug('Transcribing segment', { meetingId, segmentIndex: segment.segment_index, attempt, hasPrompt: !!whisperPrompt });
-    const response = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${groqKey}` },
-      body: formData,
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      if (result.text && result.text.trim().length > 0) {
-        logger.info('Segment transcribed', { meetingId, segmentIndex: segment.segment_index, chars: result.text.length });
-        return result.text;
+  for (const tryExt of candidateExts) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const formData = new FormData();
+      formData.append('file', audioData, `audio.${tryExt}`);
+      formData.append('model', 'whisper-large-v3');
+      formData.append('language', 'es');
+      formData.append('response_format', 'verbose_json');
+      if (allSpeakerHints) {
+        formData.append('prompt', allSpeakerHints);
       }
-      logger.warn('Segment produced empty transcription', { meetingId, segmentIndex: segment.segment_index });
-      return null;
-    }
 
-    const errText = await response.text();
-    logger.error('Segment transcription failed', { meetingId, segmentIndex: segment.segment_index, attempt, status: response.status, error: errText });
+      logger.debug('Transcribing segment', { meetingId, segmentIndex: segment.segment_index, tryExt, attempt });
+      const response = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${groqKey}` },
+        body: formData,
+      });
 
-    if (attempt < 3) {
-      await new Promise((r) => setTimeout(r, 1000 * attempt));
+      if (response.ok) {
+        const result = await response.json();
+        if (result.text && result.text.trim().length > 0) {
+          logger.info('Segment transcribed', { meetingId, segmentIndex: segment.segment_index, tryExt, chars: result.text.length });
+          return { text: result.text };
+        }
+        logger.warn('Segment produced empty transcription', { meetingId, segmentIndex: segment.segment_index });
+        return { text: null, error: 'transcripción vacía (¿el audio no tiene voz audible?)' };
+      }
+
+      const errText = await response.text();
+      lastError = `Groq HTTP ${response.status}: ${errText.slice(0, 180)}`;
+      logger.error('Segment transcription failed', { meetingId, segmentIndex: segment.segment_index, tryExt, attempt, status: response.status, error: errText });
+
+      // 400 = this extension/format was rejected → try the next candidate.
+      if (response.status === 400) break;
+      // 429 = rate limited → back off; other 5xx → short retry.
+      await new Promise((r) => setTimeout(r, (response.status === 429 ? 2000 : 1000) * attempt));
     }
   }
 
-  return null;
+  return { text: null, error: lastError };
 }
 
 async function heartbeat(supabase: any, meetingId: string) {
@@ -167,6 +168,7 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
 
   const BATCH_SIZE = 3;
   const newTranscriptions: string[] = [];
+  const segErrors: string[] = [];
   let processed = 0;
 
   for (let i = 0; i < batch.length; i += BATCH_SIZE) {
@@ -177,9 +179,13 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     );
 
     for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) {
-        newTranscriptions.push(r.value);
+      if (r.status === 'fulfilled' && r.value.text) {
+        newTranscriptions.push(r.value.text);
         processed++;
+      } else if (r.status === 'fulfilled' && r.value.error) {
+        segErrors.push(r.value.error);
+      } else if (r.status === 'rejected') {
+        segErrors.push(String(r.reason));
       }
     }
 
@@ -188,15 +194,22 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     }
   }
 
-const newOffset = offset + processed;
-    // Only advance by successfully processed segments. Failed segments stay for retry.
-    // This avoids infinite loop while preserving failed segments for recovery.
-    const finalOffset = newOffset;
-    const existingTranscript = meeting.transcript_raw || '';
-    const fullTranscript = existingTranscript
-      ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
-      : newTranscriptions.join('\n\n');
-    const more = finalOffset < segments.length;
+  const newOffset = offset + processed;
+  // Only advance by successfully processed segments. Failed segments stay for retry.
+  const finalOffset = newOffset;
+  const existingTranscript = meeting.transcript_raw || '';
+  const fullTranscript = existingTranscript
+    ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
+    : newTranscriptions.join('\n\n');
+  const more = finalOffset < segments.length;
+
+  // If this batch transcribed NOTHING and there is still no transcript at all,
+  // fail loudly with the real Groq error instead of silently "succeeding" with
+  // an empty transcript (which used to surface later as a confusing 400 on analyze).
+  if (processed === 0 && !existingTranscript.trim()) {
+    const reason = segErrors[0] || 'ningún segmento pudo transcribirse';
+    return { success: false, error: `No se pudo transcribir el audio: ${reason}`, segmentsProcessed: 0, segmentsTotal: segments.length, more: false };
+  }
 
   const { error: updateError } = await supabase
     .from('meetings')
@@ -210,7 +223,7 @@ const newOffset = offset + processed;
     return { success: false, error: `Failed to save transcript: ${updateError.message}`, segmentsProcessed: processed, segmentsTotal: segments.length, more: false };
   }
 
-  logger.info('Transcription batch completed', { meetingId, processed, newOffset: finalOffset, total: segments.length, more });
+  logger.info('Transcription batch completed', { meetingId, processed, newOffset: finalOffset, total: segments.length, more, errors: segErrors.length });
   return { success: true, transcript: fullTranscript, segmentsProcessed: finalOffset, segmentsTotal: segments.length, more };
 }
 

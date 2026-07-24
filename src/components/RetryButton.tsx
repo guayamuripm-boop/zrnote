@@ -26,6 +26,7 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
     for (const step of STEPS) {
       setStepMsg(step === 'transcribe' ? 'Transcribiendo...' : step === 'analyze' ? 'Generando minuta...' : step === 'vectorize' ? 'Indexando...' : 'Enviando correos...');
 
+      let failure: string | null = null;
       let more = false;
       do {
         const res = await fetch(`/api/meetings/${meetingId}/process`, {
@@ -34,17 +35,26 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
           body: JSON.stringify({ step }),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          // If step not applicable, continue to next
+
+        // A step reporting ok:false (or HTTP error) is a real failure — surface it
+        // instead of marching on. "Invalid status"/"Run ..." just mean this step
+        // isn't applicable yet, so skip to the next one.
+        if (!res.ok || data.ok === false) {
           if (data.error?.includes('Invalid status') || data.error?.includes('Run')) break;
-          alert('Error: ' + (data.error || 'desconocido'));
-          setLoading(false);
-          return;
+          failure = data.error || 'Error desconocido durante el procesamiento';
+          break;
         }
         more = step === 'transcribe' ? (data.more || false) : false;
-        // Small delay between batches for UI feedback
         await new Promise(r => setTimeout(r, 300));
       } while (more);
+
+      // Emails failing must not discard a good minute; every other step is fatal.
+      if (failure && step !== 'emails') {
+        alert('No se pudo completar: ' + failure);
+        setLoading(false);
+        router.refresh();
+        return;
+      }
     }
 
     setLoading(false);
