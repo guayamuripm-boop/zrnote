@@ -44,6 +44,12 @@
   - `upload/page.tsx`: el bucle para en `data.ok===false` y **muestra el error real en la UI** (`pipelineError`). Emails que fallan NO bloquean una minuta buena.
 - **Además:** FFmpeg dejó de cargarse EAGER (quitado el `useEffect` en `useAudioConverter`) → abrir la página de subida ya NO descarga 31MB; solo carga si un formato exótico lo necesita.
 
+### 3f. 🔴 Groq LLM 413 "Request too large" (TPM 12k) en reuniones largas (v1.0.7)
+- **Síntoma:** transcripción OK pero al generar minuta: `LLM error (413) ... TPM Limit 12000, Requested 13692, rate_limit_exceeded`.
+- **Causa:** Groq free tier limita llama-3.3-70b a **12.000 tokens/minuto**, y ese presupuesto cuenta **input + max_tokens**. Con `max_tokens: 8192` fijo, un transcript de ~5.500 tokens ya lo excede.
+- **Fix (`analyzeMeeting` en `processing.ts` + Edge Function):** presupuesto dinámico `TPM_BUDGET=11000`: `max_tokens` = lo que quede tras el input; si el transcript es enorme se **trunca** para dejar sitio a la salida; reintento ante 429 (espera 15s). 
+- **Límite conocido:** reuniones MUY largas (>~2h) pierden parte del transcript al truncar; la solución completa sería map-reduce (pendiente, post-MVP).
+
 ### 3. Race condition al subir segmentos (pérdida de segmentos)
 - **Causa:** `upload-segment` hace read-modify-write de `meetings.audio_segments`; subidas concurrentes se pisaban (last-write-wins) → segmentos perdidos.
 - **Fix (cliente):** Las subidas se serializan en `RecordButton` (`uploadChainRef`) — una a la vez, en orden.

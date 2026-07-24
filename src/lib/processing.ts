@@ -319,24 +319,56 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     return { success: false, error: 'No transcript available for analysis' };
   }
 
-  logger.info('Calling Groq LLM', { meetingId });
-  const llmResponse = await fetch(`${GROQ_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${groqKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: MINUTE_PROMPT(meetingTranscript) }],
-      temperature: 0.3,
-      max_tokens: 8192,
-    }),
-  });
+  // Groq free tier caps llama-3.3-70b at 12,000 tokens/MINUTE, and that budget
+  // counts input (prompt+transcript) + max_tokens together. Size the request to
+  // stay under it: pick max_tokens from what's left, and only if the transcript
+  // itself is enormous do we trim it (keeping as much as fits).
+  const TPM_BUDGET = 11000; // safety margin below Groq's 12,000 TPM
+  const MIN_OUTPUT = 2000;
+  const MAX_OUTPUT = 6000;
+  const estTokens = (s: string) => Math.ceil(s.length / 4);
+  const overheadTokens = estTokens(MINUTE_PROMPT(''));
 
-  if (!llmResponse.ok) {
-    const errorText = await llmResponse.text();
-    return { success: false, error: `LLM error (${llmResponse.status}): ${errorText}` };
+  let transcriptForLlm = meetingTranscript;
+  let inputTokens = estTokens(MINUTE_PROMPT(transcriptForLlm));
+  if (inputTokens + MIN_OUTPUT > TPM_BUDGET) {
+    const transcriptTokenBudget = Math.max(0, TPM_BUDGET - MIN_OUTPUT - overheadTokens);
+    transcriptForLlm = meetingTranscript.slice(0, transcriptTokenBudget * 4);
+    inputTokens = estTokens(MINUTE_PROMPT(transcriptForLlm));
+    logger.warn('Transcript trimmed to fit Groq TPM budget', { meetingId, originalChars: meetingTranscript.length, keptChars: transcriptForLlm.length });
+  }
+  const maxOut = Math.max(MIN_OUTPUT, Math.min(MAX_OUTPUT, TPM_BUDGET - inputTokens));
+
+  logger.info('Calling Groq LLM', { meetingId, inputTokens, maxOut });
+
+  let llmResponse: Response | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    llmResponse = await fetch(`${GROQ_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${groqKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: MINUTE_PROMPT(transcriptForLlm) }],
+        temperature: 0.3,
+        max_tokens: maxOut,
+      }),
+    });
+    if (llmResponse.ok) break;
+    // 429 = per-minute rate limit hit by other requests — wait for the window to
+    // reset and retry (our request already fits the budget).
+    if (llmResponse.status === 429 && attempt < 3) {
+      await new Promise((r) => setTimeout(r, 15000));
+      continue;
+    }
+    break;
+  }
+
+  if (!llmResponse || !llmResponse.ok) {
+    const errorText = llmResponse ? await llmResponse.text() : 'sin respuesta';
+    return { success: false, error: `LLM error (${llmResponse?.status}): ${errorText}` };
   }
 
   const llmResult = await llmResponse.json();

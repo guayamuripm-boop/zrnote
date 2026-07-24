@@ -248,6 +248,18 @@ ${transcript}
 async function analyzeMeeting(supabase: any, meetingId: string, transcript: string): Promise<{ success: boolean; minuteId?: string; error?: string }> {
   const groqKey = Deno.env.get('GROQ_API_KEY')!;
   
+  // Groq free tier: 12,000 tokens/minute counts input + max_tokens together.
+  // Trim the transcript if needed and size max_tokens to what's left.
+  const TPM_BUDGET = 11000;
+  const overheadTokens = Math.ceil(MINUTE_PROMPT('').length / 4);
+  let transcriptForLlm = transcript;
+  let inputTokens = Math.ceil(MINUTE_PROMPT(transcriptForLlm).length / 4);
+  if (inputTokens + 2000 > TPM_BUDGET) {
+    transcriptForLlm = transcript.slice(0, Math.max(0, (TPM_BUDGET - 2000 - overheadTokens) * 4));
+    inputTokens = Math.ceil(MINUTE_PROMPT(transcriptForLlm).length / 4);
+  }
+  const maxOut = Math.max(2000, Math.min(6000, TPM_BUDGET - inputTokens));
+
   const llmResponse = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -256,9 +268,9 @@ async function analyzeMeeting(supabase: any, meetingId: string, transcript: stri
     },
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: MINUTE_PROMPT(transcript) }],
+      messages: [{ role: 'user', content: MINUTE_PROMPT(transcriptForLlm) }],
       temperature: 0.3,
-      max_tokens: 8192,
+      max_tokens: maxOut,
     }),
   });
 
