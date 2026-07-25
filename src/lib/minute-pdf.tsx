@@ -25,6 +25,7 @@ interface MinuteData {
     description: string;
     priority: string;
     due_date?: string;
+    status?: string;
   }>;
   created_at?: string;
 }
@@ -165,16 +166,17 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 }
 
 function PriorityBadge({ priority }: { priority: string }) {
-  const p = priority.toLowerCase();
+  const safePriority = priority || 'media';
+  const p = safePriority.toLowerCase();
   const baseStyle = styles.priorityBadge;
-  
+
   if (p === 'alta') {
-    return <Text style={[baseStyle, styles.priorityAlta]}>{priority.toUpperCase()}</Text>;
+    return <Text style={[baseStyle, styles.priorityAlta]}>{safePriority.toUpperCase()}</Text>;
   }
   if (p === 'media') {
-    return <Text style={[baseStyle, styles.priorityMedia]}>{priority.toUpperCase()}</Text>;
+    return <Text style={[baseStyle, styles.priorityMedia]}>{safePriority.toUpperCase()}</Text>;
   }
-  return <Text style={[baseStyle, styles.priorityBaja]}>{priority.toUpperCase()}</Text>;
+  return <Text style={[baseStyle, styles.priorityBaja]}>{safePriority.toUpperCase()}</Text>;
 }
 
 function DiscussionItem({ item }: { item: { topic: string; details: string; speaker?: string } }) {
@@ -187,7 +189,13 @@ function DiscussionItem({ item }: { item: { topic: string; details: string; spea
   );
 }
 
-function ActionItemRow({ item }: { item: { assignee_name: string; description: string; priority: string; due_date?: string } }) {
+const STATUS_LABEL: Record<string, string> = {
+  pendiente: 'Pendiente',
+  en_progreso: 'En progreso',
+  completado: 'Completado',
+};
+
+function ActionItemRow({ item }: { item: { assignee_name: string; description: string; priority: string; due_date?: string; status?: string } }) {
   return (
     <View style={styles.actionItemRow}>
       <View style={[styles.actionItemCell, { flex: 1.5 }]}>
@@ -205,6 +213,10 @@ function ActionItemRow({ item }: { item: { assignee_name: string; description: s
       <View style={[styles.actionItemCell, { flex: 1 }]}>
         <Text style={styles.actionItemHeader}>Fecha</Text>
         <Text style={styles.actionItemValue}>{item.due_date || '—'}</Text>
+      </View>
+      <View style={[styles.actionItemCell, { flex: 1 }]}>
+        <Text style={styles.actionItemHeader}>Estado</Text>
+        <Text style={styles.actionItemValue}>{STATUS_LABEL[item.status || 'pendiente'] || item.status}</Text>
       </View>
     </View>
   );

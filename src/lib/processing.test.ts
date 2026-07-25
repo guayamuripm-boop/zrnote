@@ -2,9 +2,13 @@ import { describe, it, expect } from 'vitest';
 
 describe('processing.ts - basic exports', () => {
   it('should export transcribeMeeting function', async () => {
+    // No per-test timeout override here — the first dynamic import() of
+    // processing.ts (pulls in nodemailer/googleapis/etc.) was observed to
+    // occasionally exceed a hardcoded 15s under load; relies on the global
+    // testTimeout (vitest.config.ts) instead of a shorter local one.
     const { transcribeMeeting } = await import('@/lib/processing');
     expect(typeof transcribeMeeting).toBe('function');
-  }, 15000);
+  });
 
   it('should export analyzeMeeting function', async () => {
     const { analyzeMeeting } = await import('@/lib/processing');

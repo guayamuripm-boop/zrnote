@@ -25,11 +25,16 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const { data: minute } = await supabase
-    .from('minutes')
-    .select('*')
-    .eq('meeting_id', params.id)
-    .single();
+  const [minuteResult, actionItemsResult] = await Promise.all([
+    supabase.from('minutes').select('*').eq('meeting_id', params.id).single(),
+    // Live table, not raw_llm_output: reflects reassignment (AssignActionItems)
+    // and status changes (ActionItemStatus toggle) made after the minute was generated.
+    supabase.from('action_items').select('assignee_name, description, priority, due_date, status')
+      .eq('meeting_id', params.id)
+      .order('priority', { ascending: true }),
+  ]);
+
+  const minute = minuteResult.data;
 
   if (!minute) {
     return NextResponse.json({ error: 'Minute not found. Process the meeting first.' }, { status: 404 });
@@ -45,7 +50,6 @@ export async function GET(
     ended_at: meeting.ended_at,
   };
 
-  const rawLLM = minute.raw_llm_output ? JSON.parse(minute.raw_llm_output) : {};
   const minuteData = {
     summary: minute.summary || '',
     discussion: minute.discussion || [],
@@ -54,7 +58,13 @@ export async function GET(
     blockers: minute.blockers || [],
     ideas: minute.ideas || [],
     next_steps: minute.next_steps || [],
-    action_items: rawLLM.action_items || [],
+    action_items: (actionItemsResult.data || []).map((i) => ({
+      assignee_name: i.assignee_name || 'Sin asignar',
+      description: i.description,
+      priority: i.priority,
+      due_date: i.due_date || undefined,
+      status: i.status || 'pendiente',
+    })),
     created_at: minute.created_at,
   };
 

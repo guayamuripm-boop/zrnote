@@ -52,6 +52,8 @@ class MeetRecorder {
     this.stream = null;
     this.chunks = [];
     this.segmentIndex = 0;
+    this.mimeType = 'audio/webm';
+    this.shouldRestart = false;
     this.recording = false;
     this.processing = false;
     this.meetingId = this.extractMeetingId();
@@ -316,6 +318,10 @@ class MeetRecorder {
     }
   }
 
+  // Public entry point — ONE-TIME session setup (stream, mimeType, counters).
+  // Internal 30s rotation must NOT re-enter this (it would re-request
+  // getDisplayMedia, prompting the user again every 30s, and used to be
+  // silently blocked by this exact guard — see startSegmentRecorder()).
   async startRecording() {
     if (this.recording) return;
 
@@ -354,33 +360,22 @@ class MeetRecorder {
         }
       }
       console.log('[ZRNote] Using mimeType:', mimeType);
-
-      this.mediaRecorder = new MediaRecorder(this.stream, {
-        mimeType,
-        audioBitsPerSecond: 128000,  // Bitrate fijo alto
-      });
+      this.mimeType = mimeType; // flushSegment() reads this — was never saved before
 
       this.chunks = [];
       this.segmentIndex = 0;
       this.recording = true;
       this.startTime = Date.now();
 
-      this.mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) this.chunks.push(e.data);
-      };
+      this.startSegmentRecorder();
 
-      this.mediaRecorder.onstop = async () => {
-        await this.flushSegment();
-      };
-
-      this.mediaRecorder.start(1000);
-
-      // Auto-split: stop/restart recorder every SEGMENT_DURATION_MS to create valid webm files
-      setTimeout(() => {
-        if (this.recording) {
-          this.mediaRecorder?.stop();
-          setTimeout(() => this.startRecording(), 1000);
-        }
+      // Auto-split: stop/restart the recorder every SEGMENT_DURATION_MS so each
+      // segment is a complete, independently-decodable file (a WebM/OGG header
+      // only lives in the FIRST chunk of a continuous MediaRecorder stream —
+      // slicing without a real stop/restart produces headerless, undecodable
+      // fragments). rotateSegment() does NOT touch stream/mimeType/segmentIndex.
+      this.segmentTimer = setInterval(() => {
+        if (this.recording) this.rotateSegment();
       }, this.SEGMENT_DURATION_MS);
 
       // Timer de tiempo transcurrido
@@ -393,6 +388,46 @@ class MeetRecorder {
     } catch (err) {
       console.error('[ZRNote] Error starting recording:', err);
       throw err;
+    }
+  }
+
+  // Create and start a fresh MediaRecorder on the ALREADY-ACQUIRED stream.
+  // Called both by startRecording() (first segment) and, via onstop, when
+  // rotating (every subsequent segment) — never re-requests getDisplayMedia,
+  // never resets segmentIndex, so segments upload with distinct, increasing
+  // indices and each is a complete, independently-decodable container.
+  startSegmentRecorder() {
+    this.mediaRecorder = new MediaRecorder(this.stream, {
+      mimeType: this.mimeType,
+      audioBitsPerSecond: 128000,
+    });
+
+    this.mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) this.chunks.push(e.data);
+    };
+
+    this.mediaRecorder.onstop = async () => {
+      // Flush FIRST (reads + clears this.chunks) and only THEN start the next
+      // segment's recorder — starting it before the flush completes would let
+      // the new recorder's ondataavailable race with flushSegment() reading
+      // the shared this.chunks array, corrupting segment boundaries.
+      await this.flushSegment();
+      if (this.shouldRestart) {
+        this.shouldRestart = false;
+        this.startSegmentRecorder();
+      }
+    };
+
+    this.mediaRecorder.start(1000);
+  }
+
+  // Close the current segment; onstop (above) opens the next one once the
+  // flush is done. NOT via startRecording() (blocked by its own reentry guard,
+  // and would reset segmentIndex to 0, overwriting every prior segment).
+  rotateSegment() {
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      this.shouldRestart = true;
+      this.mediaRecorder.stop();
     }
   }
 

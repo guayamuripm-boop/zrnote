@@ -457,6 +457,25 @@ GOOGLE_CALENDAR_REDIRECT_URI=https://zrnote.vercel.app/api/auth/calendar/callbac
 
 ---
 
+## 🔴 AUDITORÍA COMPLETA DEL PROYECTO (v1.2.3, 2026-07-24)
+Revisión sistemática de TODO lo no tocado en sesiones recientes (RAG, PDF, extensión Chrome, migraciones, env vars, tests). Hallazgos:
+
+- **🔴 CRÍTICO — Extensión de Chrome: grabación completamente rota.** Dos bugs graves en `extension/content.js`:
+  1. `this.mimeType` se usaba en `flushSegment()` pero **nunca se asignaba** → `TypeError` no capturado en cada intento de subida. La extensión probablemente **nunca subió un segmento con éxito**.
+  2. `startRecording()` tenía `if (this.recording) return;` al inicio, pero la rotación automática de 30s volvía a llamar a `startRecording()` sin poner `this.recording = false` antes → el guardia de reentrada bloqueaba el reinicio. Resultado: la grabación **moría en silencio tras el primer segmento** (el cronómetro seguía corriendo, pero no se capturaba más audio).
+  - **Fix:** separada la configuración de sesión (una vez) del reinicio de segmento (`startSegmentRecorder()`/`rotateSegment()`), con la misma secuencia segura que `RecordButton.tsx` (flush completo ANTES de iniciar el siguiente grabador, evita condición de carrera en `this.chunks` compartido). `this.mimeType` ahora se guarda correctamente. Versión de extensión → 1.0.1.
+  - **No probado en vivo** (necesita una llamada de Meet real; no forma parte del árbol de tests). Verificado por revisión de código + sintaxis, no en ejecución real.
+- **PDF exportaba datos obsoletos:** `export-pdf` leía `action_items` desde `minute.raw_llm_output` (el JSON original de la IA), no la tabla en vivo → reasignaciones y cambios de estado (toggle) no se reflejaban en el PDF. Ahora consulta la tabla `action_items` directamente e incluye el estado.
+- **Blindaje defensivo en el PDF:** `PriorityBadge` (PDF) crasheaba si `priority` era `null`/`undefined` (`.toLowerCase()`/`.toUpperCase()` sobre `undefined`). Añadido fallback a `'media'`.
+- **Test flaky corregido:** `processing.test.ts` tenía un timeout local de 15s que sobreescribía el global de 30s (añadido en v1.2.2) → seguía fallando intermitentemente bajo carga. Quitado el override local.
+- **Funciones huérfanas identificadas (no arregladas, a decisión del usuario):**
+  - `/dashboard/meetings/[id]/speakers` (mapeo de hablantes): sin enlace en la UI, y aunque se guardara, nada del pipeline (transcripción/minuta) lo usa después. 100% inerte.
+  - `/api/agent/query` (RAG): funciona técnicamente pero requiere `org_id`, que la mayoría de usuarios no tiene (no hay flujo de creación de organización). Sin UI que lo llame. Coincide con la "Fase 2" ya conversada.
+  - `src/lib/env.ts`: solo lo usa `embeddings.ts`; el resto de rutas leen `process.env` directo. Inconsistente pero inofensivo.
+- **Verificado limpio:** sin `console.log` de debug sueltos, migraciones sin conflictos (018 sigue siendo la última), CSP/middleware coherentes.
+
+Verificado: build ✅, tsc ✅, 39 tests ✅ (estables, sin flakiness).
+
 ## 🔴 504 Gateway Timeout al transcribir — chunks por BYTES, no por DURACIÓN (v1.2.2)
 - **Síntoma:** tras el fix del candado de 10 min, "Reintentar" avanzaba a "Transcribiendo..." pero terminaba en `POST /process` → `504 (Gateway Timeout)`.
 - **Causa raíz:** la subida por niveles (v1.0.4) topaba los trozos en **24MB** (límite de Whisper), pero un `.aac` de voz de baja tasa de bits puede meter **20-40+ minutos** en 24MB — incluso por debajo (el caso real: 18.1MB → Tier 1 "subir entero", SIN protección de duración). Un solo trozo así de largo excede los **60s** que Vercel permite por llamada a `/process` → 504.
