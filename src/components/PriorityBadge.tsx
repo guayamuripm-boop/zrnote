@@ -16,15 +16,17 @@ const priorityIcons: Record<string, string> = {
   baja: '↓',
 };
 
-export function PriorityBadge({ priority }: { priority: string }) {
+// `priority` comes from an LLM-populated column, so it can legitimately be null.
+export function PriorityBadge({ priority }: { priority?: string | null }) {
+  const value = priority || 'media';
   return (
     <span
       className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
-        priorityStyles[priority] || 'bg-gray-100 text-gray-600'
-      } ${darkPriorityStyles[priority] || 'dark:bg-gray-800 dark:text-gray-400'}`}
+        priorityStyles[value] || 'bg-gray-100 text-gray-600'
+      } ${darkPriorityStyles[value] || 'dark:bg-gray-800 dark:text-gray-400'}`}
     >
-      <span className="text-[10px]">{priorityIcons[priority] || '·'}</span>
-      {priority}
+      <span className="text-[10px]">{priorityIcons[value] || '·'}</span>
+      {value}
     </span>
   );
 }

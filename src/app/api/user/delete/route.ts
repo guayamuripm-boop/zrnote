@@ -41,44 +41,46 @@ export async function POST(request: Request) {
   );
 
   try {
-    // 1. Get all meetings created by user
+    // 1. Get all meetings created by user, WITH their storage keys.
     const { data: userMeetings } = await adminSupabase
       .from('meetings')
-      .select('id')
+      .select('id, audio_segments')
       .eq('created_by', userId);
 
     const meetingIds = userMeetings?.map(m => m.id) || [];
 
     // 2. Delete related data in correct order (FK constraints)
     if (meetingIds.length > 0) {
-      // Delete email_logs for these meetings
-      await adminSupabase.from('email_logs').delete().in('meeting_id', meetingIds);
+      // Delete audio files from storage FIRST, while we still know their paths.
+      //
+      // This used to list the bucket root and match `f.name.includes(meetingId)`.
+      // Supabase returns FOLDER entries at the root (one per org), never full
+      // object paths, so that filter matched nothing and **no audio was ever
+      // deleted** when a user deleted their account. The real paths live in
+      // meetings.audio_segments[].r2_key.
+      const storageKeys = (userMeetings || [])
+        .flatMap((m: any) => (m.audio_segments || []).map((s: any) => s.r2_key))
+        .filter(Boolean);
 
-      // Delete action_items for these meetings
-      await adminSupabase.from('action_items').delete().in('meeting_id', meetingIds);
-
-      // Delete minutes for these meetings
-      await adminSupabase.from('minutes').delete().in('meeting_id', meetingIds);
-
-      // Delete meeting_participants for these meetings
-      await adminSupabase.from('meeting_participants').delete().in('meeting_id', meetingIds);
-
-      // Delete audio files from storage
-      const { data: audioFiles } = await adminSupabase.storage
-        .from('meeting-audio')
-        .list('', { limit: 1000 });
-      
-      const userAudioFiles = audioFiles?.filter(f => 
-        meetingIds.some(id => f.name.includes(id))
-      ) || [];
-      
-      if (userAudioFiles.length > 0) {
-        await adminSupabase.storage
-          .from('meeting-audio')
-          .remove(userAudioFiles.map(f => f.name));
+      if (storageKeys.length > 0) {
+        // Storage.remove() takes a bounded list; chunk it for heavy accounts.
+        for (let i = 0; i < storageKeys.length; i += 100) {
+          const { error: removeError } = await adminSupabase.storage
+            .from('meeting-audio')
+            .remove(storageKeys.slice(i, i + 100));
+          if (removeError) {
+            logger.error('Account delete: audio removal failed', { userId, error: removeError.message });
+          }
+        }
       }
 
-      // Finally delete meetings
+      await adminSupabase.from('email_logs').delete().in('meeting_id', meetingIds);
+      await adminSupabase.from('action_items').delete().in('meeting_id', meetingIds);
+      // Vector embeddings contain verbatim fragments of the conversation —
+      // leaving them behind would keep personal data after an erasure request.
+      await adminSupabase.from('meeting_chunks').delete().in('meeting_id', meetingIds);
+      await adminSupabase.from('minutes').delete().in('meeting_id', meetingIds);
+      await adminSupabase.from('meeting_participants').delete().in('meeting_id', meetingIds);
       await adminSupabase.from('meetings').delete().in('id', meetingIds);
     }
 
@@ -91,7 +93,9 @@ export async function POST(request: Request) {
     // 5. Delete email_logs where user is recipient
     await adminSupabase.from('email_logs').delete().eq('recipient_email', user.email);
 
-    // 6. Delete user profile
+    // 6. Delete the consent audit trail and the user profile.
+    // (user_consent_log also cascades from auth.users, but be explicit.)
+    await adminSupabase.from('user_consent_log').delete().eq('user_id', userId);
     await adminSupabase.from('users').delete().eq('id', userId);
 
     // 7. Delete auth user (this cascades to auth.identities, etc.)

@@ -11,6 +11,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -28,8 +29,16 @@ export default function SignupPage() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres');
+    // 8 characters is the current baseline recommendation; 6 is trivially
+    // brute-forceable and this account can hold recordings of real meetings.
+    if (password.length < 8) {
+      setError('La contraseña debe tener al menos 8 caracteres');
+      setLoading(false);
+      return;
+    }
+
+    if (!acceptedLegal) {
+      setError('Debes aceptar las condiciones de uso y el aviso de privacidad');
       setLoading(false);
       return;
     }
@@ -156,7 +165,7 @@ export default function SignupPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="Mínimo 8 caracteres"
                   className="w-full pl-11 pr-11 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-base min-w-0"
                 />
                 <button
@@ -195,9 +204,30 @@ export default function SignupPage() {
               </div>
             </div>
 
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={acceptedLegal}
+                onChange={(e) => setAcceptedLegal(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-blue-600 shrink-0"
+              />
+              <span className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                Acepto las{' '}
+                <Link href="/legal/terminos" target="_blank" className="text-blue-600 dark:text-blue-400 underline underline-offset-2">
+                  condiciones de uso
+                </Link>{' '}
+                y el{' '}
+                <Link href="/legal/privacidad" target="_blank" className="text-blue-600 dark:text-blue-400 underline underline-offset-2">
+                  aviso de privacidad
+                </Link>
+                , y entiendo que soy responsable de obtener el consentimiento de las personas que
+                grabe.
+              </span>
+            </label>
+
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !acceptedLegal}
               className="w-full gradient-primary text-white py-3.5 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0"
             >
               {loading ? (

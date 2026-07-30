@@ -1,12 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { assertCron } from '@/lib/cron-auth';
+import { logger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
 
+// Audio is the most sensitive thing we hold and the least useful once the
+// minute exists. It is deleted after 30 days — this is stated in the privacy
+// notice, so the two must stay in sync if you change the number.
 const AUDIO_RETENTION_DAYS = 30;
 const MEETING_ARCHIVE_DAYS = 365;
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = assertCron(request);
+  if (denied) return denied;
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
@@ -18,7 +26,7 @@ export async function GET() {
   const archiveCutoff = new Date();
   archiveCutoff.setDate(archiveCutoff.getDate() - MEETING_ARCHIVE_DAYS);
 
-  // 1. Delete old audio files from storage
+  // 1. Delete old audio files from storage.
   const { data: oldMeetings } = await supabase
     .from('meetings')
     .select('id, audio_segments')
@@ -26,36 +34,32 @@ export async function GET() {
     .not('audio_segments', 'is', null);
 
   let deletedFiles = 0;
-  let deletedSegments = 0;
+  let clearedMeetings = 0;
 
-  if (oldMeetings) {
-    for (const meeting of oldMeetings) {
-      const segments = meeting.audio_segments || [];
-      const storageKeys = segments.map((s: any) => s.r2_key).filter(Boolean);
+  for (const meeting of oldMeetings || []) {
+    const segments = meeting.audio_segments || [];
+    const storageKeys = segments.map((s: any) => s.r2_key).filter(Boolean);
+    if (storageKeys.length === 0) continue;
 
-      if (storageKeys.length > 0) {
-        const { error } = await supabase.storage
-          .from('meeting-audio')
-          .remove(storageKeys);
-        
-        if (!error) {
-          deletedFiles += storageKeys.length;
-        }
-      }
-
-      // Clear audio_segments from DB
-      const { error: updateError } = await supabase
-        .from('meetings')
-        .update({ audio_segments: [], transcript_raw: null })
-        .eq('id', meeting.id);
-
-      if (!updateError) {
-        deletedSegments += segments.length;
-      }
+    const { error } = await supabase.storage.from('meeting-audio').remove(storageKeys);
+    if (error) {
+      logger.error('Retention: could not remove audio', { meetingId: meeting.id, error: error.message });
+      continue; // keep the DB pointing at the files so a later run can retry
     }
+    deletedFiles += storageKeys.length;
+
+    // Only the AUDIO expires. The transcript and the minute are what the user
+    // actually keeps — wiping transcript_raw here (as this job used to) also
+    // destroyed any chance of regenerating the minute.
+    const { error: updateError } = await supabase
+      .from('meetings')
+      .update({ audio_segments: [] })
+      .eq('id', meeting.id);
+
+    if (!updateError) clearedMeetings++;
   }
 
-  // 2. Archive old completed meetings (mark as archived, keep data)
+  // 2. Archive very old completed meetings (kept, just flagged).
   const { data: archivedMeetings, error: archiveError } = await supabase
     .from('meetings')
     .update({ archived: true })
@@ -63,44 +67,16 @@ export async function GET() {
     .lt('created_at', archiveCutoff.toISOString())
     .select('id');
 
-  // 3. Clean up expired rate limits
-  await supabase
-    .from('rate_limits')
-    .delete()
-    .lt('reset_at', new Date().toISOString());
+  // 3. Expired rate limits.
+  await supabase.from('rate_limits').delete().lt('reset_at', new Date().toISOString());
 
-  // 4. Clean up stuck processing queue items (> 1 hour old)
+  // 4. Stale processing queue items (> 1 hour old).
   const staleCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   await supabase
     .from('processing_queue')
     .delete()
-    .or(`status.eq.pending,status.eq.running`)
+    .in('status', ['pending', 'running'])
     .lt('created_at', staleCutoff);
-
-  // 5. Clean up orphaned storage files (files not referenced in any meeting)
-  // This is a safety net - list all files and check against DB
-  const { data: allFiles } = await supabase.storage
-    .from('meeting-audio')
-    .list('', { limit: 10000 });
-
-  if (allFiles) {
-    const { data: allSegments } = await supabase
-      .from('meetings')
-      .select('audio_segments');
-
-    const referencedKeys = new Set<string>();
-    for (const m of allSegments || []) {
-      for (const s of m.audio_segments || []) {
-        if (s.r2_key) referencedKeys.add(s.r2_key);
-      }
-    }
-
-    for (const file of allFiles) {
-      if (!referencedKeys.has(file.name)) {
-        await supabase.storage.from('meeting-audio').remove([file.name]);
-      }
-    }
-  }
 
   // Daily action-item reminders (piggybacked here — Vercel Hobby allows only 2
   // cron jobs, so we don't add a third). Never let a reminder failure break
@@ -113,10 +89,12 @@ export async function GET() {
     reminders = { sent: 0, failed: 0, skipped: err?.message || 'reminders crashed' };
   }
 
+  logger.info('Retention run finished', { deletedFiles, clearedMeetings, archived: archivedMeetings?.length || 0 });
+
   return NextResponse.json({
     ok: true,
     deletedAudioFiles: deletedFiles,
-    clearedSegments: deletedSegments,
+    clearedMeetings,
     archivedMeetings: archivedMeetings?.length || 0,
     reminders,
     errors: archiveError ? [archiveError.message] : [],

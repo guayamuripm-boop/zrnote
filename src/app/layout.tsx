@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Poppins } from 'next/font/google';
 import './globals.css';
+import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -12,15 +13,21 @@ const poppins = Poppins({
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  themeColor: '#1e1b4b',
+  // Zoom stays enabled: blocking it breaks the app for anyone who needs larger
+  // text, and it is not needed to prevent the iOS focus-zoom (the inputs
+  // already use a 16px base size).
+  themeColor: '#2563eb',
 };
 
 export const metadata: Metadata = {
   title: 'ZRNote — Minutas Inteligentes | ZR Mecacademy',
   description: 'Sistema de minutas automáticas para ZR Mecacademy. Graba, transcribe, genera minutas y envía action items.',
   manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    title: 'ZRNote',
+    statusBarStyle: 'default',
+  },
 };
 
 export default function RootLayout({
@@ -42,7 +49,10 @@ export default function RootLayout({
           })()
         ` }} />
       </head>
-      <body className={`${poppins.variable} font-sans`}>{children}</body>
+      <body className={`${poppins.variable} font-sans`}>
+        <ServiceWorkerRegistrar />
+        {children}
+      </body>
     </html>
   );
 }

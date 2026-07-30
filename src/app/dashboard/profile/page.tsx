@@ -39,6 +39,41 @@ export default async function ProfilePage() {
           <ThemeToggle />
         </div>
 
+        {/* Data rights. `/api/user/export` existed since day one but had no UI,
+            so nobody could actually exercise the right to portability. */}
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
+          <h2 className="text-sm font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+            Tus datos
+          </h2>
+          <a
+            href="/api/user/export"
+            className="block w-full text-center glass border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 py-3 rounded-xl font-medium hover:bg-white/80 dark:hover:bg-white/5 transition-all"
+          >
+            Descargar todos mis datos
+          </a>
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            Archivo JSON con tus reuniones, minutas y compromisos. El audio se borra
+            automáticamente a los 30 días.
+          </p>
+        </div>
+
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-2">
+          <h2 className="text-sm font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+            Legal
+          </h2>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <Link href="/legal/consentimiento" className="text-blue-600 dark:text-blue-400 hover:underline">
+              Consentimiento de grabación
+            </Link>
+            <Link href="/legal/terminos" className="text-blue-600 dark:text-blue-400 hover:underline">
+              Condiciones de uso
+            </Link>
+            <Link href="/legal/privacidad" className="text-blue-600 dark:text-blue-400 hover:underline">
+              Aviso de privacidad
+            </Link>
+          </div>
+        </div>
+
         <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
           <form action="/api/auth/signout" method="post">
             <button

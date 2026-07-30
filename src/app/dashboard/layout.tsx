@@ -3,6 +3,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import ThemeToggle from '@/components/ThemeToggle';
 import { VersionLogger } from '@/components/VersionLogger';
 import { VERSION, COMMIT_SHA } from '@/lib/version';
+import TermsGate from '@/components/legal/TermsGate';
 
 export default async function DashboardLayout({
   children,
@@ -15,6 +16,7 @@ export default async function DashboardLayout({
   return (
     <div className="min-h-screen gradient-mesh">
       <VersionLogger version={`ZRNote v${VERSION}`} commitSha={COMMIT_SHA} />
+      <TermsGate />
       {/* Desktop Nav */}
       <nav className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl sticky top-0 z-50 border-b border-slate-200/50 dark:border-slate-700/50 hidden sm:block">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -67,6 +69,25 @@ export default async function DashboardLayout({
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-24 sm:pb-8">
         {children}
       </main>
+
+      <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24 sm:pb-8 text-center">
+        <p className="text-[11px] text-slate-400 dark:text-slate-500">
+          Las minutas las genera una IA y pueden contener errores: revísalas antes de compartirlas.
+        </p>
+        <div className="flex items-center justify-center gap-3 text-[11px] mt-1.5">
+          <Link href="/legal/consentimiento" className="text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition">
+            Consentimiento
+          </Link>
+          <span className="text-slate-300 dark:text-slate-600">·</span>
+          <Link href="/legal/terminos" className="text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition">
+            Condiciones
+          </Link>
+          <span className="text-slate-300 dark:text-slate-600">·</span>
+          <Link href="/legal/privacidad" className="text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition">
+            Privacidad
+          </Link>
+        </div>
+      </footer>
 
       {/* Mobile Bottom Bar */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-200/50 dark:border-slate-700/50">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface Participant {
   name: string;
@@ -9,9 +10,10 @@ interface Participant {
 
 interface ActionItem {
   id: string;
-  assignee_name: string;
+  assignee_name: string | null;
+  assignee_email?: string | null;
   description: string;
-  priority: string;
+  priority: string | null;
   due_date: string | null;
 }
 
@@ -28,66 +30,95 @@ export default function AssignActionItems({
   participants,
   onAssigned,
 }: AssignActionItemsProps) {
-  const [assignments, setAssignments] = useState<Record<string, string>>(
-    () => Object.fromEntries(actionItems.map((i) => [i.id, '']))
+  const router = useRouter();
+  // Pre-select what is already assigned. This used to always start empty, so
+  // every visit showed "Sin asignar" even right after saving, and saving again
+  // silently wiped nothing but looked broken.
+  const [assignments, setAssignments] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      actionItems.map((i) => {
+        const match = participants.find(
+          (p) =>
+            (i.assignee_email && p.email.toLowerCase() === i.assignee_email.toLowerCase()) ||
+            (i.assignee_name && p.name.toLowerCase() === i.assignee_name.toLowerCase()),
+        );
+        return [i.id, match?.email ?? ''];
+      }),
+    ),
   );
   const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   const handleAssign = (itemId: string, participantKey: string) => {
     setAssignments((prev) => ({ ...prev, [itemId]: participantKey }));
   };
 
+  const persistAssignments = async (): Promise<boolean> => {
+    const assignmentList = Object.entries(assignments).map(([actionItemId, email]) => {
+      const participant = participants.find((p) => p.email === email);
+      return {
+        action_item_id: actionItemId,
+        assignee_name: email ? participant?.name || email.split('@')[0] : null,
+        assignee_email: email || null,
+      };
+    });
+
+    const res = await fetch(`/api/meetings/${meetingId}/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignments: assignmentList }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setResult({ kind: 'error', text: data.error || 'No se pudieron guardar las asignaciones.' });
+      return false;
+    }
+    return true;
+  };
+
+  // Saving who is responsible and e-mailing everyone are two different
+  // intentions; forcing them into one button meant you could not fix an
+  // assignment without spamming the whole team again.
   const handleSave = async () => {
     setSaving(true);
     setResult(null);
-
-    const assignmentList = Object.entries(assignments)
-      .filter(([_, email]) => email !== '')
-      .map(([actionItemId, email]) => {
-        const participant = participants.find((p) => p.email === email);
-        return {
-          action_item_id: actionItemId,
-          assignee_name: participant?.name || email.split('@')[0],
-          assignee_email: email,
-        };
-      });
-
-    if (assignmentList.length > 0) {
-      const assignRes = await fetch(`/api/meetings/${meetingId}/assign`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignments: assignmentList }),
-      });
-      if (!assignRes.ok) {
-        setResult('Error al guardar asignaciones');
-        setSaving(false);
-        return;
-      }
+    const ok = await persistAssignments();
+    if (ok) {
+      setResult({ kind: 'ok', text: 'Responsables guardados.' });
+      router.refresh();
+      onAssigned?.();
     }
-
-    const emailRes = await fetch(`/api/meetings/${meetingId}/send-emails`, {
-      method: 'POST',
-    });
-    const emailData = await emailRes.json();
-
-    if (emailRes.ok && emailData.results) {
-      const sent = emailData.results.filter((r: string) => r.includes('enviado')).length;
-      const failed = emailData.results.filter((r: string) => r.includes('error')).length;
-      setResult(
-        failed > 0
-          ? `${sent} enviados, ${failed} fallaron`
-          : `${sent} correo${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''}`
-      );
-    } else {
-      setResult(`Error: ${emailData.error || 'desconocido'}`);
-    }
-
     setSaving(false);
+  };
+
+  const handleSaveAndSend = async () => {
+    setSending(true);
+    setResult(null);
+    const ok = await persistAssignments();
+    if (!ok) {
+      setSending(false);
+      return;
+    }
+
+    const emailRes = await fetch(`/api/meetings/${meetingId}/send-emails`, { method: 'POST' });
+    const emailData = await emailRes.json().catch(() => ({}));
+
+    if (!emailRes.ok) {
+      setResult({ kind: 'error', text: emailData.error || 'No se pudieron enviar los correos.' });
+    } else if (emailData.failed > 0) {
+      setResult({ kind: 'error', text: `${emailData.sent} enviado(s), ${emailData.failed} con error.` });
+    } else {
+      setResult({ kind: 'ok', text: `${emailData.sent} correo(s) enviado(s).` });
+    }
+
+    setSending(false);
+    router.refresh();
     onAssigned?.();
   };
 
   const unassignedCount = Object.values(assignments).filter((v) => v === '').length;
+  const busy = saving || sending;
 
   return (
     <div className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated space-y-4">
@@ -135,26 +166,27 @@ export default function AssignActionItems({
             ? `${unassignedCount} tarea${unassignedCount !== 1 ? 's' : ''} sin asignar`
             : 'Todas asignadas'}
         </p>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="gradient-primary text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 disabled:opacity-50"
-        >
-          {saving ? (
-            <span className="inline-flex items-center gap-2">
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Guardando...
-            </span>
-          ) : 'Guardar y enviar correos'}
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            onClick={handleSave}
+            disabled={busy}
+            className="glass border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-white/80 dark:hover:bg-white/5 transition disabled:opacity-50"
+          >
+            {saving ? 'Guardando…' : 'Guardar'}
+          </button>
+          <button
+            onClick={handleSaveAndSend}
+            disabled={busy}
+            className="gradient-primary text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 disabled:opacity-50"
+          >
+            {sending ? 'Enviando…' : 'Guardar y enviar correos'}
+          </button>
+        </div>
       </div>
 
       {result && (
-        <p className={`text-sm font-medium ${result.includes('Error') || result.includes('fallaron') ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-          {result}
+        <p className={`text-sm font-medium ${result.kind === 'error' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+          {result.text}
         </p>
       )}
     </div>

@@ -1,113 +1,106 @@
 import Link from 'next/link';
-import { FileText, Shield, Cookie } from 'lucide-react';
+
+export const metadata = {
+  title: 'Documentos legales — ZRNote',
+};
+
+const DOCUMENTS = [
+  {
+    slug: 'consentimiento',
+    emoji: '🎙️',
+    title: 'Consentimiento de grabación',
+    description: 'Lo que tienes que decir y hacer antes de grabar. Empieza por aquí.',
+    highlight: true,
+  },
+  {
+    slug: 'terminos',
+    emoji: '📄',
+    title: 'Condiciones de uso',
+    description: 'Qué puedes hacer con ZRNote, qué no, y de qué no nos hacemos responsables.',
+  },
+  {
+    slug: 'privacidad',
+    emoji: '🔒',
+    title: 'Aviso de privacidad',
+    description: 'Qué datos se guardan, quién los procesa y cuánto tiempo se conservan.',
+  },
+  {
+    slug: 'cookies',
+    emoji: '🍪',
+    title: 'Política de cookies',
+    description: 'Solo las estrictamente necesarias. Sin publicidad ni rastreadores.',
+  },
+];
 
 export default function LegalPage() {
-  const documents = [
-    {
-      slug: 'terms',
-      title: 'Términos de Servicio',
-      description: 'Condiciones de uso, limitaciones y consentimiento de grabación',
-      icon: FileText,
-    },
-    {
-      slug: 'privacy',
-      title: 'Política de Privacidad',
-      description: 'Cómo recopilamos, usamos y protegemos tus datos',
-      icon: Shield,
-    },
-    {
-      slug: 'cookies',
-      title: 'Política de Cookies',
-      description: 'Información sobre cookies y tecnologías de seguimiento',
-      icon: Cookie,
-    },
-  ];
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
-      {/* Header */}
-      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
-        <div className="max-w-4xl mx-auto px-4 py-12">
-          <div className="flex items-center gap-3 mb-4">
-            <Shield className="w-8 h-8 text-blue-600" />
-            <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-              Documentos Legales
-            </h1>
-          </div>
-          <p className="text-slate-600 dark:text-slate-300">
-            Información importante sobre cómo usamos ZRNote de forma segura y legal
+    <div className="min-h-screen gradient-mesh">
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-700/60">
+        <div className="max-w-3xl mx-auto px-4 py-8">
+          <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
+            <div className="w-9 h-9 gradient-primary rounded-xl flex items-center justify-center shadow-lg">
+              <span className="text-white font-bold text-sm">ZR</span>
+            </div>
+            <span className="text-slate-900 dark:text-slate-100 font-bold">ZRNote</span>
+          </Link>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">
+            Documentos legales
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+            Escritos en lenguaje claro. Léelos una vez: son cortos.
           </p>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-4xl mx-auto px-4 py-12">
-        {/* Important Notice */}
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-6 mb-12">
-          <h2 className="text-lg font-semibold text-amber-900 dark:text-amber-200 mb-2">
-            ⚠️ Importante: Consentimiento de Grabación
+      <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12 space-y-8">
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700/50 rounded-2xl p-5 sm:p-6">
+          <h2 className="font-semibold text-amber-900 dark:text-amber-200 flex items-center gap-2">
+            ⚠️ Lo único que de verdad tienes que recordar
           </h2>
-          <p className="text-amber-800 dark:text-amber-300 text-sm mb-3">
-            <strong>ANTES de usar ZRNote para grabar reuniones, debes:</strong>
+          <p className="text-sm text-amber-800 dark:text-amber-300/90 mt-2 leading-relaxed">
+            <strong>Avisa siempre, en voz alta, que estás grabando, y espera a que todos digan que
+            sí.</strong> En Venezuela y en la mayoría de países, grabar una conversación sin el
+            consentimiento de todos los participantes es un delito con pena de cárcel, no una
+            formalidad. ZRNote no puede verificarlo: la responsabilidad es de quien graba.
           </p>
-          <ul className="list-disc list-inside space-y-2 text-amber-800 dark:text-amber-300 text-sm">
-            <li>Obtener consentimiento escrito/verbal de TODOS los participantes</li>
-            <li>Informarles que estás grabando y cómo se usará la grabación</li>
-            <li>Verificar las leyes de grabación en tu jurisdicción (varían mucho)</li>
-            <li>En muchas regiones, grabar sin consentimiento es DELITO</li>
-            <li>ZRNote NO es responsable de violaciones legales de grabación</li>
-          </ul>
         </div>
 
-        {/* Documents Grid */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-12">
-          {documents.map((doc) => {
-            const Icon = doc.icon;
-            return (
-              <Link
-                key={doc.slug}
-                href={`/legal/${doc.slug}`}
-                className="group bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-6 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 transition-all"
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <Icon className="w-6 h-6 text-blue-600 group-hover:scale-110 transition-transform" />
-                  <h3 className="font-semibold text-slate-900 dark:text-white group-hover:text-blue-600">
-                    {doc.title}
-                  </h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {DOCUMENTS.map((doc) => (
+            <Link
+              key={doc.slug}
+              href={`/legal/${doc.slug}`}
+              className={`glass-strong rounded-2xl p-5 hover:shadow-elevated transition-all duration-300 hover:-translate-y-0.5 ${
+                doc.highlight ? 'ring-1 ring-amber-300 dark:ring-amber-700/60 sm:col-span-2' : ''
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <span className="text-2xl leading-none">{doc.emoji}</span>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-slate-900 dark:text-slate-100">{doc.title}</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{doc.description}</p>
                 </div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  {doc.description}
-                </p>
-                <div className="mt-4 text-blue-600 font-medium text-sm group-hover:text-blue-700">
-                  Leer más →
-                </div>
-              </Link>
-            );
-          })}
+              </div>
+            </Link>
+          ))}
         </div>
 
-        {/* Contact Section */}
-        <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-8 text-center">
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">
-            ¿Preguntas sobre privacidad o legal?
-          </h2>
-          <p className="text-slate-600 dark:text-slate-400 mb-4">
-            Contacta a nuestro equipo de privacidad para consultas
+        <div className="glass rounded-2xl p-5 text-center">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            ¿Preguntas sobre privacidad o quieres que borremos una grabación?
           </p>
           <a
-            href="mailto:zriagnosis@gmail.com"
-            className="inline-flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+            href="mailto:zr.coordinacion.tecnologia@gmail.com"
+            className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline"
           >
-            📧 Enviar Email
+            zr.coordinacion.tecnologia@gmail.com
           </a>
         </div>
 
-        {/* Footer Note */}
-        <div className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-700">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Última actualización: 25 de julio de 2026 | Versión de documentos: 1.0
-          </p>
-        </div>
+        <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
+          ZRNote está en fase de prueba. Estos textos describen cómo funciona hoy y no sustituyen la
+          asesoría de un abogado.
+        </p>
       </div>
     </div>
   );

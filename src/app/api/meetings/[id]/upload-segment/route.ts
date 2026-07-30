@@ -1,6 +1,6 @@
-import { createServerSupabase } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { getAuthedUser } from '@/lib/api-auth';
 
 const ALLOWED_TYPES: Record<string, string> = {
   'audio/webm': 'webm',
@@ -27,12 +27,12 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
+  // Cookie (web app) or bearer token (Chrome extension).
+  const auth = await getAuthedUser(request);
+  if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const { user, supabase } = auth;
 
   const formData = await request.formData();
   const audioFile = formData.get('audio') as File;
@@ -88,11 +88,19 @@ export async function POST(
     status: 'uploaded',
     speaker_hint: speakerHint || null,
   });
+  // Keep the array ordered: the transcript is concatenated in array order.
+  filtered.sort((a: any, b: any) => (a.segment_index ?? 0) - (b.segment_index ?? 0));
 
-  await supabase
+  const { error: saveError } = await supabase
     .from('meetings')
     .update({ audio_segments: filtered })
     .eq('id', params.id);
+
+  // The client retries on a non-2xx, so a lost write must NOT report success —
+  // otherwise the segment file exists in Storage but nothing points to it.
+  if (saveError) {
+    return NextResponse.json({ error: saveError.message }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true, r2Key });
 }

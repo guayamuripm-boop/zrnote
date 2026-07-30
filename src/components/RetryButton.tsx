@@ -2,78 +2,42 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-const STEPS = ['transcribe', 'analyze', 'vectorize', 'emails'] as const;
+import { runMeetingPipeline } from '@/lib/pipeline-client';
 
 export default function RetryButton({ meetingId }: { meetingId: string }) {
   const [loading, setLoading] = useState(false);
   const [stepMsg, setStepMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const router = useRouter();
 
-  const runPipeline = async (attempt = 1): Promise<void> => {
-    // First reset status via /finalize
+  const handleRetry = async (attempt = 1): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    setWarning(null);
+
+    // Reset the status via /finalize first.
     const finalizeRes = await fetch(`/api/meetings/${meetingId}/finalize`, { method: 'POST' });
     if (!finalizeRes.ok) {
       const data = await finalizeRes.json().catch(() => ({}));
-      // The server's short "is this still genuinely in flight?" lock (see
-      // finalize/route.ts) can still be hit right after an interruption.
-      // Instead of stranding the user on a dead error, wait it out once and
-      // retry automatically — a single /process step is capped at 60s, so
-      // the wait is short and bounded.
+      // The server's short "is this still genuinely in flight?" lock can be hit
+      // right after an interruption. Wait it out instead of stranding the user.
       if (data.retryAfterSec && attempt < 3) {
-        setStepMsg(`Reintentando en ${data.retryAfterSec}s...`);
+        setStepMsg(`Reintentando en ${data.retryAfterSec}s…`);
         await new Promise((r) => setTimeout(r, (data.retryAfterSec + 1) * 1000));
-        return runPipeline(attempt + 1);
+        return handleRetry(attempt + 1);
       }
-      setError('Error al reiniciar: ' + (data.error || 'desconocido'));
+      setError(data.error || 'No se pudo reiniciar el procesamiento.');
       setLoading(false);
       return;
     }
 
-    // Then run pipeline steps, auto-detecting where to start (with batch loop for transcribe)
-    for (const step of STEPS) {
-      setStepMsg(step === 'transcribe' ? 'Transcribiendo...' : step === 'analyze' ? 'Generando minuta...' : step === 'vectorize' ? 'Indexando...' : 'Enviando correos...');
-
-      let failure: string | null = null;
-      let more = false;
-      do {
-        const res = await fetch(`/api/meetings/${meetingId}/process`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ step }),
-        });
-        const data = await res.json().catch(() => ({}));
-
-        // A step reporting ok:false (or HTTP error) is a real failure — surface it
-        // instead of marching on. "Invalid status"/"Run ..." just mean this step
-        // isn't applicable yet, so skip to the next one.
-        if (!res.ok || data.ok === false) {
-          if (data.error?.includes('Invalid status') || data.error?.includes('Run')) break;
-          failure = data.error || 'Error desconocido durante el procesamiento';
-          break;
-        }
-        more = step === 'transcribe' ? (data.more || false) : false;
-        await new Promise(r => setTimeout(r, 300));
-      } while (more);
-
-      // Emails failing must not discard a good minute; every other step is fatal.
-      if (failure && step !== 'emails') {
-        setError('No se pudo completar: ' + failure);
-        setLoading(false);
-        router.refresh();
-        return;
-      }
-    }
+    const result = await runMeetingPipeline(meetingId, (p) => setStepMsg(p.label));
 
     setLoading(false);
+    if (!result.ok) setError(result.error || 'No se pudo completar el procesamiento.');
+    else if (result.warning) setWarning(result.warning);
     router.refresh();
-  };
-
-  const handleRetry = async () => {
-    setLoading(true);
-    setError(null);
-    await runPipeline();
   };
 
   return (
@@ -83,8 +47,13 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
           <p className="text-xs text-rose-600 dark:text-rose-400 break-words">{error}</p>
         </div>
       )}
+      {warning && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 text-left">
+          <p className="text-xs text-amber-700 dark:text-amber-400 break-words">{warning}</p>
+        </div>
+      )}
       <button
-        onClick={handleRetry}
+        onClick={() => handleRetry()}
         disabled={loading}
         className="gradient-primary text-white px-6 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 disabled:opacity-50 inline-flex items-center gap-2"
       >
@@ -94,7 +63,7 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            {stepMsg}
+            {stepMsg || 'Procesando…'}
           </>
         ) : (
           <>

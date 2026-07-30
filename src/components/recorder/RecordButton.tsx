@@ -2,9 +2,15 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { maybeCompressAudio } from '@/lib/audio-compression';
+import { runMeetingPipeline, PipelineStep, STEP_LABELS } from '@/lib/pipeline-client';
+import {
+  backgroundRecordingSupport,
+  startBackgroundKeepAlive,
+  type BackgroundCapability,
+} from '@/lib/background-audio';
 
 type RecordingState = 'idle' | 'recording' | 'paused' | 'uploading' | 'finalizing' | 'processing';
-type ProcessingStep = 'transcribe' | 'analyze' | 'vectorize' | 'emails';
+type ProcessingStep = PipelineStep;
 
 interface RecordButtonProps {
   meetingId: string;
@@ -12,9 +18,11 @@ interface RecordButtonProps {
   onFinalized?: () => void;
 }
 
-const SEGMENT_DURATION_MS = 30 * 1000;
-const POLL_INTERVAL_MS = 3000;
-const MAX_POLL_ATTEMPTS = 120;
+// One segment = one full MediaRecorder session (start→stop), so every uploaded
+// file is independently decodable. 60s instead of 30s halves the number of
+// Whisper calls and gives the model more context per call, while staying far
+// under the 4MB upload cap (60s @128kbps ≈ 1MB).
+const SEGMENT_DURATION_MS = 60 * 1000;
 
 export default function RecordButton({ meetingId, meetingTitle, onFinalized }: RecordButtonProps) {
   // Force fresh deploy: 2026-07-18
@@ -22,17 +30,27 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const [elapsed, setElapsed] = useState(0);
   const [segmentCount, setSegmentCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [wakeLockActive, setWakeLockActive] = useState(false);
   const [processingStep, setProcessingStep] = useState<ProcessingStep | null>(null);
-  const [processingProgress, setProcessingProgress] = useState(0);
   const [processingMessage, setProcessingMessage] = useState('');
   const [failedSegments, setFailedSegments] = useState(0);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [background, setBackground] = useState<BackgroundCapability | null>(null);
+  // Uploads keep failing (or not) AFTER finalizeRecording() captured its render
+  // closure, so the count has to be read from a ref, not from state.
+  const failedSegmentsRef = useRef(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const segmentTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const stopKeepAliveRef = useRef<(() => void) | null>(null);
+  // Wall-clock anchors. Counting `setInterval` ticks loses time whenever the
+  // browser throttles timers (which is exactly what happens with the screen
+  // off), so both the elapsed display and the pause bookkeeping are derived
+  // from timestamps instead.
+  const recordingStartedAtRef = useRef<number>(0);
+  const pausedTotalMsRef = useRef(0);
+  const pausedAtRef = useRef<number>(0);
   const pendingUploadsRef = useRef<Promise<void>[]>([]);
   // Serializes segment uploads so the server-side read-modify-write of
   // meetings.audio_segments never races (concurrent uploads = lost segments).
@@ -42,10 +60,14 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const shouldRestartRef = useRef(false);
   const finalizeResolveRef = useRef<(() => void) | null>(null);
   const segmentCountRef = useRef(0);
+  // Where THIS session's segment numbering starts. A meeting that already holds
+  // audio (e.g. a failed run the user is recording again, or a second take)
+  // must not have its existing segments overwritten by a fresh 0,1,2…
+  const baseSegmentIndexRef = useRef(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const isRecordingRef = useRef(false);
+  const rotateSegmentRef = useRef<(() => void) | null>(null);
   const meetingIdRef = useRef(meetingId);
-  const pollAttemptsRef = useRef(0);
   const segmentStartTimeRef = useRef<number>(Date.now());
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -103,9 +125,21 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   };
 
+  // `ondataavailable` is driven by the MEDIA pipeline, not by a JS timer, so it
+  // keeps firing on schedule even when the page is hidden and timers are being
+  // throttled to ~1/min. That makes it the only reliable clock for closing a
+  // segment while the phone screen is off — with `setInterval` the rotation
+  // simply stopped happening, and the "segment" grew until it blew past the
+  // 4MB upload cap and was lost.
   const handleDataAvailable = useCallback((event: BlobEvent) => {
     if (event.data.size > 0) {
       chunksRef.current.push(event.data);
+    }
+    if (
+      isRecordingRef.current &&
+      Date.now() - segmentStartTimeRef.current >= SEGMENT_DURATION_MS
+    ) {
+      rotateSegmentRef.current?.();
     }
   }, []);
 
@@ -115,7 +149,8 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     const run = () =>
       uploadSegment(blob, index, durationSec).catch((err) => {
         console.error(`Segment ${index} upload failed after retries:`, err);
-        setFailedSegments((prev) => prev + 1);
+        failedSegmentsRef.current += 1;
+        setFailedSegments(failedSegmentsRef.current);
       });
     uploadChainRef.current = uploadChainRef.current.then(run);
     pendingUploadsRef.current.push(uploadChainRef.current);
@@ -131,7 +166,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     chunksRef.current = [];
     if (blob.size === 0) return;
 
-    const index = segmentCountRef.current;
+    const index = baseSegmentIndexRef.current + segmentCountRef.current;
     const durationSec = Math.round((Date.now() - segmentStartTimeRef.current) / 1000);
     segmentStartTimeRef.current = Date.now();
     segmentCountRef.current++;
@@ -184,20 +219,24 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   }, []);
 
+  // handleDataAvailable is created before rotateSegment and must not capture a
+  // stale copy of it; the ref breaks the cycle.
+  rotateSegmentRef.current = rotateSegment;
+
   const requestWakeLock = async () => {
     try {
       if ('wakeLock' in navigator) {
         const wakeLock = await navigator.wakeLock.request('screen');
         wakeLockRef.current = wakeLock;
-        setWakeLockActive(true);
+        /* wake lock state is tracked via wakeLockRef */
 
         wakeLock.addEventListener('release', () => {
-          setWakeLockActive(false);
+          /* wake lock state is tracked via wakeLockRef */
         });
       }
     } catch (err) {
       console.log('Wake Lock not supported or denied:', err);
-      setWakeLockActive(false);
+      /* wake lock state is tracked via wakeLockRef */
     }
   };
 
@@ -205,28 +244,22 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     if (wakeLockRef.current) {
       await wakeLockRef.current.release();
       wakeLockRef.current = null;
-      setWakeLockActive(false);
-    }
-  };
-
-  const setupMediaSession = () => {
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: meetingTitle || 'ZRNote Grabación',
-        artist: 'ZRNote',
-        album: 'Grabación en curso',
-      });
-
-      navigator.mediaSession.setActionHandler('pause', () => pauseRecording());
-      navigator.mediaSession.setActionHandler('play', () => resumeRecording());
+      /* wake lock state is tracked via wakeLockRef */
     }
   };
 
   const handleVisibilityChange = useCallback(async () => {
     if (document.visibilityState === 'hidden' && isRecordingRef.current) {
-      console.log('Page hidden - closing current segment');
-      rotateSegment();
+      // Close the current segment so whatever has been captured so far is
+      // already safe on the server — but only if it holds enough audio to be
+      // worth a file. Rotating on a segment that just started would produce a
+      // sub-second clip that the server discards as "too small".
+      if (Date.now() - segmentStartTimeRef.current > 5000) {
+        rotateSegment();
+      }
     } else if (document.visibilityState === 'visible' && isRecordingRef.current) {
+      // The screen wake lock is dropped by the browser whenever the document
+      // stops being visible, so it has to be taken again on the way back.
       if (!wakeLockRef.current) {
         await requestWakeLock();
       }
@@ -338,6 +371,21 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
   const startRecording = async () => {
     try {
+      // Ask the server where our numbering starts before capturing anything.
+      // Failing this is not fatal — worst case we start at 0 on a meeting that
+      // has no audio, which is the normal case anyway.
+      try {
+        const res = await fetch(`/api/meetings/${meetingIdRef.current}/direct-upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phase: 'begin' }),
+        });
+        const data = await res.json().catch(() => ({}));
+        baseSegmentIndexRef.current = res.ok ? Number(data.nextIndex) || 0 : 0;
+      } catch {
+        baseSegmentIndexRef.current = 0;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -370,37 +418,56 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       uploadChainRef.current = Promise.resolve();
       shouldRestartRef.current = false;
       finalizeResolveRef.current = null;
+      failedSegmentsRef.current = 0;
       setSegmentCount(0);
       setFailedSegments(0);
       setElapsed(0);
       setError(null);
+      setWarning(null);
       isRecordingRef.current = true;
 
       // Start the first segment recorder. Each segment is a full recorder
       // session (stop/restart), so every uploaded file is independently decodable.
+      recordingStartedAtRef.current = Date.now();
+      pausedTotalMsRef.current = 0;
+      pausedAtRef.current = 0;
+
+      // The recorder emits a chunk every second; that event is what closes a
+      // segment (see handleDataAvailable) — no JS timer is involved, so the
+      // rotation keeps working with the screen off.
       startNewRecorder();
       mediaRecorderRef.current?.start(1000);
 
-      segmentTimerRef.current = setInterval(() => {
-        if (isRecordingRef.current) {
-          rotateSegment();
-        }
-      }, SEGMENT_DURATION_MS);
-
+      // Purely cosmetic: the displayed time is RECOMPUTED from timestamps, so
+      // even if this tick is throttled to once a minute the clock stays right.
       timerRef.current = setInterval(() => {
-        setElapsed((prev) => prev + 1);
+        setElapsed(
+          Math.floor(
+            (Date.now() - recordingStartedAtRef.current - pausedTotalMsRef.current) / 1000,
+          ),
+        );
       }, 1000);
 
       setState('recording');
 
       await requestWakeLock();
-      setupMediaSession();
+      // Started from within the click handler, so the browser accepts the
+      // silent-audio playback that keeps the tab alive in the background.
+      stopKeepAliveRef.current = startBackgroundKeepAlive({
+        title: meetingTitle || 'Grabando reunión',
+        onPause: () => pauseRecording(),
+        onResume: () => resumeRecording(),
+      });
 
       document.addEventListener('visibilitychange', handleVisibilityChange);
 
     } catch (err) {
       console.error('Error starting recording:', err);
-      setError('No se pudo acceder al micrófono. Verifica los permisos.');
+      setError(
+        err instanceof DOMException && err.name === 'NotAllowedError'
+          ? 'No diste permiso para usar el micrófono. Actívalo en los ajustes del navegador y vuelve a intentarlo.'
+          : 'No se pudo acceder al micrófono. Verifica que ninguna otra app lo esté usando.',
+      );
     }
   };
 
@@ -408,9 +475,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.pause();
       isRecordingRef.current = false;
+      pausedAtRef.current = Date.now();
       stopVisualizer();
       if (timerRef.current) clearInterval(timerRef.current);
-      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
+      try {
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+      } catch { /* best effort */ }
       setState('paused');
     }
   };
@@ -420,15 +490,27 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       mediaRecorderRef.current.resume();
       isRecordingRef.current = true;
 
+      // Discount the paused stretch so the elapsed clock stays honest, and
+      // push the segment deadline forward so the pause does not instantly
+      // trigger a rotation on the next chunk.
+      if (pausedAtRef.current) {
+        const pausedMs = Date.now() - pausedAtRef.current;
+        pausedTotalMsRef.current += pausedMs;
+        segmentStartTimeRef.current += pausedMs;
+        pausedAtRef.current = 0;
+      }
+
       timerRef.current = setInterval(() => {
-        setElapsed((prev) => prev + 1);
+        setElapsed(
+          Math.floor(
+            (Date.now() - recordingStartedAtRef.current - pausedTotalMsRef.current) / 1000,
+          ),
+        );
       }, 1000);
 
-      segmentTimerRef.current = setInterval(() => {
-        if (isRecordingRef.current) {
-          rotateSegment();
-        }
-      }, SEGMENT_DURATION_MS);
+      try {
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+      } catch { /* best effort */ }
 
       setState('recording');
     }
@@ -437,7 +519,8 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const finalizeRecording = async () => {
     isRecordingRef.current = false;
     if (timerRef.current) clearInterval(timerRef.current);
-    if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
+    stopKeepAliveRef.current?.();
+    stopKeepAliveRef.current = null;
     document.removeEventListener('visibilitychange', handleVisibilityChange);
 
     // Final stop: do NOT restart. The recorder's onstop collects the last
@@ -463,90 +546,47 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     await uploadChainRef.current.catch(() => {});
     await Promise.allSettled(pendingUploadsRef.current);
 
-    if (failedSegments > 0) {
-      setError(`${failedSegments} segmento(s) de audio no se pudieron subir. La minuta puede quedar incompleta.`);
+    if (segmentCountRef.current === 0) {
+      setError('No se capturó audio. Revisa que el micrófono tenga permiso y vuelve a grabar.');
+      setState('idle');
+      return;
+    }
+
+    if (failedSegmentsRef.current > 0) {
+      setWarning(
+        `${failedSegmentsRef.current} fragmento(s) de audio no se pudieron subir. La minuta puede quedar incompleta.`,
+      );
     }
 
     setState('processing');
     setProcessingStep('transcribe');
-    setProcessingProgress(0);
-    setProcessingMessage('Transcribiendo audio...');
-    pollAttemptsRef.current = 0;
+    setProcessingMessage('Transcribiendo el audio…');
 
-    const processSteps: ProcessingStep[] = ['transcribe', 'analyze', 'vectorize', 'emails'];
-    const stepMessages: Record<ProcessingStep, string> = {
-      transcribe: 'Transcribiendo audio...',
-      analyze: 'Generando minuta con IA...',
-      vectorize: 'Indexando para búsqueda inteligente...',
-      emails: 'Enviando correos...',
-    };
+    const result = await runMeetingPipeline(meetingIdRef.current, (p) => {
+      setProcessingStep(p.step);
+      setProcessingMessage(
+        p.segmentsTotal ? `${p.label} (${p.segmentsProcessed}/${p.segmentsTotal})` : p.label,
+      );
+    });
 
-    for (const step of processSteps) {
-      setProcessingStep(step);
-      setProcessingMessage(stepMessages[step]);
-      setProcessingProgress(0);
-      pollAttemptsRef.current = 0;
-
-      const stepResult = await pollProcessingStep(meetingIdRef.current, step);
-      
-      if (!stepResult.ok) {
-        setError(stepResult.error || `Error en paso: ${step}`);
-        setState('idle');
-        setProcessingStep(null);
-        return;
-      }
-      
-      setProcessingProgress(100);
-      await new Promise((r) => setTimeout(r, 500));
+    if (!result.ok) {
+      setError(result.error || 'No se pudo procesar la grabación.');
+      setState('idle');
+      setProcessingStep(null);
+      return;
     }
 
+    if (result.warning) setWarning(result.warning);
     setProcessingStep(null);
-    setProcessingMessage('¡Completado!');
+    setProcessingMessage('¡Listo!');
     onFinalized?.();
   };
 
-  const pollProcessingStep = async (meetingId: string, step: ProcessingStep): Promise<{ ok: boolean; error?: string }> => {
-    while (pollAttemptsRef.current < MAX_POLL_ATTEMPTS) {
-      pollAttemptsRef.current++;
-      const progress = Math.min(90, (pollAttemptsRef.current / MAX_POLL_ATTEMPTS) * 90);
-      setProcessingProgress(progress);
-
-      try {
-        const res = await fetch(`/api/meetings/${meetingId}/process`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ step }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ok) {
-            if (data.more) {
-              const segmentsMsg = data.segmentsTotal ? ` (${data.segmentsProcessed}/${data.segmentsTotal})` : '';
-              setProcessingMessage(`Transcribiendo audio...${segmentsMsg}`);
-              await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-              continue;
-            }
-            return { ok: true };
-          }
-          if (data.error?.includes('Invalid status') || data.error?.includes('Run transcribe step first')) {
-            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-            continue;
-          }
-          return { ok: false, error: data.error || `Step ${step} failed` };
-        }
-
-        const errData = await res.json().catch(() => ({}));
-        return { ok: false, error: errData.error || `HTTP ${res.status}` };
-      } catch (err) {
-        return { ok: false, error: 'Error de conexión' };
-      }
-
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    }
-
-    return { ok: false, error: `Timeout en paso: ${step}` };
-  };
+  // Device capabilities depend on the user agent, so this can only run in the
+  // browser (never during SSR).
+  useEffect(() => {
+    setBackground(backgroundRecordingSupport());
+  }, []);
 
   useEffect(() => {
     if (state === 'recording' && streamRef.current && canvasRef.current) {
@@ -567,7 +607,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       if (sourceRef.current) sourceRef.current.disconnect();
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') audioContextRef.current.close();
       if (timerRef.current) clearInterval(timerRef.current);
-      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
+      stopKeepAliveRef.current?.();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       releaseWakeLock();
 
@@ -598,6 +638,43 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         </div>
       )}
 
+      {warning && (
+        <div className="w-full max-w-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-xl p-4 flex items-start gap-3">
+          <span className="text-lg leading-none">⚠️</span>
+          <p className="flex-1 text-amber-700 dark:text-amber-400 text-sm">{warning}</p>
+          <button onClick={() => setWarning(null)} className="text-amber-400 hover:text-amber-600 transition">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Say up front what this device can do, instead of letting the user find
+          out by losing a meeting. */}
+      {state === 'idle' && background && background.message && (
+        <div
+          className={`w-full max-w-md rounded-xl p-4 flex items-start gap-3 ${
+            background.level === 'unsupported'
+              ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40'
+              : 'glass'
+          }`}
+        >
+          <span className="text-base leading-none">
+            {background.level === 'unsupported' ? '⚠️' : '🔒'}
+          </span>
+          <p
+            className={`flex-1 text-xs leading-relaxed ${
+              background.level === 'unsupported'
+                ? 'text-amber-800 dark:text-amber-300'
+                : 'text-slate-600 dark:text-slate-300'
+            }`}
+          >
+            {background.message}
+          </p>
+        </div>
+      )}
+
       {state !== 'idle' && (
         <div className="text-center space-y-3">
           <div className="flex items-center justify-center gap-3">
@@ -617,20 +694,20 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
               {state === 'paused' && 'En pausa'}
               {state === 'uploading' && 'Guardando...'}
               {state === 'finalizing' && 'Procesando...'}
-              {state === 'processing' && processingStep && (
-                <>
-                  {processingStep === 'transcribe' && 'Transcribiendo...'}
-                  {processingStep === 'analyze' && 'Generando minuta...'}
-                  {processingStep === 'emails' && 'Enviando correos...'}
-                </>
-              )}
+              {state === 'processing' && processingStep && STEP_LABELS[processingStep]}
             </p>
-            {state === 'recording' && wakeLockActive && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                Pantalla bloqueada activa
+            {state === 'recording' && background && (
+              <p
+                className={`text-xs flex items-center justify-center gap-1 ${
+                  background.level === 'unsupported'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-emerald-600 dark:text-emerald-400'
+                }`}
+              >
+                <span>{background.level === 'unsupported' ? '⚠️' : '🔒'}</span>
+                {background.level === 'unsupported'
+                  ? 'No bloquees la pantalla'
+                  : 'Puedes bloquear la pantalla'}
               </p>
             )}
           </div>
@@ -731,18 +808,31 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         {state === 'processing' && processingStep && (
           <div className="w-full max-w-sm space-y-3 text-center">
             <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
-            <div className="space-y-1">
+            <div className="space-y-2">
               <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{processingMessage}</p>
-              <div className="w-full glass rounded-full h-2 overflow-hidden">
-                <div
-                  className="gradient-primary h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${processingProgress}%` }}
-                />
+              <div className="flex justify-center gap-1.5">
+                {(['transcribe', 'analyze', 'emails'] as ProcessingStep[]).map((s, i) => {
+                  const current = ['transcribe', 'analyze', 'emails'].indexOf(processingStep);
+                  const labels = { transcribe: 'Transcribir', analyze: 'Minuta', emails: 'Correos' } as const;
+                  return (
+                    <span
+                      key={s}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-medium ${
+                        i < current
+                          ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                          : i === current
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 animate-pulse'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'
+                      }`}
+                    >
+                      {labels[s]}
+                    </span>
+                  );
+                })}
               </div>
-              <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                <span>Paso: {processingStep === 'transcribe' ? '1/3' : processingStep === 'analyze' ? '2/3' : '3/3'}</span>
-                <span>Intento: {pollAttemptsRef.current}/{MAX_POLL_ATTEMPTS}</span>
-              </div>
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                Puede tardar unos minutos. No cierres esta pantalla.
+              </p>
             </div>
           </div>
         )}

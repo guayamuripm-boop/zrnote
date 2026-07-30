@@ -50,6 +50,72 @@ async function loadFFmpeg(): Promise<FFmpeg> {
   return ffmpegLoadPromise;
 }
 
+/**
+ * Split a long recording into fixed-duration chunks WITHOUT re-encoding
+ * (`-c copy`), keeping the original container so every chunk stays a valid,
+ * independently decodable file.
+ *
+ * This is the memory-safe path for long audio. The alternative — decoding the
+ * whole file with the Web Audio API — allocates the entire recording as raw
+ * PCM: a 2-hour 48kHz stereo file is ~2.7GB before it can be re-chunked, which
+ * simply kills the tab on a phone. Stream-copying costs roughly the size of the
+ * file itself and is close to instantaneous, because nothing is decoded.
+ */
+export async function segmentAudioNoReencode(
+  file: File,
+  secondsPerChunk: number,
+  onProgress?: (percent: number) => void,
+): Promise<File[]> {
+  const ffmpeg = await loadFFmpeg();
+
+  const ext = (file.name.split('.').pop() || 'm4a').toLowerCase().replace(/[^a-z0-9]/g, '') || 'm4a';
+  const inputName = `seg_input.${ext}`;
+  const pattern = `seg_out_%04d.${ext}`;
+  const base = file.name.replace(/\.[^.]+$/, '');
+
+  const onProgressHandler = ({ progress }: { progress: number }) =>
+    onProgress?.(Math.min(100, Math.round(progress * 100)));
+  ffmpeg.on('progress', onProgressHandler);
+
+  try {
+    await ffmpeg.writeFile(inputName, await fetchFile(file));
+    await ffmpeg.exec([
+      '-i', inputName,
+      '-f', 'segment',
+      '-segment_time', String(secondsPerChunk),
+      '-reset_timestamps', '1',
+      '-c', 'copy',
+      '-y',
+      pattern,
+    ]);
+
+    const entries = await ffmpeg.listDir('/');
+    const names = entries
+      .filter((e: any) => !e.isDir && /^seg_out_\d{4}\./.test(e.name))
+      .map((e: any) => e.name)
+      .sort();
+
+    if (names.length === 0) throw new Error('FFmpeg no produjo segmentos');
+
+    const out: File[] = [];
+    for (let i = 0; i < names.length; i++) {
+      const data = await ffmpeg.readFile(names[i]);
+      const blob = new Blob([data as unknown as ArrayBuffer], { type: file.type || 'audio/mp4' });
+      // Skip degenerate trailing segments (a few bytes of container padding).
+      if (blob.size > 2048) {
+        out.push(new File([blob], `${base}_part${i + 1}.${ext}`, { type: blob.type }));
+      }
+      await ffmpeg.deleteFile(names[i]).catch(() => {});
+    }
+    await ffmpeg.deleteFile(inputName).catch(() => {});
+
+    if (out.length === 0) throw new Error('FFmpeg produjo segmentos vacíos');
+    return out;
+  } finally {
+    ffmpeg.off('progress', onProgressHandler);
+  }
+}
+
 export function useAudioConverter() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -86,15 +152,20 @@ export function useAudioConverter() {
           outputName,
         ];
 
-        if (options.onProgress) {
-          ffmpeg.on('progress', ({ progress: p }) => {
-            const prog = Math.round(p * 100);
-            setProgress(prog);
-            options.onProgress?.(prog);
-          });
-        }
+        // Registered per call, so it must also be removed per call — otherwise
+        // every conversion stacks another listener on the shared instance.
+        const onProgressHandler = ({ progress: p }: { progress: number }) => {
+          const prog = Math.round(p * 100);
+          setProgress(prog);
+          options.onProgress?.(prog);
+        };
+        ffmpeg.on('progress', onProgressHandler);
 
-        await ffmpeg.exec(args);
+        try {
+          await ffmpeg.exec(args);
+        } finally {
+          ffmpeg.off('progress', onProgressHandler);
+        }
 
         const data = await ffmpeg.readFile(outputName);
         const blob = new Blob([data as unknown as ArrayBuffer], { type: `audio/${outputExt === 'm4a' ? 'mp4' : outputExt}` });

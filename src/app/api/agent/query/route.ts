@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger';
 
 const querySchema = z.object({
   query: z.string().min(1).max(2000),
-  orgId: z.string().uuid(),
+  orgId: z.string().uuid().optional(),
   meetingId: z.string().uuid().optional(),
   topK: z.number().min(1).max(50).default(10),
   filters: z.record(z.any()).optional(),
@@ -27,27 +27,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { query, orgId, meetingId, topK, filters } = parsed.data;
+  const { query, orgId, meetingId, topK } = parsed.data;
 
-  // Verify user belongs to org
   const { data: membership } = await supabase
     .from('users')
     .select('org_id, role')
     .eq('id', user.id)
     .single();
 
-  if (!membership || membership.org_id !== orgId) {
+  const effectiveOrgId = orgId || membership?.org_id || null;
+
+  if (orgId && (!membership || membership.org_id !== orgId)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   try {
-    // Generate query embedding
     const queryEmbedding = await embedSingle(query);
 
-    // Search similar chunks
     const { data: chunks, error: searchError } = await supabase
       .rpc('search_meeting_chunks', {
-        p_org_id: orgId,
+        p_org_id: effectiveOrgId,
         p_query_embedding: queryEmbedding,
         p_limit: topK,
         p_meeting_id: meetingId || null,

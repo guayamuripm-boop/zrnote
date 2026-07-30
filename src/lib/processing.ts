@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { logger, withTiming } from '@/lib/logger';
+import { logger } from '@/lib/logger';
 import { embedTexts } from '@/lib/embeddings';
-import { buildMinuteHtml, buildActionItemsHtml, buildMyItemsHtml, buildOtherItemsHtml, matchItemsToParticipant, sendWithRetry } from '@/lib/email-service';
+import { buildMeetingEmailJobs, dispatchEmailJobs } from '@/lib/meeting-emails';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
@@ -170,16 +170,10 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   const newTranscriptions: string[] = [];
   const segErrors: string[] = [];
   let processed = 0;
+  let attempted = 0;
 
-  // Defense in depth: this function runs inside a server function capped at
-  // 60s (see vercel.json). The upload page now caps each segment's DURATION
-  // client-side so a single Whisper call stays fast, but this guard protects
-  // any other path that produces segments (e.g. the recovery Edge Function) —
-  // stop starting new mini-batches once we're within the danger zone, and let
-  // `more: true` hand the rest to the next /process call (already-polled by
-  // every caller of this pipeline).
   const startedAt = Date.now();
-  const TIME_BUDGET_MS = 40_000; // leaves ~20s margin under the 60s hard cap
+  const TIME_BUDGET_MS = 40_000;
 
   for (let i = 0; i < batch.length; i += BATCH_SIZE) {
     if (i > 0 && Date.now() - startedAt > TIME_BUDGET_MS) {
@@ -192,6 +186,8 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     const results = await Promise.allSettled(
       miniBatch.map((seg: any) => transcribeSegment(supabase, seg, groqKey, meetingId, speakerHints))
     );
+
+    attempted += miniBatch.length;
 
     for (const r of results) {
       if (r.status === 'fulfilled' && r.value.text) {
@@ -209,9 +205,10 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     }
   }
 
-  const newOffset = offset + processed;
-  // Only advance by successfully processed segments. Failed segments stay for retry.
-  const finalOffset = newOffset;
+  // Advance offset by ALL attempted segments (not just successes). Failed
+  // segments are logged but skipping them prevents infinite retry loops on
+  // permanently undecodable audio.
+  const finalOffset = offset + attempted;
   const existingTranscript = meeting.transcript_raw || '';
   const fullTranscript = existingTranscript
     ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
@@ -242,8 +239,9 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   return { success: true, transcript: fullTranscript, segmentsProcessed: finalOffset, segmentsTotal: segments.length, more };
 }
 
-const MINUTE_PROMPT = (transcript: string) => `
+const MINUTE_PROMPT = (transcript: string, meetingDate?: string) => `
 Eres ZRNote, un asistente experto en redactar minutas de reunión ACCIONABLES para equipos de trabajo. Tu prioridad #1 son los ACTION ITEMS (compromisos): lo que la gente realmente necesita para saber qué hacer después. Escribes para una persona ocupada que solo va a leer lo importante.
+${meetingDate ? `\nFECHA DE LA REUNIÓN: ${meetingDate}. Usa esta fecha como referencia para resolver plazos relativos ("el viernes", "la próxima semana", "fin de mes") a una fecha YYYY-MM-DD concreta.\n` : ''}
 
 Analiza la transcripción y responde SOLO con un JSON válido. Nada de texto fuera del JSON, ni markdown, ni comentarios.
 
@@ -291,28 +289,56 @@ TRANSCRIPCIÓN:
 ${transcript}
 `;
 
+/** Map anything the LLM writes onto the `priority` CHECK constraint. */
+export function normalizePriority(value: unknown): 'alta' | 'media' | 'baja' {
+  const v = String(value ?? '').toLowerCase().trim();
+  if (['alta', 'high', 'urgente', 'crítica', 'critica', 'critical', 'p0', 'p1'].includes(v)) return 'alta';
+  if (['baja', 'low', 'menor', 'p3'].includes(v)) return 'baja';
+  return 'media';
+}
+
+/** Accept only a real ISO date; anything else becomes null instead of failing the insert. */
+export function normalizeDueDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const iso = `${match[1]}-${match[2]}-${match[3]}`;
+  const parsed = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  // Guard against hallucinated years (the model sometimes writes 0202 or 2202).
+  const year = Number(match[1]);
+  if (year < 2000 || year > 2100) return null;
+  return iso;
+}
+
 export async function analyzeMeeting(meetingId: string, transcript?: string): Promise<AnalyzeResult> {
   const supabase = getSupabaseAdmin();
   const groqKey = process.env.GROQ_API_KEY!;
 
   logger.info('Starting analysis', { meetingId, operation: 'analyze' });
 
-  let meetingTranscript = transcript;
-  if (!meetingTranscript) {
-    const { data: meeting, error: meetingError } = await supabase
-      .from('meetings')
-      .select('transcript_raw')
-      .eq('id', meetingId)
-      .single();
-    meetingTranscript = meeting?.transcript_raw;
-    if (meetingError || !meeting) {
-      return { success: false, error: `Meeting not found: ${meetingError?.message || 'null'}` };
-    }
+  const { data: meetingRow, error: meetingError } = await supabase
+    .from('meetings')
+    .select('transcript_raw, started_at, created_at')
+    .eq('id', meetingId)
+    .single();
+
+  if (meetingError || !meetingRow) {
+    return { success: false, error: `Meeting not found: ${meetingError?.message || 'null'}` };
   }
+
+  let meetingTranscript = transcript || meetingRow.transcript_raw;
 
   if (!meetingTranscript || meetingTranscript.trim().length === 0) {
     return { success: false, error: 'No transcript available for analysis' };
   }
+
+  // Giving the model the real meeting date is what turns "para el viernes" into
+  // an actual due_date instead of null.
+  const meetingDate = new Date(meetingRow.started_at || meetingRow.created_at || Date.now())
+    .toISOString()
+    .slice(0, 10);
+  const buildPrompt = (t: string) => MINUTE_PROMPT(t, meetingDate);
 
   // Hybrid: prefer Gemini Flash for the minute (1M-token context → no truncation,
   // higher free-tier throughput). Fall back to Groq/Llama if no GEMINI_API_KEY,
@@ -325,14 +351,14 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
 
   if (geminiKey) {
     provider = 'gemini';
-    logger.info('Calling Gemini for minute', { meetingId, inputTokens: estTokens(MINUTE_PROMPT(meetingTranscript)) });
+    logger.info('Calling Gemini for minute', { meetingId, inputTokens: estTokens(buildPrompt(meetingTranscript)) });
     for (let attempt = 1; attempt <= 3; attempt++) {
       llmResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
         method: 'POST',
         headers: { Authorization: `Bearer ${geminiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'gemini-2.0-flash',
-          messages: [{ role: 'user', content: MINUTE_PROMPT(meetingTranscript) }],
+          messages: [{ role: 'user', content: buildPrompt(meetingTranscript) }],
           temperature: 0.3,
           max_tokens: 8192,
           response_format: { type: 'json_object' },
@@ -349,12 +375,12 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     const TPM_BUDGET = 11000;
     const MIN_OUTPUT = 2000;
     const MAX_OUTPUT = 6000;
-    const overheadTokens = estTokens(MINUTE_PROMPT(''));
-    let inputTokens = estTokens(MINUTE_PROMPT(meetingTranscript));
+    const overheadTokens = estTokens(buildPrompt(''));
+    let inputTokens = estTokens(buildPrompt(meetingTranscript));
     if (inputTokens + MIN_OUTPUT > TPM_BUDGET) {
       const transcriptTokenBudget = Math.max(0, TPM_BUDGET - MIN_OUTPUT - overheadTokens);
       meetingTranscript = meetingTranscript.slice(0, transcriptTokenBudget * 4);
-      inputTokens = estTokens(MINUTE_PROMPT(meetingTranscript));
+      inputTokens = estTokens(buildPrompt(meetingTranscript));
       logger.warn('Transcript trimmed to fit Groq TPM budget', { meetingId, keptChars: meetingTranscript.length });
     }
     const maxOut = Math.max(MIN_OUTPUT, Math.min(MAX_OUTPUT, TPM_BUDGET - inputTokens));
@@ -365,7 +391,7 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
         headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content: MINUTE_PROMPT(meetingTranscript) }],
+          messages: [{ role: 'user', content: buildPrompt(meetingTranscript) }],
           temperature: 0.3,
           max_tokens: maxOut,
         }),
@@ -398,6 +424,23 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
 
   logger.info('Minute generated', { meetingId, actionItems: (minuteJSON.action_items || []).length });
 
+  // `minutes.meeting_id` is UNIQUE, so a second analyze (any retry) used to fail
+  // with a duplicate-key error and mark the whole meeting `failed` — even when
+  // the transcript was fine. Analyze must be IDEMPOTENT: wipe the previous
+  // minute + its action items first, then write a fresh one.
+  const { data: priorMinutes } = await supabase
+    .from('minutes')
+    .select('id')
+    .eq('meeting_id', meetingId);
+
+  if (priorMinutes && priorMinutes.length > 0) {
+    logger.info('Replacing previous minute (retry)', { meetingId, previous: priorMinutes.length });
+    // action_items cascade from minute_id, but items inserted without a
+    // minute_id (older rows) would survive — delete by meeting_id to be sure.
+    await supabase.from('action_items').delete().eq('meeting_id', meetingId);
+    await supabase.from('minutes').delete().eq('meeting_id', meetingId);
+  }
+
   const { data: minute, error: minuteError } = await supabase
     .from('minutes')
     .insert({
@@ -420,14 +463,19 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     return { success: false, error: `Minute save error: ${minuteError.message}` };
   }
 
-  const actionItemsToInsert = (minuteJSON.action_items || []).map((item: any) => ({
-    meeting_id: meetingId,
-    minute_id: minute.id,
-    assignee_name: item.assignee_name,
-    description: item.description,
-    due_date: item.due_date,
-    priority: item.priority,
-  }));
+  // The LLM is free-form: `priority` and `due_date` go into columns with a CHECK
+  // constraint / date type, so anything off-shape (e.g. "urgente", "el viernes")
+  // would reject the whole batch and silently lose every commitment. Normalize.
+  const actionItemsToInsert = (minuteJSON.action_items || [])
+    .filter((item: any) => item && typeof item.description === 'string' && item.description.trim())
+    .map((item: any) => ({
+      meeting_id: meetingId,
+      minute_id: minute.id,
+      assignee_name: typeof item.assignee_name === 'string' ? item.assignee_name.slice(0, 200) : null,
+      description: item.description.trim(),
+      due_date: normalizeDueDate(item.due_date),
+      priority: normalizePriority(item.priority),
+    }));
 
   if (actionItemsToInsert.length > 0) {
     const { error: insertError } = await supabase.from('action_items').insert(actionItemsToInsert);
@@ -455,9 +503,13 @@ async function _sendMeetingEmails(meetingId: string): Promise<EmailResult> {
 
   logger.info('Starting email send', { meetingId });
 
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    return { success: false, sent: 0, failed: 0, error: 'Gmail SMTP no está configurado (GMAIL_USER / GMAIL_APP_PASSWORD)' };
+  }
+
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('id, title, created_by, started_at, ended_at')
+    .select('id, title, created_by')
     .eq('id', meetingId)
     .single();
 
@@ -465,136 +517,15 @@ async function _sendMeetingEmails(meetingId: string): Promise<EmailResult> {
     return { success: false, sent: 0, failed: 0, error: 'Meeting not found' };
   }
 
-  const [actionItemsResult, minuteResult, participantsResult, creatorResult, creatorUserResult] = await Promise.all([
-    supabase.from('action_items').select('*').eq('meeting_id', meetingId),
-    supabase.from('minutes').select('*').eq('meeting_id', meetingId).single(),
-    supabase.from('meeting_participants').select('*').eq('meeting_id', meetingId),
-    supabase.from('meeting_participants').select('email_override').eq('meeting_id', meetingId).eq('user_id', meeting.created_by).single(),
-    supabase.from('users').select('email').eq('id', meeting.created_by).single(),
-  ]);
-
-  const allItems = actionItemsResult.data || [];
-  const minute = minuteResult.data;
-  const participantsRaw = participantsResult.data;
-  const creatorEmail = creatorResult.data?.email_override || creatorUserResult.data?.email;
-
-  const participants = (participantsRaw || []).map((p: any) => ({
-    name: p.name || p.email_override?.split('@')[0] || 'Participante',
-    email: p.email_override || '',
-  })).filter((p) => p.email);
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
-
-  const { generateGoogleCalendarUrl } = await import('@/lib/google-calendar');
-
-  const nodemailer = await import('nodemailer');
-  const transporter = nodemailer.default.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
-    },
-  });
-
-  async function sendMail({ to, subject, html, attachments }: { to: string; subject: string; html: string; attachments?: any[] }): Promise<{ ok: boolean; error?: string }> {
-    try {
-      await transporter.sendMail({
-        from: `"ZRNote" <${process.env.GMAIL_USER}>`,
-        to,
-        subject,
-        html,
-        attachments,
-      });
-      return { ok: true };
-    } catch (err: any) {
-      logger.error('SMTP error', { meetingId, error: err.message });
-      return { ok: false, error: err.message };
-    }
-  }
-
-  const minuteHtml = buildMinuteHtml(minute);
-  const allItemsHtml = buildActionItemsHtml(allItems);
-
-  const emailQueue: Array<{ to: string; subject: string; html: string; label: string; attachments?: any[] }> = [];
-
-  for (const p of participants) {
-    if (creatorEmail && p.email.toLowerCase() === creatorEmail.toLowerCase()) continue;
-
-    const myItems = matchItemsToParticipant(allItems, p.name, p.email);
-    const otherItems = allItems.filter((i) => !myItems.includes(i));
-
-    const myItemsHtml = buildMyItemsHtml(myItems);
-    const otherItemsHtml = buildOtherItemsHtml(otherItems);
-
-    const calendarUrl = generateGoogleCalendarUrl({
-      title: `Revisar: ${meeting.title}`,
-      description: `Revisión de la minuta de la reunión: ${meeting.title}\n\nEnlace: ${appUrl}/dashboard/meetings/${meetingId}`,
-      startTime: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      endTime: new Date(Date.now() + 25 * 60 * 60 * 1000),
-    });
-
-    emailQueue.push({
-      to: p.email,
-      subject: `[ZRNote] ${meeting.title} — Minuta y compromisos`,
-      html: `<p>Hola ${p.name},</p><p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa y tus compromisos.</p>${myItemsHtml}${otherItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center"><a href="${appUrl}/dashboard/meetings/${meetingId}" style="display:inline-block;background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500;margin-right:8px">Ver en ZRNote</a><a href="${calendarUrl}" style="display:inline-block;background:#16a34a;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Añadir a Calendar</a></td></tr></table>`,
-      label: p.email,
-    });
-  }
-
-  const creatorItems = matchItemsToParticipant(allItems, '', creatorEmail || '');
-  if (creatorEmail) {
-    const calendarUrl = generateGoogleCalendarUrl({
-        title: `Revisar: ${meeting.title}`,
-        description: `Revisión de la minuta de la reunión: ${meeting.title}\n\nEnlace: ${appUrl}/dashboard/meetings/${meetingId}`,
-        startTime: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        endTime: new Date(Date.now() + 25 * 60 * 60 * 1000),
-      });
-
-    emailQueue.push({
-      to: creatorEmail,
-      subject: `[ZRNote] ${meeting.title} — Minuta completa + todas las tareas`,
-      html: `<p>Reunión <b>${meeting.title}</b> procesada. Aquí tienes la minuta completa con todas las tareas asignadas.</p>${allItemsHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta Completa</h2>${minuteHtml}<hr style="margin:24px 0;border:none;border-top:1px solid #eee"/><table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center"><a href="${appUrl}/dashboard/meetings/${meetingId}" style="display:inline-block;background:#2563eb;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500;margin-right:8px">Ver en ZRNote</a><a href="${calendarUrl}" style="display:inline-block;background:#16a34a;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500">Añadir a Calendar</a></td></tr></table>`,
-      label: `coordinator (${creatorEmail})`,
-    });
-  }
-
-  let sent = 0;
-  let failed = 0;
-  const errors: string[] = [];
-  const emailStatuses: Array<{ job: typeof emailQueue[0]; status: 'sent' | 'failed' }> = [];
-
-  for (const job of emailQueue) {
-    const result = await sendWithRetry(() =>
-      sendMail({ to: job.to, subject: job.subject, html: job.html, attachments: job.attachments })
-    );
-    if (result.ok) { sent++; emailStatuses.push({ job, status: 'sent' }); }
-    else { failed++; errors.push(`${job.label}: ${result.error}`); emailStatuses.push({ job, status: 'failed' }); }
-    if (emailQueue.indexOf(job) < emailQueue.length - 1) {
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-
-  try {
-    await supabase.from('email_logs').insert(
-      emailStatuses.map(({ job, status }) => ({
-        meeting_id: meetingId,
-        recipient_email: job.to,
-        type: job.label.includes('coordinator') ? 'coordinator_summary' : 'personal',
-        status,
-      }))
-    );
-  } catch (logErr: any) {
-    logger.error('Failed to insert email_logs', { meetingId, error: logErr.message });
-  }
-
-  return { success: failed === 0, sent, failed, error: failed > 0 ? errors.join('; ') : undefined };
+  const jobs = await buildMeetingEmailJobs(supabase, meetingId, meeting.title, meeting.created_by);
+  return await dispatchEmailJobs(supabase, meetingId, jobs);
 }
 
 export async function markMeetingCompleted(meetingId: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin();
   const { error } = await supabase
     .from('meetings')
-    .update({ status: 'completed' })
+    .update({ status: 'completed', error_message: null })
     .eq('id', meetingId);
   if (error) return { success: false, error: error.message };
   return { success: true };
@@ -602,9 +533,11 @@ export async function markMeetingCompleted(meetingId: string): Promise<{ success
 
 export async function markMeetingFailed(meetingId: string, errorMsg: string): Promise<void> {
   const supabase = getSupabaseAdmin();
+  // NEVER write the error into transcript_raw: that destroys the transcript and
+  // makes the retry impossible. Failures have their own column (migration 020).
   await supabase
     .from('meetings')
-    .update({ status: 'failed', transcript_raw: errorMsg })
+    .update({ status: 'failed', error_message: errorMsg.slice(0, 1000) })
     .eq('id', meetingId);
 }
 
@@ -690,8 +623,19 @@ export async function vectorizeMeeting(meetingId: string): Promise<VectorizeResu
     return { success: false, error: 'Minute not found. Run analyze step first.' };
   }
 
+  // Action items live in their own table, not on the minute row — read them so
+  // they actually get indexed (createChunks used to look for minute.action_items,
+  // which is always undefined).
+  const { data: items } = await supabase
+    .from('action_items')
+    .select('assignee_name, description, priority, due_date')
+    .eq('meeting_id', meetingId);
+
+  // Re-running vectorize (any retry) must not stack duplicate embeddings.
+  await supabase.from('meeting_chunks').delete().eq('meeting_id', meetingId);
+
   // Create semantic chunks
-  const chunks = createChunks(minute, meeting.transcript_raw);
+  const chunks = createChunks({ ...minute, action_items: items || [] }, meeting.transcript_raw);
   logger.info('Created chunks', { meetingId, count: chunks.length });
 
   // Generate embeddings in batches

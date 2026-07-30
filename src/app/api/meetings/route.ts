@@ -2,6 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getAuthedUser } from '@/lib/api-auth';
 
 const createMeetingSchema = z.object({
   title: z.string().min(1),
@@ -32,12 +33,12 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const supabase = createServerSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
+  // Cookie (web app) or bearer token (Chrome extension).
+  const auth = await getAuthedUser(request);
+  if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const { user, supabase } = auth;
 
   const body = await request.json();
   const parsed = createMeetingSchema.safeParse(body);
@@ -52,23 +53,28 @@ export async function POST(request: Request) {
     .eq('id', user.id)
     .single();
 
+  let orgId = userRecord?.org_id || null;
+
   if (userError || !userRecord) {
     const adminSupabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
     );
-    const { error: insertError } = await adminSupabase
+    const { data: upserted, error: insertError } = await adminSupabase
       .from('users')
       .upsert({
         id: user.id,
         full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuario',
         email: user.email || '',
         role: 'coordinator',
-      }, { onConflict: 'id' });
+      }, { onConflict: 'id' })
+      .select('org_id')
+      .single();
 
     if (insertError) {
       return NextResponse.json({ error: `No se pudo crear perfil: ${insertError.message}` }, { status: 500 });
     }
+    orgId = upserted?.org_id || null;
   }
 
   const { data: meeting, error } = await supabase
@@ -78,7 +84,7 @@ export async function POST(request: Request) {
       coordination: parsed.data.coordination,
       type: parsed.data.type,
       created_by: user.id,
-      org_id: userRecord?.org_id || null,
+      org_id: orgId,
       status: 'scheduled',
     })
     .select()

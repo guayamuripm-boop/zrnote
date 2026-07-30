@@ -38,7 +38,10 @@ const nextConfig = {
               "font-src 'self' data: https://fonts.gstatic.com",
               "img-src 'self' data: blob: https:",
               "connect-src 'self' blob: https://api.groq.com https://*.supabase.co wss://*.supabase.co",
-              "media-src 'self' blob:",
+              // data: is required by the silent keep-alive clip that holds the
+              // tab in a "playing media" state while recording with the screen
+              // off (src/lib/background-audio.ts). blob: is the recorder itself.
+              "media-src 'self' blob: data:",
               "frame-src 'self' https://accounts.google.com",
               "base-uri 'self'",
               "form-action 'self'",

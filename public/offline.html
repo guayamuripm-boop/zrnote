@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sin conexión — ZRNote</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #f8fafc;
+        color: #0f172a;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0f172a; color: #f1f5f9; }
+        .card { background: #1e293b; border-color: #334155; }
+        .muted { color: #94a3b8; }
+      }
+      .card {
+        max-width: 380px;
+        width: 100%;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 32px 28px;
+        text-align: center;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+      }
+      .logo {
+        width: 44px;
+        height: 44px;
+        margin: 0 auto 20px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        color: #fff;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      h1 { font-size: 1.15rem; margin: 0 0 8px; }
+      p { margin: 0 0 20px; line-height: 1.6; font-size: 0.9rem; }
+      .muted { color: #64748b; }
+      button {
+        width: 100%;
+        padding: 12px;
+        border: 0;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        color: #fff;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">ZR</div>
+      <h1>Sin conexión</h1>
+      <p class="muted">
+        ZRNote necesita internet para transcribir y generar minutas.
+        Vuelve a intentarlo cuando recuperes la señal.
+      </p>
+      <button onclick="location.reload()">Reintentar</button>
+    </div>
+  </body>
+</html>

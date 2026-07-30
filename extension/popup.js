@@ -1,179 +1,165 @@
-// ZRNote Extension - Popup Script
+// ZRNote — toolbar popup. This is where recording STARTS.
+//
+// Not a stylistic choice: `chrome.tabCapture.getMediaStreamId()` only works
+// once the extension has been "invoked" on the tab, and clicking the toolbar
+// icon is exactly that invocation. A button inside the meeting page cannot grant
+// it, so starting from there would fail with "Extension has not been invoked
+// for the current page". The in-page panel shows status and can stop.
 
-let stats = { recorded: 0, minutes: 0 };
+const $ = (id) => document.getElementById(id);
 
-document.addEventListener('DOMContentLoaded', async () => {
-  await loadStats();
-  await loadSettings();
-  setupButtons();
-  setupSettings();
-  checkCurrentTab();
-});
+const MEETING_HOSTS = /^https:\/\/(meet\.google\.com|[\w-]+\.zoom\.us|teams\.(microsoft|live)\.com)\//;
 
-async function loadStats() {
-  try {
-    // Intentar obtener stats de storage
-    const data = await chrome.storage.local.get(['zrnote_stats']);
-    if (data.zrnote_stats) {
-      stats = data.zrnote_stats;
-      updateStatsUI();
-    }
-  } catch (e) {
-    console.warn('[ZRNote] Could not load stats', e);
-  }
-}
+let timerHandle = null;
 
-function updateStatsUI() {
-  document.getElementById('countRecorded').textContent = stats.recorded;
-  document.getElementById('countMinutes').textContent = stats.minutes;
-}
-
-function setupButtons() {
-  const btnStart = document.getElementById('btnStart');
-  const btnStop = document.getElementById('btnStop');
-
-  btnStart.addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab.url?.includes('meet.google.com')) {
-      alert('Por favor, abre una pestaña de Google Meet primero');
-      return;
-    }
-
-    // Enviar mensaje al content script para iniciar
-    chrome.tabs.sendMessage(tab.id, { type: 'START_RECORDING' });
-    
-    // Cerrar popup
-    window.close();
+const send = (message) =>
+  new Promise((resolve) => {
+    chrome.runtime.sendMessage(message, (reply) => {
+      if (chrome.runtime.lastError) {
+        resolve({ error: chrome.runtime.lastError.message });
+        return;
+      }
+      resolve(reply || {});
+    });
   });
 
-  btnStop.addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    chrome.tabs.sendMessage(tab.id, { type: 'STOP_RECORDING' });
-    window.close();
-  });
+function setStatus(text, kind) {
+  $('status').textContent = text;
+  $('dot').className = `dot${kind ? ` ${kind}` : ''}`;
 }
 
-async function checkCurrentTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  
-  if (!tab.url?.includes('meet.google.com')) {
-    document.getElementById('statusDetail').textContent = 
-      'Navega a Google Meet para usar ZRNote';
-    return;
-  }
-
-  // Verificar si content script está inyectado
-  try {
-    const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_STATUS' });
-    if (response) {
-      updateUIFromStatus(response);
-    }
-  } catch (e) {
-    // Content script no listo aún
-  }
-}
-
-function updateUIFromStatus(status) {
-  const dot = document.getElementById('statusDot');
-  const text = document.getElementById('statusText');
-  const detail = document.getElementById('statusDetail');
-  const timer = document.getElementById('timer');
-  const btnStart = document.getElementById('btnStart');
-  const btnStop = document.getElementById('btnStop');
-
-  if (status.recording) {
-    dot.className = 'status-dot recording';
-    text.textContent = 'Grabando...';
-    detail.textContent = status.meetingTitle || 'Reunión en progreso';
-    timer.classList.add('show');
-    btnStart.classList.add('hidden');
-    btnStop.classList.add('show');
-    
-    // Actualizar timer si hay elapsed
-    if (status.elapsed !== undefined) {
-      timer.textContent = formatTime(status.elapsed);
-    }
-  } else if (status.processing) {
-    dot.className = 'status-dot processing';
-    text.textContent = 'Procesando...';
-    detail.textContent = status.step || 'Generando minuta';
-    timer.classList.add('show');
-    btnStart.classList.add('hidden');
-    btnStop.classList.add('hidden');
-  } else {
-    dot.className = 'status-dot ready';
-    text.textContent = 'Listo para grabar';
-    detail.textContent = 'Reunión detectada. Haz clic en Iniciar.';
-    timer.classList.remove('show');
-    btnStart.classList.remove('hidden');
-    btnStop.classList.remove('show');
-  }
+function setMessage(text, kind) {
+  $('msg').textContent = text || '';
+  $('msg').className = `msg${kind ? ` ${kind}` : ''}`;
 }
 
 function formatTime(seconds) {
-  const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
-  const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-  const s = (seconds % 60).toString().padStart(2, '0');
+  const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
+  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+  const s = String(seconds % 60).padStart(2, '0');
   return `${h}:${m}:${s}`;
 }
 
-// Settings management
-async function loadSettings() {
-  const data = await chrome.storage.sync.get(['zrnote_backend_url']);
-  const urlInput = document.getElementById('backendUrl');
-  if (data.zrnote_backend_url) {
-    urlInput.value = data.zrnote_backend_url;
-  }
+function startTimer(fromSeconds) {
+  stopTimer();
+  let seconds = fromSeconds;
+  $('timer').hidden = false;
+  $('timer').textContent = formatTime(seconds);
+  timerHandle = setInterval(() => {
+    seconds += 1;
+    $('timer').textContent = formatTime(seconds);
+  }, 1000);
 }
 
-function setupSettings() {
-  const toggle = document.getElementById('settingsToggle');
-  const panel = document.getElementById('settingsPanel');
-  const saveBtn = document.getElementById('saveSettings');
-  const saveMsg = document.getElementById('saveMsg');
-
-  toggle.addEventListener('click', () => {
-    panel.classList.toggle('open');
-  });
-
-  saveBtn.addEventListener('click', async () => {
-    const url = document.getElementById('backendUrl').value.trim();
-    await chrome.storage.sync.set({ zrnote_backend_url: url });
-    saveMsg.style.display = 'block';
-    setTimeout(() => { saveMsg.style.display = 'none'; }, 2000);
-
-    // Notificar a todas las pestañas con content script activo
-    const tabs = await chrome.tabs.query({ url: '*://meet.google.com/*' });
-    for (const tab of tabs) {
-      chrome.tabs.sendMessage(tab.id, { type: 'UPDATE_BACKEND_URL', url }).catch(() => {});
-    }
-  });
+function stopTimer() {
+  if (timerHandle) clearInterval(timerHandle);
+  timerHandle = null;
+  $('timer').hidden = true;
 }
 
-// Escuchar actualizaciones desde content script
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'STATUS_UPDATE') {
-    updateUIFromStatus(msg.status);
+async function activeTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
+
+async function refresh() {
+  $('version').textContent = `v${chrome.runtime.getManifest().version}`;
+
+  const status = await send({ type: 'GET_STATUS' });
+  const backend = status.backend || 'https://zrnote.vercel.app';
+  $('backend').value = backend;
+  $('open-app').href = status.signedIn ? `${backend}/dashboard` : `${backend}/login`;
+
+  // Reset
+  $('consent').hidden = true;
+  $('start').hidden = true;
+  $('stop').hidden = true;
+  stopTimer();
+
+  if (status.error) {
+    setStatus('Error de conexión', 'warn');
+    $('hint').textContent = status.error;
+    return;
   }
-  if (msg.type === 'RECORDING_COMPLETE') {
-    stats.recorded++;
-    chrome.storage.local.set({ zrnote_stats: stats });
-    updateStatsUI();
+
+  if (!status.signedIn) {
+    setStatus('Sin sesión iniciada', 'warn');
+    $('hint').textContent =
+      'Abre ZRNote e inicia sesión en el navegador. La extensión reutiliza esa sesión: no necesitas otra contraseña.';
+    $('open-app').textContent = 'Iniciar sesión en ZRNote';
+    return;
   }
-  if (msg.type === 'MINUTE_GENERATED') {
-    stats.minutes++;
-    chrome.storage.local.set({ zrnote_stats: stats });
-    updateStatsUI();
+
+  $('open-app').textContent = 'Abrir ZRNote';
+
+  if (status.recording) {
+    setStatus(status.title || 'Grabando', 'rec');
+    $('hint').textContent =
+      'Puedes cerrar esta ventana. No cierres la pestaña de la reunión mientras se graba.';
+    $('stop').hidden = false;
+    startTimer(status.elapsed || 0);
+    return;
   }
+
+  const tab = await activeTab();
+  if (!tab || !MEETING_HOSTS.test(tab.url || '')) {
+    setStatus('Abre una reunión', 'warn');
+    $('hint').textContent =
+      'Ve a la pestaña de tu reunión (Meet, Zoom o Teams) y vuelve a abrir ZRNote desde aquí.';
+    return;
+  }
+
+  setStatus('Listo para grabar', 'ok');
+  $('hint').textContent = 'Se grabará el audio de esta pestaña y tu micrófono.';
+  $('consent').hidden = false;
+  $('start').hidden = false;
+  $('start').disabled = !$('consent-box').checked;
+}
+
+$('consent-box').addEventListener('change', (e) => {
+  $('start').disabled = !e.target.checked;
 });
 
-// Poll status cada 2 segundos si hay grabación activa
-setInterval(async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab.id) {
-    try {
-      const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_STATUS' });
-      if (response) updateUIFromStatus(response);
-    } catch (e) {}
+$('start').addEventListener('click', async () => {
+  $('start').disabled = true;
+  $('start').textContent = 'Iniciando…';
+  setMessage('');
+
+  const reply = await send({ type: 'START_RECORDING' });
+
+  $('start').textContent = 'Grabar esta reunión';
+  if (reply.error) {
+    setMessage(reply.error, 'err');
+    $('start').disabled = false;
+    return;
   }
-}, 2000);
+  refresh();
+});
+
+$('stop').addEventListener('click', async () => {
+  $('stop').disabled = true;
+  $('stop').textContent = 'Procesando…';
+  setStatus('Transcribiendo y generando la minuta…', 'warn');
+  stopTimer();
+  setMessage('Puedes cerrar esta ventana: el proceso sigue en segundo plano.', 'ok');
+
+  const reply = await send({ type: 'STOP_RECORDING' });
+
+  $('stop').disabled = false;
+  $('stop').textContent = 'Detener y generar minuta';
+  if (reply.error) setMessage(reply.error, 'err');
+  refresh();
+});
+
+$('save').addEventListener('click', async () => {
+  const raw = $('backend').value.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/.+/.test(raw)) {
+    setMessage('Escribe una dirección válida (https://…).', 'err');
+    return;
+  }
+  await send({ type: 'SET_BACKEND', url: raw });
+  setMessage('Guardado.', 'ok');
+  refresh();
+});
+
+refresh();

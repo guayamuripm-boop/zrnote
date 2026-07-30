@@ -43,6 +43,25 @@ export default function Home() {
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-8">
             Invierte en conocimiento. Impulsa tu crecimiento.
           </p>
+
+          <div className="mt-6 pt-5 border-t border-slate-200/60 dark:border-slate-700/60 space-y-2">
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-relaxed">
+              Antes de grabar, avisa a todos los participantes y obtén su consentimiento.
+            </p>
+            <div className="flex items-center justify-center gap-3 text-[11px]">
+              <Link href="/legal/terminos" className="text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition">
+                Condiciones
+              </Link>
+              <span className="text-slate-300 dark:text-slate-600">·</span>
+              <Link href="/legal/privacidad" className="text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition">
+                Privacidad
+              </Link>
+              <span className="text-slate-300 dark:text-slate-600">·</span>
+              <Link href="/legal" className="text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition">
+                Legal
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
     </main>

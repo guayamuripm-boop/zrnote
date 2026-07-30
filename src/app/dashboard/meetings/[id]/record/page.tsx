@@ -4,11 +4,13 @@ import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import RecordButton from '@/components/recorder/RecordButton';
+import RecordingConsentGate from '@/components/legal/RecordingConsentGate';
 
 export default function RecordPage() {
   const params = useParams();
   const router = useRouter();
   const [meeting, setMeeting] = useState<{ title: string; status: string } | null>(null);
+  const [consentGiven, setConsentGiven] = useState(false);
 
   useEffect(() => {
     fetch(`/api/meetings/${params.id}`)
@@ -44,17 +46,24 @@ export default function RecordPage() {
         </p>
       </div>
 
-      {/* Recorder */}
+      {/* Recorder — gated behind an explicit recording-consent confirmation */}
       <div className="flex-1 flex flex-col items-center justify-center">
-        <RecordButton
+        <RecordingConsentGate
           meetingId={params.id as string}
-          meetingTitle={meeting?.title}
-          onFinalized={() => router.push(`/dashboard/meetings/${params.id}`)}
+          mode="record"
+          onConsent={() => setConsentGiven(true)}
         />
+        {consentGiven && (
+          <RecordButton
+            meetingId={params.id as string}
+            meetingTitle={meeting?.title}
+            onFinalized={() => router.push(`/dashboard/meetings/${params.id}`)}
+          />
+        )}
       </div>
 
       {/* Tips */}
-      {meeting?.status !== 'processing' && (
+      {consentGiven && meeting?.status !== 'processing' && (
         <div className="mt-8 sm:mt-12 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 max-w-2xl mx-auto">
           <div className="glass-strong rounded-2xl p-4 sm:p-5 text-center">
             <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center mx-auto mb-3">

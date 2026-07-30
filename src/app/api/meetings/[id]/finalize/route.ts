@@ -1,5 +1,5 @@
-import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { getAuthedUser } from '@/lib/api-auth';
 
 // A single /process call is capped at 60s server-side (vercel.json maxDuration),
 // so if a step were genuinely in flight it resolves (success or failure) well
@@ -14,12 +14,12 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
+  // Cookie (web app) or bearer token (Chrome extension).
+  const auth = await getAuthedUser(request);
+  if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const { user, supabase } = auth;
 
   const { data: meeting } = await supabase
     .from('meetings')

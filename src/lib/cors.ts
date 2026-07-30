@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
 
-const ALLOWED_ORIGINS = [
-  'https://meet.google.com',
-  'https://zoom.us',
-  'https://teams.microsoft.com',
-  'http://localhost:3000',
+// Credentialed CORS (`Allow-Credentials: true`) hands the listed origins the
+// ability to call this API *as the logged-in user*. meet.google.com, zoom.us
+// and teams.microsoft.com used to be on this list for the Chrome extension —
+// which means any script running on those pages could act on a user's account.
+// They are gone: the extension must authenticate with a bearer token from its
+// own `chrome-extension://` origin, not by borrowing session cookies.
+//
+// localhost is only allowed outside production so local development still works.
+const ALLOWED_ORIGINS: Array<string | RegExp> = [
   /^chrome-extension:\/\/[a-z]{32}$/,
+  ...(process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000']),
 ];
 
 function isOriginAllowed(origin: string): boolean {

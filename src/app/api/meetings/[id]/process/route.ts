@@ -1,102 +1,91 @@
-import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { getAuthedUser } from '@/lib/api-auth';
 import { z } from 'zod';
 import { transcribeMeeting } from '@/lib/processing';
-import { checkRateLimit, cleanupExpiredRateLimits } from '@/lib/rate-limiter';
+import { checkRateLimit } from '@/lib/rate-limiter';
 import { logger } from '@/lib/logger';
 
 const processSchema = z.object({
   step: z.enum(['transcribe', 'analyze', 'emails', 'vectorize']).optional(),
 });
 
+/**
+ * Persist WHY a meeting failed instead of leaving the user with a generic
+ * "falló". This used to be written into `transcript_raw`, which destroyed the
+ * transcript and made the retry impossible.
+ */
+async function markFailed(supabase: any, meetingId: string, error: string) {
+  await supabase
+    .from('meetings')
+    .update({ status: 'failed', error_message: error.slice(0, 1000) })
+    .eq('id', meetingId);
+}
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
+  // Cookie (web app) or bearer token (Chrome extension).
+  const auth = await getAuthedUser(request);
+  if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const { user, supabase } = auth;
 
   // Rate limiting per user per meeting (DB-based)
   const rateLimitKey = `${user.id}:${params.id}:process`;
   const { allowed } = await checkRateLimit(rateLimitKey);
   if (!allowed) {
-    return NextResponse.json({ error: 'Too many requests. Please wait a moment.' }, { status: 429 });
+    return NextResponse.json(
+      { error: 'Demasiadas peticiones seguidas. Espera unos segundos.', retryAfterSec: 20 },
+      { status: 429, headers: { 'Retry-After': '20' } },
+    );
   }
 
-  const body = await request.json();
+  const body = await request.json().catch(() => ({}));
   const parsed = processSchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json({ error: 'Paso inválido' }, { status: 400 });
   }
 
   let { step } = parsed.data;
   const meetingId = params.id;
-
-  // Auto-detect next step if not specified
-  if (!step) {
-    const { data: detectMeeting } = await supabase
-      .from('meetings')
-      .select('status, transcript_raw')
-      .eq('id', meetingId)
-      .single();
-
-    if (detectMeeting) {
-      if (detectMeeting.status === 'failed' || detectMeeting.status === 'scheduled') {
-        step = 'transcribe';
-      } else if (!detectMeeting.transcript_raw) {
-        step = 'transcribe';
-      } else {
-        // Check if minute exists
-        const { data: existingMinute } = await supabase
-          .from('minutes')
-          .select('id')
-          .eq('meeting_id', meetingId)
-          .single();
-        if (!existingMinute) {
-          step = 'analyze';
-        } else {
-          // Check if already vectorized
-          const { data: existingChunks } = await supabase
-            .from('meeting_chunks')
-            .select('id')
-            .eq('meeting_id', meetingId)
-            .limit(1);
-          if (!existingChunks || existingChunks.length === 0) {
-            step = 'vectorize';
-          } else {
-            step = 'emails';
-          }
-        }
-      }
-    }
-  }
 
   const { data: meeting } = await supabase
     .from('meetings')
     .select('status, created_by, transcript_raw')
     .eq('id', meetingId)
     .eq('created_by', user.id)
-    .single();
+    .maybeSingle();
 
   if (!meeting) {
-    return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Reunión no encontrada' }, { status: 404 });
   }
 
-  if (meeting.status === 'completed') {
-    return NextResponse.json({ error: 'Meeting already completed' }, { status: 400 });
-  }
-
+  // Auto-detect the next step. `vectorize` is deliberately NOT part of the
+  // automatic chain: it only feeds the (UI-less) RAG search, needs JINA_API_KEY
+  // and the pgvector migration, and a failure there must never stop a user from
+  // getting their minute. It stays callable explicitly.
   if (!step) {
-    return NextResponse.json({ error: 'Could not determine next processing step' }, { status: 400 });
+    if (!meeting.transcript_raw || meeting.status === 'scheduled') {
+      step = 'transcribe';
+    } else {
+      const { data: existingMinute } = await supabase
+        .from('minutes')
+        .select('id')
+        .eq('meeting_id', meetingId)
+        .maybeSingle();
+      step = existingMinute ? 'emails' : 'analyze';
+    }
+  }
+
+  if (meeting.status === 'completed' && step !== 'vectorize') {
+    return NextResponse.json({ error: 'La reunión ya está completada' }, { status: 400 });
   }
 
   const validTransitions: Record<string, string[]> = {
-    transcribe: ['scheduled', 'failed', 'processing'],
+    transcribe: ['scheduled', 'recording', 'failed', 'processing'],
     analyze: ['processing', 'failed'],
     emails: ['processing', 'failed'],
     vectorize: ['processing', 'failed', 'completed'],
@@ -104,33 +93,18 @@ export async function POST(
 
   const requiredStatus = validTransitions[step];
   if (requiredStatus && !requiredStatus.includes(meeting.status)) {
-    return NextResponse.json({ 
-      error: `Invalid status for step '${step}': ${meeting.status}` 
+    return NextResponse.json({
+      error: `Invalid status for step '${step}': ${meeting.status}`,
     }, { status: 400 });
-  }
-
-  // Additional checks for retry from failed
-  if (step === 'analyze' && meeting.status === 'failed' && !meeting.transcript_raw) {
-    return NextResponse.json({ error: 'No transcript available. Run transcribe step first.' }, { status: 400 });
-  }
-  if (step === 'emails' && meeting.status === 'failed') {
-    // Check if minute exists
-    const { data: minute } = await supabase
-      .from('minutes')
-      .select('id')
-      .eq('meeting_id', meetingId)
-      .single();
-    if (!minute) {
-      return NextResponse.json({ error: 'No minute found. Run analyze step first.' }, { status: 400 });
-    }
   }
 
   if (step === 'transcribe') {
     const { error: updateError } = await supabase
       .from('meetings')
-      .update({ 
-        status: 'processing', 
-        ended_at: new Date().toISOString() 
+      .update({
+        status: 'processing',
+        error_message: null,
+        ended_at: new Date().toISOString(),
       })
       .eq('id', meetingId);
 
@@ -139,12 +113,9 @@ export async function POST(
     }
 
     const result = await transcribeMeeting(meetingId);
-    
+
     if (!result.success) {
-      await supabase
-        .from('meetings')
-        .update({ status: 'failed' })
-        .eq('id', meetingId);
+      await markFailed(supabase, meetingId, result.error || 'Error al transcribir');
       return NextResponse.json({ ok: false, error: result.error, segmentsProcessed: result.segmentsProcessed, segmentsTotal: result.segmentsTotal });
     }
 
@@ -160,17 +131,14 @@ export async function POST(
 
   if (step === 'analyze') {
     if (!meeting.transcript_raw) {
-      return NextResponse.json({ error: 'No transcript available. Run transcribe step first.' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'No hay transcripción todavía. Ejecuta primero la transcripción.' }, { status: 400 });
     }
 
     const { analyzeMeeting } = await import('@/lib/processing');
     const result = await analyzeMeeting(meetingId, meeting.transcript_raw);
-    
+
     if (!result.success) {
-      await supabase
-        .from('meetings')
-        .update({ status: 'failed' })
-        .eq('id', meetingId);
+      await markFailed(supabase, meetingId, result.error || 'Error al generar la minuta');
       return NextResponse.json({ ok: false, error: result.error });
     }
 
@@ -190,11 +158,12 @@ export async function POST(
       .maybeSingle();
 
     if (!minute) {
-      await supabase.from('meetings').update({ status: 'failed' }).eq('id', meetingId);
-      return NextResponse.json({
-        ok: false,
-        error: 'No hay minuta: la transcripción o el análisis no produjeron resultado. Revisa que el audio tenga voz audible.',
-      });
+      const msg = 'No se generó ninguna minuta: la transcripción o el análisis no produjeron resultado. Revisa que el audio tenga voz audible.';
+      await markFailed(supabase, meetingId, msg);
+      // `fatal` distinguishes "there is nothing to send" from "sending failed".
+      // Without it the client downgrades this to a warning and tells the user
+      // their minute is ready when it does not exist.
+      return NextResponse.json({ ok: false, fatal: true, error: msg });
     }
 
     let emailResult;
@@ -209,18 +178,27 @@ export async function POST(
       logger.error('Email send failed', { meetingId, error: emailResult.error });
     }
 
+    // A minute exists, so the meeting IS done. E-mail trouble is reported but
+    // never downgrades a good minute to "failed".
     await markMeetingCompleted(meetingId);
 
-    return NextResponse.json({ ok: true, emailsSent: emailResult.sent, emailsFailed: emailResult.failed });
+    return NextResponse.json({
+      ok: true,
+      emailsSent: emailResult.sent,
+      emailsFailed: emailResult.failed,
+      emailWarning: emailResult.success ? undefined : emailResult.error,
+    });
   }
 
   if (step === 'vectorize') {
     const { vectorizeMeeting } = await import('@/lib/processing');
-    
+
     const result = await vectorizeMeeting(meetingId);
-    
+
     if (!result.success) {
-      return NextResponse.json({ ok: false, error: result.error });
+      // Optional step: report it, but never flip the meeting to failed.
+      logger.warn('Vectorize step failed (non-fatal)', { meetingId, error: result.error });
+      return NextResponse.json({ ok: false, optional: true, error: result.error });
     }
 
     return NextResponse.json({ ok: true, chunksCreated: result.chunksCreated });

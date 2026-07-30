@@ -1,12 +1,18 @@
 node_modules/
 .next/
 dist/
-.env.local
 *.log
 .DS_Store
 .turbo/
 tsconfig.tsbuildinfo
-
 .vercel
-.env*
 nul
+
+# Secretos: nunca versionar.
+.env*
+!.env.example
+
+# Clave privada de firma de la extensión de Chrome.
+# Quien la tenga puede publicar una actualización firmada como si fuera tuya.
+*.pem
+extension.crx

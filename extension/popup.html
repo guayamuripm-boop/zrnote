@@ -1,244 +1,132 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZRNote</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      width: 320px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f9fafb;
-      color: #1f2937;
-    }
-    .container { padding: 16px; }
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #e5e7eb;
-    }
-    .logo {
-      width: 36px;
-      height: 36px;
-      background: linear-gradient(135deg, #2563eb, #7c3aed);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .logo svg { width: 20px; height: 20px; color: white; }
-    h1 { font-size: 18px; font-weight: 700; color: #111827; }
-    .status-card {
-      background: white;
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      margin-bottom: 12px;
-    }
-    .status-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 0;
-    }
-    .status-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-    }
-    .status-dot.ready { background: #10b981; }
-    .status-dot.recording { background: #ef4444; animation: pulse 1.5s infinite; }
-    .status-dot.processing { background: #f59e0b; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-    .status-text { flex: 1; font-weight: 500; }
-    .status-detail { color: #6b7280; font-size: 13px; }
-    .timer {
-      text-align: center;
-      font-family: 'SF Mono', Monaco, monospace;
-      font-size: 28px;
-      font-weight: 700;
-      color: #ef4444;
-      margin: 12px 0;
-      padding: 8px;
-      background: #fef2f2;
-      border-radius: 8px;
-      display: none;
-    }
-    .timer.show { display: block; }
-    .btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      width: 100%;
-      padding: 12px 16px;
-      border: none;
-      border-radius: 10px;
-      font-weight: 600;
-      font-size: 14px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .btn.primary {
-      background: #2563eb;
-      color: white;
-    }
-    .btn.primary:hover { background: #1d4ed8; }
-    .btn.danger {
-      background: #ef4444;
-      color: white;
-      display: none;
-    }
-    .btn.danger:hover { background: #dc2626; }
-    .btn.danger.show { display: flex; }
-    .info-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-top: 16px;
-    }
-    .info-item {
-      background: white;
-      border-radius: 8px;
-      padding: 12px;
-    }
-    .info-label { color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .info-value { font-weight: 600; color: #1f2937; margin-top: 4px; }
-    .links {
-      display: flex;
-      gap: 8px;
-      margin-top: 16px;
-    }
-    .link-btn {
-      flex: 1;
-      padding: 10px;
-      border-radius: 8px;
-      text-align: center;
-      text-decoration: none;
-      font-size: 13px;
-      font-weight: 500;
-      color: #2563eb;
-      background: #eff6ff;
-      border-radius: 8px;
-      transition: background 0.2s;
-    }
-    .link-btn:hover { background: #dbeafe; }
-    .settings-section {
-      margin-top: 12px;
-      border-top: 1px solid #e5e7eb;
-      padding-top: 12px;
-    }
-    .settings-toggle {
-      background: none;
-      border: none;
-      color: #6b7280;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      padding: 4px 8px;
-      border-radius: 6px;
-      margin-left: auto;
-    }
-    .settings-toggle:hover { background: #f3f4f6; color: #374151; }
-    .settings-panel { display: none; margin-top: 8px; }
-    .settings-panel.open { display: block; }
-    .settings-label { font-size: 11px; color: #6b7280; margin-bottom: 4px; display: block; }
-    .settings-input {
-      width: 100%;
-      padding: 8px 10px;
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
-      font-size: 13px;
-      outline: none;
-    }
-    .settings-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
-    .save-btn {
-      margin-top: 6px;
-      padding: 6px 14px;
-      background: #2563eb;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-    }
-    .save-btn:hover { background: #1d4ed8; }
-    .save-msg { font-size: 11px; color: #10b981; margin-top: 4px; display: none; }
-    .hidden { display: none !important; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="logo">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-      </div>
-      <h1>ZRNote</h1>
-    </div>
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>ZRNote</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        width: 330px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #0f172a;
+        background: #f8fafc;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 14px 16px;
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        color: #fff;
+      }
+      .logo {
+        width: 26px; height: 26px; border-radius: 7px;
+        background: rgba(255, 255, 255, 0.22);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 11px; font-weight: 700;
+      }
+      header b { font-size: 14px; }
+      header small { margin-left: auto; opacity: 0.8; font-size: 11px; }
+      main { padding: 16px; }
+      .row {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 13px; color: #475569; margin-bottom: 12px;
+      }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; flex-shrink: 0; }
+      .dot.ok { background: #10b981; }
+      .dot.rec { background: #ef4444; animation: pulse 1.4s infinite; }
+      .dot.warn { background: #f59e0b; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .timer {
+        text-align: center; font-variant-numeric: tabular-nums;
+        font-size: 24px; font-weight: 600; color: #ef4444;
+        background: #fef2f2; border-radius: 9px; padding: 8px; margin-bottom: 12px;
+      }
+      p.hint { font-size: 12px; line-height: 1.6; color: #64748b; margin: 0 0 12px; }
+      .consent {
+        background: #fffbeb; border: 1px solid #fde68a;
+        border-radius: 10px; padding: 11px; margin-bottom: 12px;
+      }
+      .consent b { display: block; font-size: 12px; color: #92400e; margin-bottom: 4px; }
+      .consent p { margin: 0 0 9px; font-size: 11px; line-height: 1.55; color: #92400e; }
+      .check {
+        display: flex; gap: 7px; align-items: flex-start;
+        font-size: 11px; line-height: 1.45; color: #92400e; cursor: pointer;
+      }
+      .check input { margin: 2px 0 0; flex-shrink: 0; }
+      a.btn, button.btn {
+        display: block; width: 100%; padding: 11px;
+        border: 0; border-radius: 9px; text-align: center;
+        font-size: 13px; font-weight: 600; cursor: pointer;
+        text-decoration: none; color: #fff;
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        margin-bottom: 8px;
+      }
+      button.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      button.ghost { background: #fff; color: #334155; border: 1px solid #e2e8f0; }
+      button.danger { background: linear-gradient(135deg, #dc2626, #ef4444); }
+      details { margin-top: 10px; }
+      summary { font-size: 12px; color: #64748b; cursor: pointer; }
+      label { display: block; font-size: 11px; color: #64748b; margin: 10px 0 4px; }
+      input[type='url'] {
+        width: 100%; padding: 8px 10px; font-size: 12px;
+        border: 1px solid #e2e8f0; border-radius: 8px;
+      }
+      .msg { font-size: 11px; margin-top: 8px; line-height: 1.5; }
+      .msg.err { color: #dc2626; }
+      .msg.ok { color: #059669; }
+      footer {
+        padding: 10px 16px 14px;
+        font-size: 10px; line-height: 1.5; color: #94a3b8;
+        border-top: 1px solid #e2e8f0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="logo">ZR</span>
+      <b>ZRNote</b>
+      <small id="version"></small>
+    </header>
 
-    <div class="status-card">
-      <div class="status-row">
-        <div id="statusDot" class="status-dot ready"></div>
-        <div>
-          <div id="statusText" class="status-text">Listo para grabar</div>
-          <div id="statusDetail" class="status-detail">Haz clic en "Iniciar" en una pestaña de Google Meet</div>
-        </div>
-      </div>
-      <div id="timer" class="timer">00:00:00</div>
-      <button id="btnStart" class="btn primary">
-        <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
-        Iniciar Grabación
-      </button>
-      <button id="btnStop" class="btn danger">
-        <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-        Finalizar y Procesar
-      </button>
-    </div>
+    <main>
+      <div class="row"><span class="dot" id="dot"></span><span id="status">Comprobando…</span></div>
+      <div class="timer" id="timer" hidden>00:00:00</div>
+      <p class="hint" id="hint"></p>
 
-    <div class="info-grid">
-      <div class="info-item">
-        <div class="info-label">Reuniones grabadas</div>
-        <div id="countRecorded" class="info-value">0</div>
+      <div class="consent" id="consent" hidden>
+        <b>⚠️ Antes de grabar</b>
+        <p>
+          Avisa en voz alta que vas a grabar y espera a que <b style="display:inline">todos</b>
+          estén de acuerdo. Grabar sin el consentimiento de todos los participantes es delito
+          en Venezuela y en la mayoría de países.
+        </p>
+        <label class="check">
+          <input type="checkbox" id="consent-box" />
+          <span>Informé a todos los participantes y dieron su consentimiento.</span>
+        </label>
       </div>
-      <div class="info-item">
-        <div class="info-label">Minutas generadas</div>
-        <div id="countMinutes" class="info-value">0</div>
-      </div>
-    </div>
 
-    <div class="links">
-      <a href="https://zrnote.vercel.app/dashboard" target="_blank" class="link-btn">Ver Dashboard</a>
-    </div>
+      <button class="btn" id="start" hidden disabled>Grabar esta reunión</button>
+      <button class="btn danger" id="stop" hidden>Detener y generar minuta</button>
+      <a class="btn ghost" id="open-app" href="#" target="_blank" rel="noreferrer">Abrir ZRNote</a>
 
-    <div class="settings-section">
-      <div style="display:flex;align-items:center">
-        <span style="font-size:12px;color:#6b7280;font-weight:500">Configuración</span>
-        <button id="settingsToggle" class="settings-toggle">
-          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-          </svg>
-        </button>
-      </div>
-      <div id="settingsPanel" class="settings-panel">
-        <label class="settings-label">URL del Backend (API)</label>
-        <input id="backendUrl" class="settings-input" type="url" placeholder="https://zrnote.vercel.app" />
-        <button id="saveSettings" class="save-btn">Guardar</button>
-        <div id="saveMsg" class="save-msg">Guardado ✓</div>
-      </div>
-    </div>
-  </div>
+      <div class="msg" id="msg"></div>
 
-  <script src="popup.js"></script>
-</body>
+      <details>
+        <summary>Configuración avanzada</summary>
+        <label for="backend">Dirección del servidor</label>
+        <input id="backend" type="url" placeholder="https://zrnote.vercel.app" />
+        <button class="btn ghost" id="save" style="margin-top:8px">Guardar</button>
+      </details>
+    </main>
+
+    <footer>
+      El audio se procesa en servidores externos y se borra a los 30 días.
+      La minuta la genera una IA: revísala antes de compartirla.
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
 </html>

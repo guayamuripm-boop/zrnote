@@ -191,6 +191,86 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* Legal documents are stored as HTML in the database and injected with
+   dangerouslySetInnerHTML. They used to rely on Tailwind's `prose` classes,
+   but @tailwindcss/typography is not installed — so with preflight resetting
+   every heading and list, the terms rendered as one undifferentiated wall of
+   text. These rules give them real typography without adding a dependency. */
+.legal-doc {
+  color: var(--foreground-secondary);
+  font-size: 0.925rem;
+  line-height: 1.7;
+}
+.legal-doc h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+  color: var(--foreground);
+}
+.legal-doc h2 {
+  font-size: 1.125rem;
+  font-weight: 650;
+  margin: 1.75rem 0 0.5rem;
+  color: var(--foreground);
+}
+.legal-doc h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1.25rem 0 0.35rem;
+  color: var(--foreground);
+}
+.legal-doc p { margin: 0 0 0.85rem; }
+.legal-doc strong { color: var(--foreground); font-weight: 650; }
+.legal-doc ul,
+.legal-doc ol { margin: 0 0 1rem; padding-left: 1.35rem; }
+.legal-doc ul { list-style: disc; }
+.legal-doc ol { list-style: decimal; }
+.legal-doc li { margin: 0.3rem 0; }
+.legal-doc a { color: var(--zr-blue); text-decoration: underline; text-underline-offset: 2px; }
+.legal-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 1.25rem;
+  font-size: 0.85rem;
+  display: block;
+  overflow-x: auto;
+}
+.legal-doc th,
+.legal-doc td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+.legal-doc th { background: var(--bg-elevated); color: var(--foreground); font-weight: 600; }
+.legal-doc .callout {
+  border-radius: 0.75rem;
+  padding: 0.9rem 1.1rem;
+  margin: 1rem 0 1.25rem;
+  border: 1px solid var(--border);
+}
+.legal-doc .callout p { margin: 0; }
+.legal-doc .callout-warn {
+  background: var(--color-warning-light);
+  border-color: var(--color-warning);
+  color: var(--foreground);
+}
+.legal-doc .legal-quote {
+  font-style: italic;
+  background: var(--bg-elevated);
+  border-left: 3px solid var(--zr-blue);
+  border-radius: 0 0.5rem 0.5rem 0;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0 1.25rem;
+}
+.legal-doc .legal-note {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--foreground-muted);
+}
+
 @keyframes pulse-recording {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }

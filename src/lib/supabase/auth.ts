@@ -1,13 +1,2 @@
-import { createServerSupabase } from './server';
-import { NextResponse } from 'next/server';
-
-export async function requireAuth() {
-  const supabase = createServerSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { user: null, supabase, error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
-  }
-
-  return { user, supabase, error: null };
-}
+// Auth utilities — requireAuth was unused, removed in audit 2026-07-27.
+// Re-add helpers here if needed.

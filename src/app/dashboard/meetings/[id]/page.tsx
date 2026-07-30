@@ -8,6 +8,9 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import ShareWhatsApp from '@/components/ShareWhatsApp';
 import ActionItemStatus from '@/components/ActionItemStatus';
+import MeetingParticipants from '@/components/MeetingParticipants';
+import ResendEmailsButton from '@/components/ResendEmailsButton';
+import { sortActionItems } from '@/lib/action-items';
 
 export default async function MeetingDetailPage({
   params,
@@ -19,27 +22,33 @@ export default async function MeetingDetailPage({
 
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('id, title, coordination, created_at, status, transcript_raw')
+    .select('id, title, coordination, created_at, status, transcript_raw, error_message, audio_segments')
     .eq('id', params.id)
     .eq('created_by', user?.id)
-    .single();
+    .maybeSingle();
 
   if (!meeting) notFound();
 
   const [minuteResult, actionItemsResult, participantsResult] = await Promise.all([
-    supabase.from('minutes').select('*').eq('meeting_id', params.id).single(),
-    supabase.from('action_items').select('*').eq('meeting_id', params.id).order('priority', { ascending: true }),
+    // maybeSingle, not single: a duplicate/absent minute used to surface as
+    // "Minuta no disponible" even when the data was there.
+    supabase.from('minutes').select('*').eq('meeting_id', params.id).maybeSingle(),
+    supabase.from('action_items').select('*').eq('meeting_id', params.id),
     supabase.from('meeting_participants').select('*').eq('meeting_id', params.id),
   ]);
 
   const minute = minuteResult.data;
-  const actionItems = actionItemsResult.data;
+  // Ordering by the `priority` column alphabetically put "baja" above "media".
+  const actionItems = sortActionItems(actionItemsResult.data || []);
   const participantsRaw = participantsResult.data;
 
   const participants = (participantsRaw || []).map((p: any) => ({
     name: p.name || p.email_override?.split('@')[0] || 'Participante',
     email: p.email_override || '',
   })).filter((p) => p.email);
+
+  const hasAudio = (meeting.audio_segments || []).length > 0;
+  const canAddAudio = ['scheduled', 'recording', 'failed'].includes(meeting.status);
 
   return (
     <div className="space-y-6">
@@ -55,7 +64,7 @@ export default async function MeetingDetailPage({
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={meeting.status} />
-            {meeting.status === 'scheduled' && (
+            {canAddAudio && (
               <div className="flex items-center gap-2">
                 <Link
                   href={`/dashboard/meetings/${meeting.id}/record`}
@@ -68,8 +77,11 @@ export default async function MeetingDetailPage({
                 </Link>
                 <Link
                   href={`/dashboard/meetings/${meeting.id}/upload`}
-                  className="glass border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/80 dark:hover:bg-white/5 transition-all"
+                  className="glass border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/80 dark:hover:bg-white/5 transition-all inline-flex items-center gap-2"
                 >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
                   Subir Audio
                 </Link>
               </div>
@@ -91,13 +103,14 @@ export default async function MeetingDetailPage({
               </div>
               Minuta
               {meeting.status === 'completed' && (
-                <span className="ml-auto flex items-center gap-2">
+                <span className="ml-auto flex items-center gap-2 flex-wrap justify-end">
                   <ShareWhatsApp
                     title={meeting.title}
                     date={meeting.created_at}
                     minute={minute}
                     actionItems={(actionItems as any[]) || []}
                   />
+                  <ResendEmailsButton meetingId={meeting.id} />
                   <a
                     href={`/api/meetings/${params.id}/export-pdf`}
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg"
@@ -316,23 +329,15 @@ export default async function MeetingDetailPage({
             </details>
           )}
 
-          {/* Participants */}
-          {meeting.status === 'completed' && participants.length > 0 && (
-            <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-              <h2 className="text-sm font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-3">Participantes</h2>
-              <div className="flex flex-wrap gap-2">
-                {participants.map((p) => (
-                  <span key={p.email} className="glass rounded-full px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300">
-                    {p.name}
-                    <span className="text-slate-400 dark:text-slate-500 mx-1">·</span>
-                    <span className="text-slate-400 dark:text-slate-500 text-xs">{p.email}</span>
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
         </>
       )}
+
+      {/* Participants — editable, so a "Grabar ahora" meeting can still e-mail people */}
+      <MeetingParticipants
+        meetingId={meeting.id}
+        initialParticipants={participants}
+        creatorEmail={user?.email}
+      />
 
       {/* Processing State — recovery in case the worker died without updating status */}
       {meeting.status === 'processing' && (
@@ -340,7 +345,8 @@ export default async function MeetingDetailPage({
           <div className="w-10 h-10 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-slate-600 dark:text-slate-300 font-medium">Procesando audio y generando minuta…</p>
           <p className="text-xs text-slate-400 dark:text-slate-500">
-            Si esto no avanza después de varios minutos, puede reintentarse.
+            Si esto no avanza después de varios minutos, puedes reintentarlo. No se pierde nada:
+            continúa desde donde quedó.
           </p>
           <RetryButton meetingId={meeting.id} />
         </section>
@@ -348,20 +354,46 @@ export default async function MeetingDetailPage({
 
       {/* Failed State */}
       {meeting.status === 'failed' && (
-        <section className="glass-strong rounded-2xl p-6 text-center space-y-4 border border-rose-200/50 dark:border-rose-800/40">
-          <div className="w-12 h-12 gradient-error rounded-xl flex items-center justify-center mx-auto">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
+        <section className="glass-strong rounded-2xl p-6 space-y-4 border border-rose-200/50 dark:border-rose-800/40">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 gradient-error rounded-xl flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="text-rose-600 dark:text-rose-400 font-medium">El procesamiento no se completó</p>
+              {/* The real reason, instead of a generic "falló". */}
+              <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 break-words">
+                {meeting.error_message || 'No se registró el motivo. Vuelve a intentarlo.'}
+              </p>
+              {!hasAudio && (
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                  Esta reunión no tiene audio todavía: graba o sube un archivo antes de reintentar.
+                </p>
+              )}
+            </div>
           </div>
-          <p className="text-rose-600 dark:text-rose-400 font-medium">La reunión falló durante el procesamiento</p>
-          <RetryButton meetingId={meeting.id} />
+          {hasAudio && <RetryButton meetingId={meeting.id} />}
         </section>
       )}
 
+      {/* Nothing recorded yet */}
+      {!minute && !hasAudio && meeting.status === 'scheduled' && (
+        <div className="glass-strong rounded-2xl p-8 text-center space-y-2">
+          <p className="text-slate-600 dark:text-slate-300 font-medium">Esta reunión aún no tiene audio</p>
+          <p className="text-slate-400 dark:text-slate-500 text-sm">
+            Usa «Grabar» para capturarla en vivo, o «Subir Audio» si ya la tienes grabada.
+          </p>
+        </div>
+      )}
+
       {!minute && meeting.status === 'completed' && (
-        <div className="glass-strong rounded-2xl p-8 text-center">
-          <p className="text-slate-500 dark:text-slate-400">Minuta no disponible aún.</p>
+        <div className="glass-strong rounded-2xl p-8 text-center space-y-3">
+          <p className="text-slate-500 dark:text-slate-400">
+            La reunión está marcada como completada pero no tiene minuta.
+          </p>
+          <RetryButton meetingId={meeting.id} />
         </div>
       )}
     </div>

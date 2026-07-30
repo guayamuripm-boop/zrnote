@@ -1,8 +1,9 @@
 import { createServerSupabase } from '@/lib/supabase/server';
-import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
+import MeetingSearch from '@/components/MeetingSearch';
+import { getOwnMeetingIds, getUserActionItems } from '@/lib/action-items';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,39 +12,33 @@ export default async function DashboardHome() {
   const { data: { user } } = await supabase.auth.getUser();
   const email = user?.email || '';
 
-  // Action items are assigned by name/email by the LLM, not by user_id, and RLS
-  // only exposes assignee_user_id = me rows. Same fix as "Mis Tareas": read via
-  // the service client, scoped strictly to this user's id/email, so the count
-  // here matches what "Mis Tareas" actually shows.
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-  );
-  const orFilter = [
-    user?.id ? `assignee_user_id.eq.${user.id}` : null,
-    email ? `assignee_email.ilike.${email}` : null,
-  ].filter(Boolean).join(',');
-
-  const [meetingsResult, actionItemsResult] = await Promise.all([
+  // `count: 'exact'` on the stats query: the card used to display
+  // `meetings.length` from a list capped at 10, so anyone with more than ten
+  // meetings saw a permanent "10".
+  const [meetingsResult, statsResult, ownMeetingIds] = await Promise.all([
     supabase
       .from('meetings')
       .select('id, title, status, created_at, coordination')
       .eq('created_by', user?.id)
       .order('created_at', { ascending: false })
       .limit(10),
-    orFilter
-      ? admin
-          .from('action_items')
-          .select('id, description, priority, due_date, status')
-          .or(orFilter)
-          .neq('status', 'completado')
-          .order('created_at', { ascending: false })
-      : Promise.resolve({ data: [] as any[] }),
+    supabase
+      .from('meetings')
+      .select('status', { count: 'exact' })
+      .eq('created_by', user?.id),
+    user?.id ? getOwnMeetingIds(supabase, user.id) : Promise.resolve([]),
   ]);
 
   const meetings = meetingsResult.data || [];
-  const actionItems = (actionItemsResult.data || []).slice(0, 5);
-  const pendingCount = actionItemsResult.data?.length || 0;
+  const allStatuses = statsResult.data || [];
+  const totalMeetings = statsResult.count ?? allStatuses.length;
+  const completedCount = allStatuses.filter((m: any) => m.status === 'completed').length;
+  const processingCount = allStatuses.filter((m: any) => m.status === 'processing').length;
+
+  const allItems = user?.id ? await getUserActionItems(user.id, email, ownMeetingIds) : [];
+  const pending = allItems.filter((i) => i.status !== 'completado');
+  const actionItems = pending.slice(0, 5);
+  const pendingCount = pending.length;
 
   return (
     <div className="space-y-8">
@@ -64,6 +59,9 @@ export default async function DashboardHome() {
         </Link>
       </div>
 
+      {/* Search */}
+      <MeetingSearch />
+
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
@@ -72,7 +70,7 @@ export default async function DashboardHome() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{meetings.length}</p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{totalMeetings}</p>
           <p className="text-xs text-slate-500 dark:text-slate-400">Reuniones</p>
         </div>
         <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
@@ -90,7 +88,7 @@ export default async function DashboardHome() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{meetings.filter(m => m.status === 'completed').length}</p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{completedCount}</p>
           <p className="text-xs text-slate-500 dark:text-slate-400">Completadas</p>
         </div>
         <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
@@ -99,7 +97,7 @@ export default async function DashboardHome() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{meetings.filter(m => m.status === 'processing').length}</p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{processingCount}</p>
           <p className="text-xs text-slate-500 dark:text-slate-400">Procesando</p>
         </div>
       </div>
@@ -154,7 +152,7 @@ export default async function DashboardHome() {
       {/* Pending Tasks */}
       <section>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Mis Tareas Pendientes</h2>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Compromisos pendientes</h2>
           <Link href="/dashboard/action-items" className="text-sm text-blue-600 dark:text-blue-400 font-medium hover:text-slate-900 dark:hover:text-slate-100 transition">
             Ver todas
           </Link>
@@ -167,11 +165,11 @@ export default async function DashboardHome() {
                   <p className="font-medium text-slate-900 dark:text-slate-100 truncate">{item.description}</p>
                   <PriorityBadge priority={item.priority} />
                 </div>
-                {item.due_date && (
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                    Fecha límite: {new Date(item.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
-                  </p>
-                )}
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  {item.mine ? 'A tu nombre' : `Responsable: ${item.assignee_name || 'sin asignar'}`}
+                  {item.due_date &&
+                    ` · vence ${new Date(`${item.due_date}T12:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`}
+                </p>
               </div>
             ))}
           </div>
