@@ -123,19 +123,48 @@ async function transcribeSegment(
   }
 
   const rawExt = (segment.r2_key.split('.').pop() || 'webm').toLowerCase();
-  // Groq Whisper only accepts: flac,mp3,mp4,mpeg,mpga,m4a,ogg,wav,webm.
-  // Raw .aac is NOT accepted (HTTP 400). We can't decode/transcode server-side,
-  // so we present the SAME bytes under several accepted extensions — Groq's
-  // ffmpeg backend probes the real content and one of them decodes the AAC.
-  const GROQ_EXTS = new Set(['flac', 'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'ogg', 'wav', 'webm']);
+
+  // Groq Whisper accepts only these container types. Raw `.aac` is NOT among
+  // them, so its bytes are presented under an accepted extension instead —
+  // Groq's ffmpeg backend probes the real content and decodes the ADTS stream.
+  const GROQ_EXTS = new Set(['flac', 'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'ogg', 'opus', 'wav', 'webm']);
+
+  // Renaming the FILE is not enough: Groq also validates the multipart part's
+  // Content-Type, and the blob coming back from Supabase Storage carries the
+  // type it was uploaded with (`audio/aac`). That mismatch is what produced
+  // `400 file must be one of the following types` on every single attempt,
+  // even though the filename said `.m4a`. So the MIME is set explicitly to one
+  // that matches the extension being claimed.
+  const MIME_BY_EXT: Record<string, string> = {
+    flac: 'audio/flac',
+    mp3: 'audio/mpeg',
+    mpeg: 'audio/mpeg',
+    mpga: 'audio/mpeg',
+    mp4: 'audio/mp4',
+    m4a: 'audio/mp4',
+    ogg: 'audio/ogg',
+    opus: 'audio/ogg',
+    wav: 'audio/wav',
+    webm: 'audio/webm',
+  };
+
   const candidateExts = GROQ_EXTS.has(rawExt) ? [rawExt] : ['m4a', 'mp4', 'mpga', 'wav', 'ogg'];
 
   let lastError = 'error desconocido';
+  logger.debug('Segment ready to transcribe', {
+    meetingId,
+    segmentIndex: segment.segment_index,
+    rawExt,
+    storedType: (audioData as Blob).type || 'sin tipo',
+    bytes: audioData.size,
+  });
 
   for (const tryExt of candidateExts) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       const formData = new FormData();
-      formData.append('file', audioData, `audio.${tryExt}`);
+      // Re-wrap so BOTH the filename and the Content-Type say the same thing.
+      const payload = new Blob([audioData], { type: MIME_BY_EXT[tryExt] || 'audio/mpeg' });
+      formData.append('file', payload, `audio.${tryExt}`);
       formData.append('model', 'whisper-large-v3');
       formData.append('language', 'es');
       formData.append('response_format', 'verbose_json');

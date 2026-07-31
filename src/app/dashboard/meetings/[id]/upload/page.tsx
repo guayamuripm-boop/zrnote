@@ -279,10 +279,17 @@ export default function UploadAudioPage() {
         if (!signRes.ok) throw new Error(signData.error || 'No se pudo firmar la subida');
 
         // 2. Upload the chunk straight to Storage (no Vercel size cap).
+        //
+        // Store it as a generic binary. Storage used to keep `audio/aac`, and
+        // that stored type travelled all the way into the multipart part sent
+        // to Groq — which rejects `aac` outright, so every transcription came
+        // back `400 file must be one of the following types`. The server now
+        // sets the Content-Type explicitly per attempt, and keeping the stored
+        // type neutral removes the trap entirely.
         const { error: upErr } = await supabase.storage
           .from('meeting-audio')
           .uploadToSignedUrl(signData.path, signData.token, target.file, {
-            contentType: target.file.type || 'audio/aac',
+            contentType: 'application/octet-stream',
           });
         if (upErr) throw new Error(upErr.message);
 
