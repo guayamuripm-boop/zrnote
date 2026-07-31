@@ -23,6 +23,15 @@ export const metadata: Metadata = {
   title: 'ZRNote — Minutas Inteligentes | ZR Mecacademy',
   description: 'Sistema de minutas automáticas para ZR Mecacademy. Graba, transcribe, genera minutas y envía action items.',
   manifest: '/manifest.json',
+  icons: {
+    // The .ico carries 16/32/48 for browsers and Windows that still want it;
+    // the SVG is what modern browsers pick and stays crisp at any zoom.
+    icon: [
+      { url: '/favicon.ico', sizes: '16x16 32x32 48x48' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
+  },
   appleWebApp: {
     capable: true,
     title: 'ZRNote',

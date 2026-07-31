@@ -340,75 +340,160 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     .slice(0, 10);
   const buildPrompt = (t: string) => MINUTE_PROMPT(t, meetingDate);
 
-  // Hybrid: prefer Gemini Flash for the minute (1M-token context → no truncation,
-  // higher free-tier throughput). Fall back to Groq/Llama if no GEMINI_API_KEY,
-  // so nothing breaks before the key is configured.
-  const geminiKey = process.env.GEMINI_API_KEY;
   const estTokens = (s: string) => Math.ceil(s.length / 4);
+  const geminiKey = process.env.GEMINI_API_KEY;
 
-  let llmResponse: Response | null = null;
-  let provider = 'groq';
+  // Gemini is preferred: a 1M-token context means long meetings are never
+  // truncated. But it is NOT allowed to be a single point of failure — see
+  // the fallback below.
+  //
+  // Models are tried in order. Google retires models from the free tier without
+  // notice: `gemini-2.0-flash` started answering 429 with
+  // `free_tier_requests, limit: 0`, which is a quota of zero, not a rate limit
+  // you can wait out. GEMINI_MODEL overrides the list.
+  const geminiModels = process.env.GEMINI_MODEL
+    ? [process.env.GEMINI_MODEL]
+    : ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 
-  if (geminiKey) {
-    provider = 'gemini';
-    logger.info('Calling Gemini for minute', { meetingId, inputTokens: estTokens(buildPrompt(meetingTranscript)) });
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      llmResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${geminiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'gemini-2.0-flash',
-          messages: [{ role: 'user', content: buildPrompt(meetingTranscript) }],
-          temperature: 0.3,
-          max_tokens: 8192,
-          response_format: { type: 'json_object' },
-        }),
-      });
-      if (llmResponse.ok) break;
-      if (llmResponse.status === 429 && attempt < 3) { await new Promise((r) => setTimeout(r, 12000)); continue; }
-      break;
+  async function callGemini(): Promise<{ text: string } | { error: string }> {
+    let lastError = 'sin respuesta';
+
+    for (const model of geminiModels) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        let res: Response;
+        try {
+          res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${geminiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: 'user', content: buildPrompt(meetingTranscript!) }],
+              temperature: 0.3,
+              max_tokens: 8192,
+              response_format: { type: 'json_object' },
+            }),
+          });
+        } catch (err: any) {
+          lastError = `${model}: ${err?.message || 'error de red'}`;
+          break;
+        }
+
+        if (res.ok) {
+          const json = await res.json();
+          const text = json.choices?.[0]?.message?.content || '';
+          if (text.trim()) {
+            logger.info('Minute drafted with Gemini', { meetingId, model });
+            return { text };
+          }
+          lastError = `${model}: respuesta vacía`;
+          break;
+        }
+
+        const body = await res.text();
+        lastError = `${model} (${res.status}): ${body.slice(0, 200)}`;
+
+        // A real rate limit is worth waiting out once. A quota of zero (the
+        // model is simply not on this plan) never resolves — move on.
+        const isZeroQuota = /limit:\s*0\b/.test(body) || /RESOURCE_EXHAUSTED/.test(body);
+        if (res.status === 429 && attempt === 1 && !isZeroQuota) {
+          await new Promise((r) => setTimeout(r, 12000));
+          continue;
+        }
+        break;
+      }
     }
-  } else {
-    // Groq free tier caps llama-3.3-70b at 12,000 tokens/MINUTE, counting
+
+    return { error: lastError };
+  }
+
+  async function callGroq(): Promise<{ text: string } | { error: string }> {
+    if (!groqKey) return { error: 'GROQ_API_KEY no configurada' };
+
+    // Groq's free tier caps llama-3.3-70b at 12,000 tokens/MINUTE, counting
     // input (prompt+transcript) + max_tokens together. Size the request to fit,
     // trimming the transcript only if it alone blows the budget.
     const TPM_BUDGET = 11000;
     const MIN_OUTPUT = 2000;
     const MAX_OUTPUT = 6000;
     const overheadTokens = estTokens(buildPrompt(''));
-    let inputTokens = estTokens(buildPrompt(meetingTranscript));
+    let inputTokens = estTokens(buildPrompt(meetingTranscript!));
+
     if (inputTokens + MIN_OUTPUT > TPM_BUDGET) {
       const transcriptTokenBudget = Math.max(0, TPM_BUDGET - MIN_OUTPUT - overheadTokens);
-      meetingTranscript = meetingTranscript.slice(0, transcriptTokenBudget * 4);
+      meetingTranscript = meetingTranscript!.slice(0, transcriptTokenBudget * 4);
       inputTokens = estTokens(buildPrompt(meetingTranscript));
       logger.warn('Transcript trimmed to fit Groq TPM budget', { meetingId, keptChars: meetingTranscript.length });
     }
+
     const maxOut = Math.max(MIN_OUTPUT, Math.min(MAX_OUTPUT, TPM_BUDGET - inputTokens));
-    logger.info('Calling Groq LLM', { meetingId, inputTokens, maxOut });
+    let lastError = 'sin respuesta';
+
     for (let attempt = 1; attempt <= 3; attempt++) {
-      llmResponse = await fetch(`${GROQ_BASE}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content: buildPrompt(meetingTranscript) }],
-          temperature: 0.3,
-          max_tokens: maxOut,
-        }),
-      });
-      if (llmResponse.ok) break;
-      if (llmResponse.status === 429 && attempt < 3) { await new Promise((r) => setTimeout(r, 15000)); continue; }
+      let res: Response;
+      try {
+        res = await fetch(`${GROQ_BASE}/chat/completions`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: buildPrompt(meetingTranscript!) }],
+            temperature: 0.3,
+            max_tokens: maxOut,
+          }),
+        });
+      } catch (err: any) {
+        lastError = err?.message || 'error de red';
+        break;
+      }
+
+      if (res.ok) {
+        const json = await res.json();
+        const text = json.choices?.[0]?.message?.content || '';
+        if (text.trim()) {
+          logger.info('Minute drafted with Groq', { meetingId, inputTokens, maxOut });
+          return { text };
+        }
+        lastError = 'respuesta vacía';
+        break;
+      }
+
+      lastError = `${res.status}: ${(await res.text()).slice(0, 200)}`;
+      if (res.status === 429 && attempt < 3) {
+        await new Promise((r) => setTimeout(r, 15000));
+        continue;
+      }
       break;
     }
+
+    return { error: lastError };
   }
 
-  if (!llmResponse || !llmResponse.ok) {
-    const errorText = llmResponse ? await llmResponse.text() : 'sin respuesta';
-    return { success: false, error: `LLM error ${provider} (${llmResponse?.status}): ${errorText}` };
+  // Try Gemini, then Groq. Previously Groq was only used when GEMINI_API_KEY was
+  // ABSENT, so the moment Gemini answered 429 the whole meeting failed even
+  // though a perfectly good fallback was configured and idle.
+  let result: { text: string } | { error: string };
+  const errors: string[] = [];
+
+  if (geminiKey) {
+    result = await callGemini();
+    if ('error' in result) {
+      logger.warn('Gemini failed, falling back to Groq', { meetingId, error: result.error });
+      errors.push(`Gemini → ${result.error}`);
+      result = await callGroq();
+    }
+  } else {
+    result = await callGroq();
   }
 
-  const llmResult = await llmResponse.json();
-  const responseText = llmResult.choices[0]?.message?.content || '';
+  if ('error' in result) {
+    errors.push(`Groq → ${result.error}`);
+    return {
+      success: false,
+      error: `No se pudo generar la minuta. ${errors.join(' | ')}`,
+    };
+  }
+
+  const responseText = result.text;
 
   const jsonMatch = responseText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {

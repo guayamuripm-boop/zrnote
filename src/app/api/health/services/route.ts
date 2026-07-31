@@ -99,38 +99,51 @@ async function checkGemini(): Promise<Check> {
     };
   }
 
-  try {
-    // A real generation call, exactly as processing.ts makes it — a models list
-    // would not catch a model that exists but rejects our request shape.
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'gemini-2.0-flash',
-        messages: [{ role: 'user', content: 'Responde solo: {"ok":true}' }],
-        max_tokens: 20,
-        response_format: { type: 'json_object' },
-      }),
-      signal: timeout(15000),
-    });
+  // Same list, and same order, that processing.ts uses.
+  const models = process.env.GEMINI_MODEL
+    ? [process.env.GEMINI_MODEL]
+    : ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 
-    if (!res.ok) {
+  const failures: string[] = [];
+
+  for (const model of models) {
+    try {
+      // A real generation call, exactly as processing.ts makes it — listing the
+      // models would not catch one that exists but has a quota of zero.
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'Responde solo: {"ok":true}' }],
+          max_tokens: 20,
+          response_format: { type: 'json_object' },
+        }),
+        signal: timeout(15000),
+      });
+
+      if (res.ok) {
+        return {
+          id: 'gemini', label: 'Gemini (minuta)', status: 'ok', critical: false,
+          detail: `${model} responde correctamente`,
+        };
+      }
+
       const body = await res.text();
-      return {
-        id: 'gemini', label: 'Gemini (minuta)', status: 'error', critical: false,
-        detail: `Rechazado (${res.status}): ${body.slice(0, 140)}. Se usará Groq como respaldo.`,
-      };
+      failures.push(
+        /limit:\s*0\b/.test(body)
+          ? `${model}: sin cuota gratuita (limit 0)`
+          : `${model}: ${res.status}`,
+      );
+    } catch (err: any) {
+      failures.push(`${model}: ${err?.message || 'error de red'}`);
     }
-    return {
-      id: 'gemini', label: 'Gemini (minuta)', status: 'ok', critical: false,
-      detail: 'gemini-2.0-flash responde correctamente',
-    };
-  } catch (err: any) {
-    return {
-      id: 'gemini', label: 'Gemini (minuta)', status: 'error', critical: false,
-      detail: `No se pudo conectar: ${err?.message || 'error de red'}`,
-    };
   }
+
+  return {
+    id: 'gemini', label: 'Gemini (minuta)', status: 'warn', critical: false,
+    detail: `Ningún modelo de Gemini responde (${failures.join(' · ')}). Las minutas se generarán con Groq, que recorta reuniones largas.`,
+  };
 }
 
 async function checkStorage(): Promise<Check> {

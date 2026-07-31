@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import ZRLogo from '@/components/ZRLogo';
 import { createServerSupabase } from '@/lib/supabase/server';
 import ThemeToggle from '@/components/ThemeToggle';
 import { VersionLogger } from '@/components/VersionLogger';
@@ -22,9 +23,7 @@ export default async function DashboardLayout({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <Link href="/dashboard" className="flex items-center gap-2.5">
-              <div className="w-9 h-9 gradient-primary rounded-xl flex items-center justify-center shadow-lg">
-                <span className="text-white font-bold text-sm">ZR</span>
-              </div>
+              <ZRLogo className="w-9 h-9 rounded-xl shadow-lg" />
               <span className="text-slate-900 dark:text-slate-100 font-bold text-lg tracking-tight hidden sm:block">
                 ZRNote
               </span>

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import ZRLogo from '@/components/ZRLogo';
 import { createClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
@@ -49,9 +50,7 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-md">
         <div className="glass-strong rounded-3xl p-8 sm:p-10 shadow-float">
           <Link href="/" className="flex items-center gap-2.5 mb-8">
-            <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center shadow-lg">
-              <span className="text-white font-bold text-sm">ZR</span>
-            </div>
+            <ZRLogo className="w-10 h-10 rounded-xl shadow-lg" />
             <span className="text-slate-900 dark:text-slate-100 font-bold text-lg">ZRNote</span>
           </Link>
 

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import ZRLogo from '@/components/ZRLogo';
 
 export const metadata = {
   title: 'Documentos legales — ZRNote',
@@ -38,9 +39,7 @@ export default function LegalPage() {
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-700/60">
         <div className="max-w-3xl mx-auto px-4 py-8">
           <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
-            <div className="w-9 h-9 gradient-primary rounded-xl flex items-center justify-center shadow-lg">
-              <span className="text-white font-bold text-sm">ZR</span>
-            </div>
+            <ZRLogo className="w-9 h-9 rounded-xl shadow-lg" />
             <span className="text-slate-900 dark:text-slate-100 font-bold">ZRNote</span>
           </Link>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">
