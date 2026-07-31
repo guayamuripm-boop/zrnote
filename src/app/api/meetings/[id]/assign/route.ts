@@ -13,9 +13,10 @@ const assignSchema = z.object({
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = createServerSupabase();
+  const resolvedParams = await params;
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
@@ -32,7 +33,7 @@ export async function POST(
   const { data: meeting } = await supabase
     .from('meetings')
     .select('created_by')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .maybeSingle();
 
   if (!meeting || meeting.created_by !== user.id) {
@@ -65,7 +66,7 @@ export async function POST(
         assignee_user_id: email ? userIdByEmail.get(email.toLowerCase()) ?? null : null,
       })
       .eq('id', a.action_item_id)
-      .eq('meeting_id', params.id);
+      .eq('meeting_id', resolvedParams.id);
     if (error) errors.push(error.message);
   }
 

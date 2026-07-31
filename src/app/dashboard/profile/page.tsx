@@ -4,7 +4,7 @@ import ThemeToggle from '@/components/ThemeToggle';
 import DeleteAccountSection from '@/components/DeleteAccountSection';
 
 export default async function ProfilePage() {
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
   return (
@@ -54,6 +54,18 @@ export default async function ProfilePage() {
           <p className="text-xs text-slate-400 dark:text-slate-500">
             Archivo JSON con tus reuniones, minutas y compromisos. El audio se borra
             automáticamente a los 30 días.
+          </p>
+        </div>
+
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+          <Link
+            href="/dashboard/diagnostico"
+            className="block w-full text-center glass border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 py-3 rounded-xl font-medium hover:bg-white/80 dark:hover:bg-white/5 transition-all"
+          >
+            Diagnóstico del sistema
+          </Link>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+            Comprueba que la transcripción, la IA, el almacenamiento y los correos funcionan.
           </p>
         </div>
 

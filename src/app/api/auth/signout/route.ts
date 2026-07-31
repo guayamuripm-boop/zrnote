@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server';
 // domain (preview URLs, trailing slash, domain changes) and send the user to
 // a dead page after logout.
 async function handleSignOut(request: Request) {
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   await supabase.auth.signOut();
 
   const response = NextResponse.redirect(new URL('/login', request.url), { status: 303 });

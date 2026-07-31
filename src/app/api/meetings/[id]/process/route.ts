@@ -23,8 +23,9 @@ async function markFailed(supabase: any, meetingId: string, error: string) {
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const resolvedParams = await params;
   // Cookie (web app) or bearer token (Chrome extension).
   const auth = await getAuthedUser(request);
   if (!auth) {
@@ -33,7 +34,7 @@ export async function POST(
   const { user, supabase } = auth;
 
   // Rate limiting per user per meeting (DB-based)
-  const rateLimitKey = `${user.id}:${params.id}:process`;
+  const rateLimitKey = `${user.id}:${resolvedParams.id}:process`;
   const { allowed } = await checkRateLimit(rateLimitKey);
   if (!allowed) {
     return NextResponse.json(
@@ -50,7 +51,7 @@ export async function POST(
   }
 
   let { step } = parsed.data;
-  const meetingId = params.id;
+  const meetingId = resolvedParams.id;
 
   const { data: meeting } = await supabase
     .from('meetings')

@@ -15,15 +15,16 @@ import { sortActionItems } from '@/lib/action-items';
 export default async function MeetingDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const supabase = createServerSupabase();
+  const resolvedParams = await params;
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
   const { data: meeting } = await supabase
     .from('meetings')
     .select('id, title, coordination, created_at, status, transcript_raw, error_message, audio_segments')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user?.id)
     .maybeSingle();
 
@@ -32,9 +33,9 @@ export default async function MeetingDetailPage({
   const [minuteResult, actionItemsResult, participantsResult] = await Promise.all([
     // maybeSingle, not single: a duplicate/absent minute used to surface as
     // "Minuta no disponible" even when the data was there.
-    supabase.from('minutes').select('*').eq('meeting_id', params.id).maybeSingle(),
-    supabase.from('action_items').select('*').eq('meeting_id', params.id),
-    supabase.from('meeting_participants').select('*').eq('meeting_id', params.id),
+    supabase.from('minutes').select('*').eq('meeting_id', resolvedParams.id).maybeSingle(),
+    supabase.from('action_items').select('*').eq('meeting_id', resolvedParams.id),
+    supabase.from('meeting_participants').select('*').eq('meeting_id', resolvedParams.id),
   ]);
 
   const minute = minuteResult.data;
@@ -112,7 +113,7 @@ export default async function MeetingDetailPage({
                   />
                   <ResendEmailsButton meetingId={meeting.id} />
                   <a
-                    href={`/api/meetings/${params.id}/export-pdf`}
+                    href={`/api/meetings/${resolvedParams.id}/export-pdf`}
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

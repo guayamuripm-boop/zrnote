@@ -5,9 +5,10 @@ import { MinutePDFDocument, generateMinutePDFBlob } from '@/lib/minute-pdf';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = createServerSupabase();
+  const resolvedParams = await params;
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
@@ -17,7 +18,7 @@ export async function GET(
   const { data: meeting } = await supabase
     .from('meetings')
     .select('id, title, coordination, type, status, created_at, started_at, ended_at, created_by')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .single();
 
@@ -26,11 +27,11 @@ export async function GET(
   }
 
   const [minuteResult, actionItemsResult] = await Promise.all([
-    supabase.from('minutes').select('*').eq('meeting_id', params.id).single(),
+    supabase.from('minutes').select('*').eq('meeting_id', resolvedParams.id).single(),
     // Live table, not raw_llm_output: reflects reassignment (AssignActionItems)
     // and status changes (ActionItemStatus toggle) made after the minute was generated.
     supabase.from('action_items').select('assignee_name, description, priority, due_date, status')
-      .eq('meeting_id', params.id)
+      .eq('meeting_id', resolvedParams.id)
       .order('priority', { ascending: true }),
   ]);
 

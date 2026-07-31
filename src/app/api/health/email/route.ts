@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 // WITHOUT sending any email (nodemailer's verify() only does login handshake).
 // Requires auth so it never leaks config to anonymous callers.
 export async function GET() {
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

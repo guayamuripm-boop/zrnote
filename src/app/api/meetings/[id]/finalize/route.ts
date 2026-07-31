@@ -12,8 +12,9 @@ const STALE_PROCESSING_MS = 90 * 1000;
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const resolvedParams = await params;
   // Cookie (web app) or bearer token (Chrome extension).
   const auth = await getAuthedUser(request);
   if (!auth) {
@@ -24,7 +25,7 @@ export async function POST(
   const { data: meeting } = await supabase
     .from('meetings')
     .select('status, ended_at')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .single();
 
@@ -56,7 +57,7 @@ export async function POST(
         status: 'processing',
         ended_at: new Date().toISOString(),
       })
-      .eq('id', params.id);
+      .eq('id', resolvedParams.id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -71,7 +72,7 @@ export async function POST(
       status: 'processing',
       ended_at: new Date().toISOString(),
     })
-    .eq('id', params.id);
+    .eq('id', resolvedParams.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

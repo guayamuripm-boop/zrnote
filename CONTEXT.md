@@ -3,19 +3,36 @@
 
 ---
 
-## 🚦 ESTADO: MVP desplegado (v1.5.0, 2026-07-30)
+## 🚦 ESTADO: listo para lanzar (v1.6.0, 2026-07-31)
 
-Build ✅ · TypeScript ✅ · 80 tests ✅ · **En producción** en https://zrnote.vercel.app
+Build ✅ · TypeScript ✅ · 80 tests ✅ · Next 15 + React 19 · **En producción** en https://zrnote.vercel.app
 
-Ya aplicado en producción en esta sesión:
-- ✅ Migración `020_mvp_hardening_and_legal_v2.sql` ejecutada vía Management API.
-- ✅ `CRON_SECRET` configurado en Vercel (verificado: `/api/cron/retention` responde 401 sin él).
-- ✅ Despliegue a producción y endpoints verificados.
+Ya aplicado en producción:
+- ✅ Migración `020_mvp_hardening_and_legal_v2.sql` (vía Management API).
+- ✅ `CRON_SECRET` configurado (verificado: los crons responden 401 sin él).
+- ✅ Código commiteado y en GitHub — repo y producción coinciden.
+- ✅ Sin vulnerabilidades explotables (ver "Auditoría pre-lanzamiento").
 
 **Pendiente y solo tú puedes hacerlo:**
-1. **Rotar la clave de firma de la extensión** — `extension.pem` estuvo versionada en un repo público.
-2. **Commitear el código.** El despliegue se hizo subiendo los archivos locales, no desde GitHub: el repo sigue con la versión anterior. Si Vercel vuelve a desplegar desde `main`, revierte todo esto.
+1. **Rotar la clave de firma de la extensión** — `extension.pem` estuvo versionada en un repo público, así que sigue en el historial. Genera un par nuevo desde `chrome://extensions` → "Empaquetar extensión" sin indicar clave privada.
+2. **Abrir `/dashboard/diagnostico`** una vez con tu sesión iniciada: comprueba en vivo las claves de Groq/Gemini, el almacenamiento y los correos. Es lo único que no puedo verificar yo (las claves son secretas).
 3. **Probar la extensión en una reunión real** (reescrita, no verificada en vivo — ver `extension/README.md`).
+
+### Cómo ejecutar SQL en producción (la conexión directa está bloqueada)
+`supabase db query`/`db push` cuelgan: el host `db.*.supabase.co` no publica registro A y el CLI intenta Postgres directo. La vía que funciona es la Management API por HTTPS:
+```bash
+curl -X POST "https://api.supabase.com/v1/projects/qmdcpcwigzebqcoeiebi/database/query" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" -d '{"query":"select 1"}'
+```
+
+### Cómo probar la app localmente
+`vercel env pull` **no** descarga las variables marcadas como sensibles: escribe `[SENSITIVE]` y la app da 500 en todo lo que toque Supabase. Para pruebas locales basta con la URL y la clave anónima (ambas públicas por diseño, viajan al navegador):
+```
+NEXT_PUBLIC_SUPABASE_URL=https://qmdcpcwigzebqcoeiebi.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon, desde el panel de Supabase>
+```
+Eso permite verificar páginas públicas, login y middleware. Transcripción y correos requieren las claves reales.
 
 ### Cómo ejecutar SQL en producción (la conexión directa está bloqueada)
 `supabase db query`/`db push` cuelgan: el host `db.*.supabase.co` no publica registro A y el CLI intenta Postgres directo. La vía que funciona es la Management API por HTTPS:
@@ -199,6 +216,49 @@ npm run typecheck && npm run test && npm run build
 
 ---
 
+## 🔐 AUDITORÍA PRE-LANZAMIENTO (v1.6.0, 2026-07-31)
+
+### Next.js 14 → 15: no era opcional
+`next@14.2.18` arrastraba una vulnerabilidad **crítica**: *Authorization Bypass in Next.js Middleware* (GHSA-f82v-jwr5-mffw). El middleware de ZRNote es justo lo que protege `/dashboard`. Además Next 14 ya no recibe parches de seguridad (sólo se mantienen la mayor actual y la anterior).
+
+Se actualizó a **Next 15.5.22 + React 19 + @supabase/ssr 0.12 + supabase-js 2.111**. Se eligió 15 y no 16 a propósito: 15 sigue soportada y el salto es mucho menos arriesgado justo antes de lanzar.
+
+Cambios que exigió la migración:
+- `cookies()` es asíncrono → `createServerSupabase()` ahora es `async` y **todas** sus llamadas llevan `await` (23 archivos).
+- `@supabase/ssr` 0.12: se pasó de `get/set/remove` a `getAll/setAll`. El triple antiguo está deprecado y maneja mal las cookies partidas de sesiones grandes.
+- `params` de rutas y páginas dinámicas es ahora `Promise` → migrados 12 archivos.
+- `experimental.serverComponentsExternalPackages` → `serverExternalPackages`.
+
+### Estado de vulnerabilidades
+| Paquete | Estado |
+|---|---|
+| next | ✅ Resuelto (15.5.22) |
+| sharp (libvips CVEs) | ✅ Forzado a ^0.35.3 vía `overrides`. Además `images.unoptimized: true` elimina el endpoint `/_next/image`, que es lo único que usaba sharp. |
+| postcss (nivel raíz) | ✅ Subido a ^8.5.25 |
+| postcss (empaquetado dentro de next) | ⚠️ **Riesgo aceptado.** Next fija 8.4.31 dentro de su propio paquete y no acepta `overrides`. **No es explotable aquí**: es una herramienta de *build* que procesa únicamente nuestro propio CSS (nunca entrada de usuario) y no llega al navegador. Se resolverá solo cuando Next actualice su dependencia. |
+
+### Verificación en ejecución real (no sólo compilación)
+Se levantó el build de producción localmente contra la base de datos real y se comprobó:
+- `/`, `/login`, `/signup`, `/legal` y los 4 documentos legales → **200**, con el contenido v2 leído de Supabase.
+- `/dashboard` sin sesión → **307 a /login** (el middleware protege de verdad).
+- `/api/health/services` sin sesión → **401**.
+- `/api/legal/documents` → devuelve los documentos v2.
+
+**Esto atrapó un fallo real**: en el primer intento todo daba 500. Era `.env.local` con valores `[SENSITIVE]` (Vercel no descarga variables marcadas como sensibles), no un fallo de código — pero de no haberlo probado en ejecución, el diagnóstico habría sido imposible de distinguir de una migración rota.
+
+### Comprobado en la base de datos de producción
+- Bucket `meeting-audio`: existe, **privado**, con 3 políticas.
+- RLS activo en las 7 tablas con datos personales.
+- Migración 018 aplicada (funciones `SECURITY DEFINER` que evitan la recursión de políticas).
+- Datos: 16 reuniones completadas, 14 minutas → 2 reuniones quedaron "completadas sin minuta" por el bug antiguo de falso éxito. El código nuevo lo impide y la UI ahora ofrece "Reintentar" en ese caso.
+
+### Nueva página: `/dashboard/diagnostico`
+Los fallos que de verdad tumban ZRNote son invisibles en el código: una clave revocada, un modelo que el proveedor retiró, un bucket que falta. La página los prueba **en vivo** y los muestra en verde/ámbar/rojo, marcando cuáles bloquean la app. Enlazada desde *Mi Perfil*.
+
+Es la forma de responder «¿está todo bien?» sin leer logs ni preguntarle a un desarrollador — y de detectar el día que Groq retire `whisper-large-v3` o Google retire `gemini-2.0-flash`.
+
+---
+
 ## 📱 PWA Y GRABACIÓN CON LA PANTALLA APAGADA (v1.5.0)
 
 **El service worker existía en `public/` desde el principio pero nadie llamaba nunca a `register()`.** ZRNote no era una PWA instalable: Chrome en Android solo ofrece instalación real si hay un worker registrado con handler de `fetch`. Y si se hubiera registrado tal como estaba, habría sido peor: cacheaba **toda** respuesta GET —incluido el HTML autenticado del dashboard y `/api/`— en una caché compartida.
@@ -244,4 +304,4 @@ Arreglo (`src/lib/background-audio.ts` + `RecordButton`):
 
 ---
 
-*Última actualización: 2026-07-30 — v1.5.0. Auditoría funcional completa (17 bugs + 8 problemas de seguridad), capa legal de consentimiento, PWA real por primera vez, grabación en segundo plano, extensión reescrita, y despliegue a producción con la migración 020 aplicada. Build ✅ · tsc ✅ · 80/80 tests ✅.*
+*Última actualización: 2026-07-31 — v1.6.0. Auditoría pre-lanzamiento: Next 15 + React 19 (CVE crítico de bypass de autenticación resuelto), dependencias al día, verificación en ejecución real contra la BD de producción, y nueva página de diagnóstico en vivo. Build ✅ · tsc ✅ · 80/80 tests ✅.*

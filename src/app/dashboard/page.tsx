@@ -8,7 +8,7 @@ import { getOwnMeetingIds, getUserActionItems } from '@/lib/action-items';
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardHome() {
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   const email = user?.email || '';
 

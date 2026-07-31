@@ -10,9 +10,10 @@ const MAX_DIRECT_SIZE = 25 * 1024 * 1024; // Groq Whisper hard limit
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = createServerSupabase();
+  const resolvedParams = await params;
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -24,7 +25,7 @@ export async function POST(
   const { data: meeting } = await supabase
     .from('meetings')
     .select('org_id, audio_segments')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .single();
 
@@ -65,7 +66,7 @@ export async function POST(
       }, { status: 400 });
     }
 
-    const key = `${meeting.org_id || 'default'}/${params.id}/segment_${segmentIndex}.${ext}`;
+    const key = `${meeting.org_id || 'default'}/${resolvedParams.id}/segment_${segmentIndex}.${ext}`;
     const { data, error } = await service.storage
       .from('meeting-audio')
       .createSignedUploadUrl(key, { upsert: true });
@@ -102,7 +103,7 @@ export async function POST(
     const { error } = await supabase
       .from('meetings')
       .update({ audio_segments: filtered })
-      .eq('id', params.id);
+      .eq('id', resolvedParams.id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

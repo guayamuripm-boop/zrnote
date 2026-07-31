@@ -18,8 +18,9 @@ import { logger } from '@/lib/logger';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const resolvedParams = await params;
   const auth = await getAuthedUser(request);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { user, supabase } = auth;
@@ -27,7 +28,7 @@ export async function GET(
   const { data: meeting } = await supabase
     .from('meetings')
     .select('recording_consent_at, recording_consent_by')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .maybeSingle();
 
@@ -41,8 +42,9 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const resolvedParams = await params;
   const auth = await getAuthedUser(request);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { user, supabase } = auth;
@@ -53,7 +55,7 @@ export async function POST(
       recording_consent_at: new Date().toISOString(),
       recording_consent_by: user.id,
     })
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .select('id, recording_consent_at')
     .maybeSingle();
@@ -65,7 +67,7 @@ export async function POST(
     return NextResponse.json({ error: 'Reunión no encontrada' }, { status: 404 });
   }
 
-  logger.info('Recording consent confirmed', { meetingId: params.id, userId: user.id });
+  logger.info('Recording consent confirmed', { meetingId: resolvedParams.id, userId: user.id });
 
   return NextResponse.json({ consented: true, at: meeting.recording_consent_at });
 }

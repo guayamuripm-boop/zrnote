@@ -5,9 +5,17 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || 'local',
   },
+  // Renamed out of `experimental` in Next 15.
+  serverExternalPackages: ['@react-pdf/renderer'],
+  images: {
+    // ZRNote uses no `next/image`. Turning the optimizer off removes the
+    // /_next/image endpoint entirely, which is what pulls in `sharp` (and its
+    // libvips CVEs) and is the target of several Next.js image-related
+    // advisories. Nothing in the app regresses: there is nothing to optimize.
+    unoptimized: true,
+  },
   experimental: {
     optimizePackageImports: ['@supabase/supabase-js'],
-    serverComponentsExternalPackages: ['@react-pdf/renderer'],
   },
   async headers() {
     return [

@@ -47,7 +47,7 @@ export async function getAuthedUser(request: Request): Promise<
     return { user: data.user, supabase, via: 'bearer' };
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 

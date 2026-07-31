@@ -18,9 +18,10 @@ const patchMeetingSchema = z.object({
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = createServerSupabase();
+  const resolvedParams = await params;
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
@@ -30,7 +31,7 @@ export async function GET(
   const { data: meeting } = await supabase
     .from('meetings')
     .select('id, title, coordination, type, status, created_at, started_at, ended_at, duration_seconds, created_by')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .single();
 
@@ -43,9 +44,10 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = createServerSupabase();
+  const resolvedParams = await params;
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
@@ -63,8 +65,8 @@ export async function PATCH(
 
   const { data: meeting, error } = await supabase
     .from('meetings')
-    .update(Object.keys(meetingFields).length > 0 ? meetingFields : { id: params.id })
-    .eq('id', params.id)
+    .update(Object.keys(meetingFields).length > 0 ? meetingFields : { id: resolvedParams.id })
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .select()
     .maybeSingle();
@@ -85,12 +87,12 @@ export async function PATCH(
 
     // Replace the guest list wholesale, but always keep the creator in it —
     // they are the one who receives the full summary.
-    await supabase.from('meeting_participants').delete().eq('meeting_id', params.id);
+    await supabase.from('meeting_participants').delete().eq('meeting_id', resolvedParams.id);
 
     const rows: Array<Record<string, unknown>> = [];
     if (creatorProfile?.email) {
       rows.push({
-        meeting_id: params.id,
+        meeting_id: resolvedParams.id,
         user_id: user.id,
         name: creatorProfile.full_name || creatorProfile.email.split('@')[0],
         email_override: creatorProfile.email,
@@ -102,7 +104,7 @@ export async function PATCH(
       const email = p.email.trim().toLowerCase();
       if (seen.has(email)) continue;
       seen.add(email);
-      rows.push({ meeting_id: params.id, user_id: null, name: p.name.trim(), email_override: p.email.trim() });
+      rows.push({ meeting_id: resolvedParams.id, user_id: null, name: p.name.trim(), email_override: p.email.trim() });
     }
 
     if (rows.length > 0) {
@@ -118,9 +120,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = createServerSupabase();
+  const resolvedParams = await params;
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
@@ -134,7 +137,7 @@ export async function DELETE(
   const { data: meeting } = await supabase
     .from('meetings')
     .select('audio_segments')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .maybeSingle();
 
@@ -145,7 +148,7 @@ export async function DELETE(
   const { error } = await supabase
     .from('meetings')
     .delete()
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id);
 
   if (error) {
@@ -163,7 +166,7 @@ export async function DELETE(
     );
     const { error: removeError } = await admin.storage.from('meeting-audio').remove(storageKeys);
     if (removeError) {
-      logger.error('Meeting delete: audio removal failed', { meetingId: params.id, error: removeError.message });
+      logger.error('Meeting delete: audio removal failed', { meetingId: resolvedParams.id, error: removeError.message });
     }
   }
 

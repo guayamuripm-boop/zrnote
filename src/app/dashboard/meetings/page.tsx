@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { StatusBadge } from '@/components/StatusBadge';
 
 export default async function MeetingsPage() {
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
   const { data: meetings } = await supabase

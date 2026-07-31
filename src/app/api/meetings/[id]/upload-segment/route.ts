@@ -25,8 +25,9 @@ const MAX_SIZE = 4 * 1024 * 1024; // 4MB, safely under Vercel's 4.5MB body cap
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const resolvedParams = await params;
   // Cookie (web app) or bearer token (Chrome extension).
   const auth = await getAuthedUser(request);
   if (!auth) {
@@ -53,7 +54,7 @@ export async function POST(
   const { data: meeting } = await supabase
     .from('meetings')
     .select('org_id, audio_segments')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .single();
 
@@ -61,7 +62,7 @@ export async function POST(
     return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
   }
 
-  const r2Key = `${meeting.org_id || 'default'}/${params.id}/segment_${segmentIndex}.${ext}`;
+  const r2Key = `${meeting.org_id || 'default'}/${resolvedParams.id}/segment_${segmentIndex}.${ext}`;
 
   const serviceClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -94,7 +95,7 @@ export async function POST(
   const { error: saveError } = await supabase
     .from('meetings')
     .update({ audio_segments: filtered })
-    .eq('id', params.id);
+    .eq('id', resolvedParams.id);
 
   // The client retries on a non-2xx, so a lost write must NOT report success —
   // otherwise the segment file exists in Storage but nothing points to it.

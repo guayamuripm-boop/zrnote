@@ -24,7 +24,7 @@ const DOCUMENT_MAP: Record<string, { docType: string; title: string }> = {
  * env var is wrong, and costs an extra round trip for no reason.
  */
 async function getDocument(docType: string) {
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   const { data } = await supabase
     .from('legal_documents')
     .select('content, version, effective_date')
@@ -35,14 +35,16 @@ async function getDocument(docType: string) {
   return data;
 }
 
-export async function generateMetadata({ params }: { params: { slug: string } }) {
-  const entry = DOCUMENT_MAP[params.slug];
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+  const resolvedParams = await params;
+  const entry = DOCUMENT_MAP[resolvedParams.slug];
   if (!entry) return {};
   return { title: `${entry.title} — ZRNote` };
 }
 
-export default async function LegalDocumentPage({ params }: { params: { slug: string } }) {
-  const entry = DOCUMENT_MAP[params.slug];
+export default async function LegalDocumentPage({ params }: { params: Promise<{ slug: string }> }) {
+  const resolvedParams = await params;
+  const entry = DOCUMENT_MAP[resolvedParams.slug];
   if (!entry) notFound();
 
   const doc = await getDocument(entry.docType);

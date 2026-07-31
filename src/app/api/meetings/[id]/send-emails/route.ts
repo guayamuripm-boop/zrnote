@@ -13,13 +13,14 @@ import { logger } from '@/lib/logger';
  */
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const resolvedParams = await params;
   const authHeader = request.headers.get('authorization') || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
   const isInternal = serviceKey.length > 0 && authHeader === `Bearer ${serviceKey}`;
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   let userId: string | null = null;
 
   if (!isInternal) {
@@ -35,7 +36,7 @@ export async function POST(
     );
   }
 
-  let meetingQuery = supabase.from('meetings').select('id, title, created_by').eq('id', params.id);
+  let meetingQuery = supabase.from('meetings').select('id, title, created_by').eq('id', resolvedParams.id);
   if (!isInternal) meetingQuery = meetingQuery.eq('created_by', userId!);
 
   const { data: meeting } = await meetingQuery.maybeSingle();
@@ -46,14 +47,14 @@ export async function POST(
   // (and the owner's own call) always sees the full picture.
   const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey);
 
-  const jobs = await buildMeetingEmailJobs(admin, params.id, meeting.title, meeting.created_by);
-  const result = await dispatchEmailJobs(admin, params.id, jobs);
+  const jobs = await buildMeetingEmailJobs(admin, resolvedParams.id, meeting.title, meeting.created_by);
+  const result = await dispatchEmailJobs(admin, resolvedParams.id, jobs);
 
   if (jobs.length === 0) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  logger.info('Manual email send', { meetingId: params.id, sent: result.sent, failed: result.failed });
+  logger.info('Manual email send', { meetingId: resolvedParams.id, sent: result.sent, failed: result.failed });
 
   return NextResponse.json({
     ok: result.failed === 0,

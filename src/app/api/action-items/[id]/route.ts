@@ -13,9 +13,10 @@ const patchSchema = z.object({
 // is not the meeting owner under RLS) can still mark their own tasks done.
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = createServerSupabase();
+  const resolvedParams = await params;
+  const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -34,7 +35,7 @@ export async function PATCH(
   const { data: item } = await admin
     .from('action_items')
     .select('id, assignee_email, assignee_user_id, meetings!inner(created_by)')
-    .eq('id', params.id)
+    .eq('id', resolvedParams.id)
     .single();
 
   if (!item) {
@@ -54,7 +55,7 @@ export async function PATCH(
   const { error } = await admin
     .from('action_items')
     .update({ status: parsed.data.status })
-    .eq('id', params.id);
+    .eq('id', resolvedParams.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
