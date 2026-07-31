@@ -28,6 +28,11 @@ export const metadata: Metadata = {
     title: 'ZRNote',
     statusBarStyle: 'default',
   },
+  other: {
+    // Next's appleWebApp only emits the (deprecated) apple- prefixed tag.
+    // Chrome/Android wants this standard one too.
+    'mobile-web-app-capable': 'yes',
+  },
 };
 
 export default function RootLayout({
