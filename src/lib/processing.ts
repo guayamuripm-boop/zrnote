@@ -41,12 +41,72 @@ function getSupabaseAdmin() {
   );
 }
 
+export interface MeetingContext {
+  title?: string | null;
+  coordination?: string | null;
+  participantNames: string[];
+}
+
+/**
+ * Load the human context we already hold about a meeting.
+ *
+ * Both steps need it and neither used to ask for it: Whisper was transcribing
+ * without knowing a single proper noun, and the minute was being written
+ * without knowing who was in the room.
+ */
+async function getMeetingContext(supabase: any, meetingId: string): Promise<MeetingContext> {
+  const [{ data: meeting }, { data: participants }] = await Promise.all([
+    supabase.from('meetings').select('title, coordination').eq('id', meetingId).maybeSingle(),
+    supabase.from('meeting_participants').select('name, email_override').eq('meeting_id', meetingId),
+  ]);
+
+  const names = (participants || [])
+    .map((p: any) => (p.name || p.email_override?.split('@')[0] || '').trim())
+    .filter((n: string) => n.length > 1);
+
+  return {
+    title: meeting?.title ?? null,
+    coordination: meeting?.coordination ?? null,
+    participantNames: Array.from(new Set(names)) as string[],
+  };
+}
+
+/**
+ * Whisper's `prompt` is a STYLE AND VOCABULARY PRIOR, not an instruction.
+ *
+ * It was only ever sent when "speaker hints" existed — and nothing in the app
+ * ever sets those, so it was never sent at all. The result is visible in every
+ * stored transcript: no capitals and no punctuation, e.g.
+ * "bueno este muchacho voy a grabar la reunión voy a utilizar bueno una
+ * aplicación". A short, well-punctuated Spanish sample fixes that, and naming
+ * the participants and the topic makes Whisper spell those proper nouns right
+ * instead of guessing phonetically.
+ *
+ * Whisper only reads the LAST ~224 tokens of the prompt, so this stays short.
+ */
+function buildWhisperPrompt(ctx: MeetingContext): string {
+  const parts: string[] = [];
+
+  if (ctx.title) parts.push(`Reunión: ${ctx.title}.`);
+  if (ctx.coordination) parts.push(`Área: ${ctx.coordination}.`);
+  if (ctx.participantNames.length > 0) {
+    parts.push(`Participantes: ${ctx.participantNames.slice(0, 12).join(', ')}.`);
+  }
+
+  // The sample sentence is what actually teaches the punctuation style.
+  parts.push(
+    'Transcripción de una reunión de trabajo en español, con puntuación y mayúsculas correctas.',
+  );
+
+  return parts.join(' ');
+}
+
 async function transcribeSegment(
   supabase: any,
   segment: any,
   groqKey: string,
   meetingId: string,
-  allSpeakerHints: string = '',
+  whisperPrompt: string = '',
 ): Promise<{ text: string | null; error?: string }> {
   const { data: audioData, error: downloadError } = await supabase.storage
     .from('meeting-audio')
@@ -79,8 +139,9 @@ async function transcribeSegment(
       formData.append('model', 'whisper-large-v3');
       formData.append('language', 'es');
       formData.append('response_format', 'verbose_json');
-      if (allSpeakerHints) {
-        formData.append('prompt', allSpeakerHints);
+      // Always sent now — this is what restores punctuation and proper nouns.
+      if (whisperPrompt) {
+        formData.append('prompt', whisperPrompt);
       }
 
       logger.debug('Transcribing segment', { meetingId, segmentIndex: segment.segment_index, tryExt, attempt });
@@ -160,11 +221,10 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
 
   logger.info('Processing batch', { meetingId, batchStart: offset, batchSize: batch.length, totalSegments: segments.length });
 
-  // Build global speaker hints from all segments
-  const speakerHints = segments
-    .filter((s: any) => s.speaker_hint)
-    .map((s: any) => `Segmento ${s.segment_index}: ${s.speaker_hint}`)
-    .join('; ');
+  // Style + vocabulary prior for Whisper, built from what we know about the
+  // meeting (title, area, participant names). See buildWhisperPrompt.
+  const meetingContext = await getMeetingContext(supabase, meetingId);
+  const whisperPrompt = buildWhisperPrompt(meetingContext);
 
   const BATCH_SIZE = 3;
   const newTranscriptions: string[] = [];
@@ -184,7 +244,7 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     const miniBatch = batch.slice(i, i + BATCH_SIZE);
 
     const results = await Promise.allSettled(
-      miniBatch.map((seg: any) => transcribeSegment(supabase, seg, groqKey, meetingId, speakerHints))
+      miniBatch.map((seg: any) => transcribeSegment(supabase, seg, groqKey, meetingId, whisperPrompt))
     );
 
     attempted += miniBatch.length;
@@ -239,55 +299,143 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   return { success: true, transcript: fullTranscript, segmentsProcessed: finalOffset, segmentsTotal: segments.length, more };
 }
 
-const MINUTE_PROMPT = (transcript: string, meetingDate?: string) => `
-Eres ZRNote, un asistente experto en redactar minutas de reunión ACCIONABLES para equipos de trabajo. Tu prioridad #1 son los ACTION ITEMS (compromisos): lo que la gente realmente necesita para saber qué hacer después. Escribes para una persona ocupada que solo va a leer lo importante.
-${meetingDate ? `\nFECHA DE LA REUNIÓN: ${meetingDate}. Usa esta fecha como referencia para resolver plazos relativos ("el viernes", "la próxima semana", "fin de mes") a una fecha YYYY-MM-DD concreta.\n` : ''}
+const MINUTE_PROMPT = (
+  transcript: string,
+  opts: { meetingDate?: string; context?: MeetingContext } = {},
+) => {
+  const { meetingDate, context } = opts;
+  const people = context?.participantNames ?? [];
 
-Analiza la transcripción y responde SOLO con un JSON válido. Nada de texto fuera del JSON, ni markdown, ni comentarios.
+  const contextBlock = [
+    context?.title ? `Título de la reunión: ${context.title}` : null,
+    context?.coordination ? `Área o coordinación: ${context.coordination}` : null,
+    meetingDate ? `Fecha de la reunión: ${meetingDate}` : null,
+    people.length > 0
+      ? `Personas convocadas: ${people.join(', ')}`
+      : 'Personas convocadas: no se registraron.',
+  ]
+    .filter(Boolean)
+    .join('\n');
 
-PRINCIPIOS:
-- SEÑAL sobre ruido. Ignora saludos, bromas, divagaciones y relleno. Captura solo lo que a alguien le importaría leer o le sirve para trabajar.
-- Los ACTION ITEMS son lo más importante: extrae TODOS los compromisos reales con responsable, tarea concreta, fecha y prioridad.
-- Conciso pero fiel. Mejor 5 puntos claros que 20 vagos. No inventes: lo que no se dijo va como null.
-- Escribe en español, claro y directo.
+  // The attribution rules change completely depending on whether we know who
+  // was in the room, so they are written separately rather than fudged.
+  const attributionRules =
+    people.length > 0
+      ? `- Los responsables SOLO pueden ser personas de la lista de convocados, o un nombre que se diga claramente en la transcripción.
+- Si no puedes saber con seguridad quién asumió una tarea, pon "assignee_name": null. Un responsable equivocado es peor que ninguno: la tarea acaba en la bandeja de quien no es.`
+      : `- No se registró quién asistió. Asigna un responsable SOLO si en la transcripción alguien dice su nombre o se lo nombran claramente.
+- En cualquier otro caso pon "assignee_name": null. Alguien revisará y asignará después.`;
 
-ESTRUCTURA JSON (respeta EXACTAMENTE estas claves):
+  return `Eres ZRNote. Redactas la minuta de una reunión a partir de su transcripción automática. Escribes para alguien ocupado que solo va a leer lo importante.
+
+CONTEXTO
+${contextBlock}
+
+CÓMO ES LA TRANSCRIPCIÓN QUE VAS A LEER (importante)
+- La generó un sistema automático de voz a texto. Puede traer palabras mal reconocidas, nombres deformados y frases cortadas.
+- NO indica quién habla. No hay etiquetas de hablante, ni "Speaker 1", ni turnos marcados. Es un texto corrido de toda la reunión.
+- Puede venir con poca puntuación y con muletillas ("bueno", "este", "o sea"). Ignóralas.
+- Si una parte es ininteligible o ambigua, NO la adivines: omítela.
+
+REGLA QUE MANDA SOBRE TODAS
+No inventes. Es preferible una minuta corta y correcta que una completa y falsa. Si algo no se dijo, va como null o como array vacío. Nunca rellenes un campo para que "se vea completo".
+
+${attributionRules}
+
+FECHAS
+${meetingDate ? `- Resuelve los plazos relativos ("el viernes", "la próxima semana", "a fin de mes") a una fecha concreta YYYY-MM-DD tomando como referencia el ${meetingDate}.` : '- Solo usa una fecha si se dijo de forma explícita.'}
+- Si no se mencionó ningún plazo, "due_date": null. No inventes plazos "razonables".
+
+RESPONDE SOLO CON ESTE JSON (sin markdown, sin texto alrededor):
 {
-  "summary": "Resumen ejecutivo de 3 a 5 frases: de qué trató la reunión, qué se decidió y qué sigue. Enfócate en resultados y en lo que cambia, no en narrar la conversación.",
+  "summary": "3 a 5 frases: para qué se reunieron, qué se resolvió y qué sigue. Cuenta resultados, no narres la conversación. Si la reunión no llegó a nada concreto, dilo con esas palabras.",
   "action_items": [
     {
-      "assignee_name": "Responsable. Infiere del contexto quién se comprometió. Si no hay nombre, usa el label ('Speaker 1').",
-      "description": "Tarea CONCRETA y accionable, empezando por un verbo. Ej: 'Enviar la propuesta de precios a Cecilia antes del viernes'. Nunca vaga.",
-      "due_date": "YYYY-MM-DD si se mencionó un plazo (interpreta 'el viernes', 'la próxima semana', 'para fin de mes'); si no, null",
-      "priority": "alta | media | baja  (según urgencia e impacto)"
+      "assignee_name": "Nombre del responsable, o null si no está claro",
+      "description": "Tarea concreta que empieza por un verbo y dice QUÉ hay que hacer. Ej: 'Enviar la propuesta de precios al cliente'. Que se entienda sin haber estado en la reunión.",
+      "due_date": "YYYY-MM-DD o null",
+      "priority": "alta | media | baja"
     }
   ],
-  "decisions": [ { "decision": "Qué se acordó (concreto)", "context": "Por qué o bajo qué condiciones" } ],
-  "blockers": [ { "issue": "Problema, riesgo o bloqueo", "impact": "A qué afecta o qué retrasa", "owner": "Responsable de resolverlo o null" } ],
-  "project_statuses": [ { "project": "Nombre del proyecto", "status": "en progreso | retrasado | completado | pendiente", "details": "Qué se avanzó y qué falta" } ],
-  "discussion": [ { "topic": "Tema relevante", "details": "Lo esencial que se dijo (máx 2-3 frases). Omite lo trivial.", "speaker": "Quién lo lideró" } ],
-  "next_steps": [ { "step": "Próximo paso o follow-up (si no es ya un action item)", "owner": "Quién o null" } ],
-  "ideas": ["Ideas o sugerencias sueltas que NO son compromisos ni decisiones"]
+  "decisions": [ { "decision": "Qué se acordó, en concreto", "context": "Por qué o bajo qué condición" } ],
+  "blockers": [ { "issue": "Qué está frenando el trabajo", "impact": "A qué afecta o qué retrasa", "owner": "Quién debe resolverlo, o null" } ],
+  "project_statuses": [ { "project": "Nombre del proyecto tal como lo llamaron", "status": "en progreso | retrasado | completado | pendiente", "details": "Qué se avanzó y qué falta" } ],
+  "discussion": [ { "topic": "Tema tratado", "details": "Lo esencial, 2-3 frases máximo" } ],
+  "next_steps": [ { "step": "Próximo paso que no sea ya un compromiso de arriba", "owner": "Quién, o null" } ],
+  "ideas": ["Ideas sueltas que nadie asumió y sobre las que no se decidió nada"]
 }
 
-REGLAS DE ACTION ITEMS (críticas — es el corazón de la minuta):
-- Un action item = alguien SE COMPROMETIÓ a hacer algo. Señales: "yo me encargo", "quedamos en que X hará", "hay que…", "necesito que…", "para el viernes tengo que…".
-- Cada tarea empieza con un verbo en infinitivo/imperativo y dice QUÉ y para QUIÉN/QUÉ. Específica, no genérica.
-- Si una tarea la comparten varias personas, crea un action item por responsable.
-- Ordena los action_items por prioridad: primero 'alta', luego 'media', luego 'baja'.
-- NO conviertas en action item una idea vaga, un "estaría bien" o algo sin dueño ni acción clara: eso va en "ideas".
-- Interpreta fechas relativas respecto a la fecha de la reunión cuando sea posible.
+QUÉ ES CADA COSA
+- action_items: alguien se comprometió a hacer algo concreto. Señales: "yo me encargo", "quedamos en que…", "necesito que…", "para el viernes tengo…".
+- decisions: se cerró un acuerdo. Señales: "se aprueba", "lo dejamos así", "entonces vamos con…".
+- ideas: se mencionó pero nadie lo asumió ni se decidió. Un "estaría bueno que…" es una idea, NO un compromiso.
+- Si dudas entre action_item e idea, es una idea.
 
-DISTINCIONES:
-- decisions = acuerdos oficiales tomados ("se aprueba", "se decide", "quedamos en que…").
-- blockers = lo que está frenando o pone en riesgo el trabajo; incluye impacto y responsable.
-- Si el contenido es mucho, prioriza en este orden: 1) action_items, 2) decisions, 3) blockers, 4) summary, 5) project_statuses, 6) discussion/next_steps/ideas. Arrays vacíos [] si no aplica.
-
-Responde SOLO el JSON.
+CALIDAD
+- Cada compromiso debe entenderse por sí solo, fuera de contexto.
+- No repitas lo mismo en action_items y en next_steps. Si ya es un compromiso con responsable, no lo dupliques abajo.
+- Ordena action_items: primero alta, luego media, luego baja.
+- Arrays vacíos [] cuando no aplique. Una reunión informal puede tener perfectamente 0 decisiones y 0 bloqueos.
+- Todo en español.
 
 TRANSCRIPCIÓN:
 ${transcript}
 `;
+};
+
+/**
+ * Pull the minute object out of whatever the model actually returned.
+ *
+ * Even with `response_format: json_object` the output arrives wrapped in
+ * ```json fences, or with a sentence in front of it, often enough to matter.
+ * The old version went straight for `/\{[\s\S]*\}/`, which grabs from the FIRST
+ * brace to the LAST one in the whole response — so a single trailing remark
+ * containing a brace produced invalid JSON and the entire meeting failed.
+ */
+export function parseMinuteJson(raw: string): Record<string, any> | null {
+  if (!raw) return null;
+
+  // Strip markdown fences if present.
+  const unfenced = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+
+  const attempt = (text: string) => {
+    try {
+      const parsed = JSON.parse(text);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = attempt(unfenced);
+  if (direct) return direct;
+
+  // Walk the braces to find the first balanced object, ignoring braces that
+  // appear inside strings.
+  const start = unfenced.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < unfenced.length; i++) {
+    const char = unfenced[i];
+
+    if (escaped) { escaped = false; continue; }
+    if (char === '\\') { escaped = true; continue; }
+    if (char === '"') { inString = !inString; continue; }
+    if (inString) continue;
+
+    if (char === '{') depth++;
+    else if (char === '}') {
+      depth--;
+      if (depth === 0) return attempt(unfenced.slice(start, i + 1));
+    }
+  }
+
+  return null;
+}
 
 /** Map anything the LLM writes onto the `priority` CHECK constraint. */
 export function normalizePriority(value: unknown): 'alta' | 'media' | 'baja' {
@@ -338,7 +486,18 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
   const meetingDate = new Date(meetingRow.started_at || meetingRow.created_at || Date.now())
     .toISOString()
     .slice(0, 10);
-  const buildPrompt = (t: string) => MINUTE_PROMPT(t, meetingDate);
+
+  // Who was in the room, what the meeting was called. The model was writing
+  // minutes blind to all of this — which is why it used to attribute tasks to
+  // invented names or to a "Speaker 1" that appears nowhere in the transcript.
+  const context = await getMeetingContext(supabase, meetingId);
+  logger.info('Analyzing with context', {
+    meetingId,
+    participants: context.participantNames.length,
+    transcriptChars: meetingTranscript.length,
+  });
+
+  const buildPrompt = (t: string) => MINUTE_PROMPT(t, { meetingDate, context });
 
   const estTokens = (s: string) => Math.ceil(s.length / 4);
   const geminiKey = process.env.GEMINI_API_KEY;
@@ -493,18 +652,12 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     };
   }
 
-  const responseText = result.text;
-
-  const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    return { success: false, error: 'LLM did not return valid JSON' };
-  }
-
-  let minuteJSON;
-  try {
-    minuteJSON = JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    return { success: false, error: `Failed to parse LLM JSON: ${e}` };
+  const minuteJSON = parseMinuteJson(result.text);
+  if (!minuteJSON) {
+    return {
+      success: false,
+      error: 'El modelo no devolvió una minuta en el formato esperado. Vuelve a intentarlo.',
+    };
   }
 
   logger.info('Minute generated', { meetingId, actionItems: (minuteJSON.action_items || []).length });
