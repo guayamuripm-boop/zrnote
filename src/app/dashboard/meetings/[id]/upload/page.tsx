@@ -75,6 +75,7 @@ export default function UploadAudioPage() {
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [pipelineWarning, setPipelineWarning] = useState<string | null>(null);
   const [prepareNote, setPrepareNote] = useState<string | null>(null);
+  const [convertPercent, setConvertPercent] = useState(0);
   const [dragActive, setDragActive] = useState(false);
   const [consentGiven, setConsentGiven] = useState(false);
 
@@ -90,28 +91,42 @@ export default function UploadAudioPage() {
     async (file: File, depth = 0): Promise<{ file: File; durationSec: number; note?: string }[]> => {
       const base = file.name.replace(/\.[^.]+$/, '');
 
-      // Path A — raw ADTS AAC (phone recorders, the format Chrome can't decode).
-      // Parse frame-by-frame (cheap, synchronous, no decode) to get the exact
-      // duration from the real sample rate, then decide whether to split.
+      // Path A — raw ADTS AAC (what phone voice recorders produce).
+      //
+      // Groq Whisper REJECTS raw .aac outright: its accepted list is
+      // [flac mp3 mp4 mpeg mpga m4a ogg opus wav webm] and it checks the real
+      // content, so renaming the file to .m4a does not fool it. This used to
+      // upload the ADTS bytes verbatim, and every segment of every .aac meeting
+      // came back `400 file must be one of the following types`.
+      //
+      // So ADTS is always re-muxed into a real MP4/M4A container. The frame
+      // parser is still used, but only to measure the exact duration cheaply
+      // (no decoding) so we know how to split.
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const wholeParse = splitAdtsAac(bytes, { maxBytes: Infinity, maxDurationSec: Infinity });
         if (wholeParse) {
           const totalDurationSec = wholeParse.reduce((a, c) => a + c.durationSec, 0);
-          if (totalDurationSec <= TARGET_CHUNK_SEC && file.size <= WHISPER_MAX) {
-            return [{ file, durationSec: totalDurationSec }];
-          }
-          const adts = splitAdtsAac(bytes, { maxBytes: WHISPER_MAX, maxDurationSec: TARGET_CHUNK_SEC })!;
-          return adts.map((c, i) => ({
-            // Copy into a fresh ArrayBuffer-backed view — File wants a BufferSource,
-            // and this also lets the original file's buffer be garbage-collected.
-            file: new File([new Uint8Array(c.bytes)], `${base}_part${i + 1}.aac`, { type: 'audio/aac' }),
-            durationSec: c.durationSec,
-            note: `parte ${i + 1}/${adts.length}`,
+          setPrepareNote(
+            'Convirtiendo el audio a un formato compatible (la primera vez se descarga el conversor, ~30 MB)…',
+          );
+          const parts = await segmentAudioNoReencode(file, TARGET_CHUNK_SEC, {
+            outputExt: 'm4a',
+            onProgress: (p) => setConvertPercent(p),
+          });
+          setPrepareNote(null);
+          setConvertPercent(0);
+          return parts.map((f, i) => ({
+            file: f,
+            durationSec: Math.min(TARGET_CHUNK_SEC, Math.max(0, totalDurationSec - i * TARGET_CHUNK_SEC)),
+            note: parts.length > 1 ? `parte ${i + 1}/${parts.length}` : 'convertido',
           }));
         }
-      } catch {
-        /* fall through */
+      } catch (err) {
+        setPrepareNote(null);
+        setConvertPercent(0);
+        // Not an ADTS stream, or the conversion failed — let the paths below try.
+        console.warn('[ZRNote] Ruta AAC no aplicable:', err);
       }
 
       // Path B — anything with readable duration metadata. Short enough? Send as is.
@@ -126,8 +141,12 @@ export default function UploadAudioPage() {
       if (probed !== null && probed > MAX_DECODE_SEC && depth === 0) {
         try {
           setPrepareNote('Preparando un audio largo (la primera vez se descarga el conversor, ~30 MB)…');
-          const parts = await segmentAudioNoReencode(file, TARGET_CHUNK_SEC);
+          const parts = await segmentAudioNoReencode(file, TARGET_CHUNK_SEC, {
+            outputExt: 'm4a',
+            onProgress: (p) => setConvertPercent(p),
+          });
           setPrepareNote(null);
+          setConvertPercent(0);
           return parts.map((f, i) => ({
             file: f,
             durationSec: Math.min(TARGET_CHUNK_SEC, probed - i * TARGET_CHUNK_SEC),
@@ -445,6 +464,7 @@ export default function UploadAudioPage() {
               <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
               <p className="text-sm text-slate-600 dark:text-slate-300">
                 {prepareNote}
+                {convertPercent > 0 && convertPercent < 100 && ` ${convertPercent}%`}
                 {convertProgress > 0 && convertProgress < 100 && ` ${convertProgress}%`}
               </p>
             </div>

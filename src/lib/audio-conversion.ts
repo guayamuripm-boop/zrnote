@@ -61,16 +61,60 @@ async function loadFFmpeg(): Promise<FFmpeg> {
  * simply kills the tab on a phone. Stream-copying costs roughly the size of the
  * file itself and is close to instantaneous, because nothing is decoded.
  */
-export async function segmentAudioNoReencode(
+/**
+ * Cheap magic-byte check that the bytes really are the container we asked for.
+ *
+ * Exported so it can be unit-tested: this is the guard that stops a silently
+ * malformed file from reaching Groq, which is the failure mode that made every
+ * `.aac` meeting fail with `400 file must be one of the following types`.
+ */
+export function looksLikeContainer(bytes: Uint8Array, ext: string): boolean {
+  const ascii = (start: number, len: number) =>
+    String.fromCharCode(...bytes.slice(start, start + len));
+
+  switch (ext) {
+    case 'm4a':
+    case 'mp4':
+      // ISO-BMFF: a 4-byte size followed by the 'ftyp' box type.
+      return bytes.length > 12 && ascii(4, 4) === 'ftyp';
+    case 'mp3':
+      // Either an ID3 tag or an MPEG audio frame sync (0xFFE).
+      return (
+        bytes.length > 3 &&
+        (ascii(0, 3) === 'ID3' || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0))
+      );
+    case 'wav':
+      return bytes.length > 12 && ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WAVE';
+    case 'ogg':
+      return bytes.length > 4 && ascii(0, 4) === 'OggS';
+    case 'webm':
+      // EBML header.
+      return bytes.length > 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
+    default:
+      return true;
+  }
+}
+
+export interface SegmentOptions {
+  /** Container to write. Must be something Groq Whisper accepts. */
+  outputExt?: 'm4a' | 'mp3' | 'wav' | 'ogg' | 'webm';
+  /** Re-encode instead of stream-copying (needed when the source is exotic). */
+  reencode?: boolean;
+  onProgress?: (percent: number) => void;
+}
+
+async function runSegment(
   file: File,
   secondsPerChunk: number,
+  outputExt: string,
+  reencode: boolean,
   onProgress?: (percent: number) => void,
 ): Promise<File[]> {
   const ffmpeg = await loadFFmpeg();
 
-  const ext = (file.name.split('.').pop() || 'm4a').toLowerCase().replace(/[^a-z0-9]/g, '') || 'm4a';
-  const inputName = `seg_input.${ext}`;
-  const pattern = `seg_out_%04d.${ext}`;
+  const inExt = (file.name.split('.').pop() || 'm4a').toLowerCase().replace(/[^a-z0-9]/g, '') || 'm4a';
+  const inputName = `seg_input.${inExt}`;
+  const pattern = `seg_out_%04d.${outputExt}`;
   const base = file.name.replace(/\.[^.]+$/, '');
 
   const onProgressHandler = ({ progress }: { progress: number }) =>
@@ -79,31 +123,62 @@ export async function segmentAudioNoReencode(
 
   try {
     await ffmpeg.writeFile(inputName, await fetchFile(file));
+
+    const codecArgs = reencode
+      ? outputExt === 'mp3'
+        ? ['-c:a', 'libmp3lame', '-b:a', '64k', '-ac', '1', '-ar', '16000']
+        : ['-c:a', 'pcm_s16le', '-ac', '1', '-ar', '16000']
+      : ['-c', 'copy'];
+
+    // `-segment_format mp4` matters: without it the segment muxer infers the
+    // format from the pattern and can emit raw streams instead of containers.
+    const formatArgs =
+      outputExt === 'm4a' ? ['-segment_format', 'mp4'] : outputExt === 'mp3' ? ['-segment_format', 'mp3'] : [];
+
     await ffmpeg.exec([
       '-i', inputName,
+      '-vn',
       '-f', 'segment',
       '-segment_time', String(secondsPerChunk),
+      ...formatArgs,
       '-reset_timestamps', '1',
-      '-c', 'copy',
+      ...codecArgs,
       '-y',
       pattern,
     ]);
 
     const entries = await ffmpeg.listDir('/');
     const names = entries
-      .filter((e: any) => !e.isDir && /^seg_out_\d{4}\./.test(e.name))
+      .filter((e: any) => !e.isDir && new RegExp(`^seg_out_\\d{4}\\.${outputExt}$`).test(e.name))
       .map((e: any) => e.name)
       .sort();
 
     if (names.length === 0) throw new Error('FFmpeg no produjo segmentos');
 
+    const mime =
+      outputExt === 'm4a' ? 'audio/mp4'
+        : outputExt === 'mp3' ? 'audio/mpeg'
+          : outputExt === 'wav' ? 'audio/wav'
+            : `audio/${outputExt}`;
+
     const out: File[] = [];
     for (let i = 0; i < names.length; i++) {
-      const data = await ffmpeg.readFile(names[i]);
-      const blob = new Blob([data as unknown as ArrayBuffer], { type: file.type || 'audio/mp4' });
+      const data = (await ffmpeg.readFile(names[i])) as Uint8Array;
+      const bytes = data instanceof Uint8Array ? data : new Uint8Array(data as any);
+
+      // Verify the container is real before shipping it. ffmpeg does not always
+      // fail loudly — a stream copy into a container the codec cannot live in
+      // can yield a file that is written but unreadable. Sending those to Groq
+      // reproduces exactly the bug this whole path exists to fix, so check the
+      // magic bytes here instead of finding out after the upload.
+      if (bytes.length > 2048 && !looksLikeContainer(bytes, outputExt)) {
+        throw new Error(`FFmpeg produjo un ${outputExt} que no es un contenedor válido`);
+      }
+
+      const blob = new Blob([bytes as unknown as ArrayBuffer], { type: mime });
       // Skip degenerate trailing segments (a few bytes of container padding).
       if (blob.size > 2048) {
-        out.push(new File([blob], `${base}_part${i + 1}.${ext}`, { type: blob.type }));
+        out.push(new File([blob], `${base}_part${i + 1}.${outputExt}`, { type: mime }));
       }
       await ffmpeg.deleteFile(names[i]).catch(() => {});
     }
@@ -113,6 +188,36 @@ export async function segmentAudioNoReencode(
     return out;
   } finally {
     ffmpeg.off('progress', onProgressHandler);
+  }
+}
+
+/**
+ * Split a long recording into fixed-duration chunks inside a container Groq
+ * Whisper actually accepts.
+ *
+ * Groq's accepted list is [flac mp3 mp4 mpeg mpga m4a ogg opus wav webm] and it
+ * enforces it on the real content, not just the filename: raw ADTS `.aac` from
+ * a phone recorder is rejected with `400 file must be one of the following
+ * types` no matter what extension or Content-Type you claim. (This code used to
+ * upload those bytes verbatim and relabel them; every segment of every .aac
+ * meeting failed.) Re-muxing into MP4/M4A keeps the exact same AAC audio — it
+ * only wraps it — so it costs no quality and no decode time.
+ *
+ * Falls back to re-encoding as MP3 if the stream copy cannot produce a valid
+ * container for that particular source.
+ */
+export async function segmentAudioNoReencode(
+  file: File,
+  secondsPerChunk: number,
+  options: SegmentOptions = {},
+): Promise<File[]> {
+  const { outputExt = 'm4a', onProgress } = options;
+
+  try {
+    return await runSegment(file, secondsPerChunk, outputExt, false, onProgress);
+  } catch (copyError) {
+    console.warn('[ZRNote] Stream copy falló, re-codificando a MP3:', copyError);
+    return runSegment(file, secondsPerChunk, 'mp3', true, onProgress);
   }
 }
 

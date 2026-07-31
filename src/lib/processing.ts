@@ -150,6 +150,26 @@ async function transcribeSegment(
 
   const candidateExts = GROQ_EXTS.has(rawExt) ? [rawExt] : ['m4a', 'mp4', 'mpga', 'wav', 'ogg'];
 
+  // Raw ADTS AAC starts with the 12-bit sync word 0xFFF. Groq rejects that
+  // stream whatever we call it, so detect it up front and say something the
+  // user can act on instead of forwarding a cryptic 400 they cannot fix by
+  // pressing "Reintentar" over and over.
+  let isRawAdts = false;
+  try {
+    const head = new Uint8Array(await audioData.slice(0, 2).arrayBuffer());
+    isRawAdts = head.length >= 2 && head[0] === 0xff && (head[1] & 0xf0) === 0xf0;
+  } catch {
+    /* best effort */
+  }
+
+  if (isRawAdts && !GROQ_EXTS.has(rawExt)) {
+    return {
+      text: null,
+      error:
+        'AUDIO_FORMATO_NO_SOPORTADO: este audio se guardó como AAC sin contenedor y el transcriptor no lo acepta. Vuelve a subir el archivo — la app ahora lo convierte automáticamente antes de subirlo.',
+    };
+  }
+
   let lastError = 'error desconocido';
   logger.debug('Segment ready to transcribe', {
     meetingId,
@@ -309,6 +329,17 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   // an empty transcript (which used to surface later as a confusing 400 on analyze).
   if (processed === 0 && !existingTranscript.trim()) {
     const reason = segErrors[0] || 'ningún segmento pudo transcribirse';
+    // A format the transcriber cannot read is not a transient failure: retrying
+    // will never fix it, so say what will.
+    if (reason.startsWith('AUDIO_FORMATO_NO_SOPORTADO')) {
+      return {
+        success: false,
+        error: reason.replace('AUDIO_FORMATO_NO_SOPORTADO: ', ''),
+        segmentsProcessed: 0,
+        segmentsTotal: segments.length,
+        more: false,
+      };
+    }
     return { success: false, error: `No se pudo transcribir el audio: ${reason}`, segmentsProcessed: 0, segmentsTotal: segments.length, more: false };
   }
 
