@@ -519,6 +519,73 @@ export function normalizeDueDate(value: unknown): string | null {
   return iso;
 }
 
+/**
+ * Ask Google which models this key can actually use, instead of hardcoding one.
+ *
+ * Hardcoding has now failed twice in production for two different reasons:
+ * `gemini-2.0-flash` began answering `429 … free_tier_requests, limit: 0` (a
+ * quota of zero, not a rate limit), and `gemini-2.5-flash-lite` answered
+ * `404 … no longer available to new users`. Google rotates these without
+ * notice, so the model list is discovered at runtime and ranked by preference.
+ *
+ * `GEMINI_MODEL` still wins if it is set, for pinning a specific model.
+ */
+let geminiModelCache: { at: number; models: string[] } | null = null;
+const GEMINI_CACHE_MS = 10 * 60 * 1000;
+
+export async function discoverGeminiModels(apiKey: string): Promise<string[]> {
+  if (process.env.GEMINI_MODEL) return [process.env.GEMINI_MODEL];
+
+  if (geminiModelCache && Date.now() - geminiModelCache.at < GEMINI_CACHE_MS) {
+    return geminiModelCache.models;
+  }
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=100`,
+      { signal: AbortSignal.timeout(10000) },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    const usable: string[] = (data.models || [])
+      .filter((m: any) => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map((m: any) => String(m.name || '').replace(/^models\//, ''))
+      .filter((name: string) => name && !/embedding|aqa|vision|image|tts|audio|live/i.test(name));
+
+    const ranked = rankGeminiModels(usable);
+    if (ranked.length > 0) {
+      geminiModelCache = { at: Date.now(), models: ranked };
+      logger.info('Gemini models discovered', { count: ranked.length, top: ranked.slice(0, 3) });
+      return ranked;
+    }
+  } catch (err: any) {
+    logger.warn('Could not list Gemini models, using defaults', { error: err?.message });
+  }
+
+  // Last resort if the listing call itself fails.
+  return ['gemini-flash-latest', 'gemini-2.5-flash'];
+}
+
+/**
+ * Prefer cheap, fast, generally-available models, and avoid preview/experimental
+ * ones that tend to disappear or carry zero free quota.
+ */
+export function rankGeminiModels(names: string[]): string[] {
+  const score = (name: string): number => {
+    let s = 0;
+    if (/flash/.test(name)) s += 100;          // fast + the widest free quota
+    if (/latest/.test(name)) s += 40;          // an alias Google keeps pointing at a live model
+    if (/lite/.test(name)) s -= 10;            // weaker; acceptable but not first
+    if (/pro/.test(name)) s += 20;             // capable, tighter quota
+    if (/preview|exp|experimental/.test(name)) s -= 80;
+    if (/\b1\.0|1\.5|2\.0/.test(name)) s -= 50; // older generations get retired first
+    return s;
+  };
+
+  return [...new Set(names)].sort((a, b) => score(b) - score(a) || a.localeCompare(b)).slice(0, 4);
+}
+
 export async function analyzeMeeting(meetingId: string, transcript?: string): Promise<AnalyzeResult> {
   const supabase = getSupabaseAdmin();
   const groqKey = process.env.GROQ_API_KEY!;
@@ -559,20 +626,17 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
 
   const buildPrompt = (t: string) => MINUTE_PROMPT(t, { meetingDate, context });
 
-  const estTokens = (s: string) => Math.ceil(s.length / 4);
+  // Spanish with accents tokenises denser than the usual chars/4 rule of thumb,
+  // and underestimating is what produced `413 Request too large ... Limit
+  // 12000` from Groq even though the transcript had supposedly been trimmed to
+  // fit. Overestimating only costs a slightly smaller request.
+  const estTokens = (s: string) => Math.ceil(s.length / 3);
   const geminiKey = process.env.GEMINI_API_KEY;
 
   // Gemini is preferred: a 1M-token context means long meetings are never
   // truncated. But it is NOT allowed to be a single point of failure — see
   // the fallback below.
-  //
-  // Models are tried in order. Google retires models from the free tier without
-  // notice: `gemini-2.0-flash` started answering 429 with
-  // `free_tier_requests, limit: 0`, which is a quota of zero, not a rate limit
-  // you can wait out. GEMINI_MODEL overrides the list.
-  const geminiModels = process.env.GEMINI_MODEL
-    ? [process.env.GEMINI_MODEL]
-    : ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+  const geminiModels = geminiKey ? await discoverGeminiModels(geminiKey) : [];
 
   async function callGemini(): Promise<{ text: string } | { error: string }> {
     let lastError = 'sin respuesta';
@@ -631,23 +695,27 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     // Groq's free tier caps llama-3.3-70b at 12,000 tokens/MINUTE, counting
     // input (prompt+transcript) + max_tokens together. Size the request to fit,
     // trimming the transcript only if it alone blows the budget.
-    const TPM_BUDGET = 11000;
-    const MIN_OUTPUT = 2000;
-    const MAX_OUTPUT = 6000;
+    const TPM_BUDGET = 10500;
+    const MIN_OUTPUT = 1800;
+    const MAX_OUTPUT = 5000;
     const overheadTokens = estTokens(buildPrompt(''));
-    let inputTokens = estTokens(buildPrompt(meetingTranscript!));
 
-    if (inputTokens + MIN_OUTPUT > TPM_BUDGET) {
-      const transcriptTokenBudget = Math.max(0, TPM_BUDGET - MIN_OUTPUT - overheadTokens);
-      meetingTranscript = meetingTranscript!.slice(0, transcriptTokenBudget * 4);
-      inputTokens = estTokens(buildPrompt(meetingTranscript));
-      logger.warn('Transcript trimmed to fit Groq TPM budget', { meetingId, keptChars: meetingTranscript.length });
+    // Chars of transcript that fit alongside the prompt and the reply.
+    const charsThatFit = (budget: number) =>
+      Math.max(500, (budget - MIN_OUTPUT - overheadTokens) * 3);
+
+    let working = meetingTranscript!;
+    if (estTokens(buildPrompt(working)) + MIN_OUTPUT > TPM_BUDGET) {
+      working = working.slice(0, charsThatFit(TPM_BUDGET));
+      logger.warn('Transcript trimmed to fit Groq TPM budget', { meetingId, keptChars: working.length });
     }
 
-    const maxOut = Math.max(MIN_OUTPUT, Math.min(MAX_OUTPUT, TPM_BUDGET - inputTokens));
     let lastError = 'sin respuesta';
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const inputTokens = estTokens(buildPrompt(working));
+      const maxOut = Math.max(MIN_OUTPUT, Math.min(MAX_OUTPUT, TPM_BUDGET - inputTokens));
+
       let res: Response;
       try {
         res = await fetch(`${GROQ_BASE}/chat/completions`, {
@@ -655,7 +723,7 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
           headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: 'llama-3.3-70b-versatile',
-            messages: [{ role: 'user', content: buildPrompt(meetingTranscript!) }],
+            messages: [{ role: 'user', content: buildPrompt(working) }],
             temperature: 0.3,
             max_tokens: maxOut,
           }),
@@ -669,15 +737,33 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
         const json = await res.json();
         const text = json.choices?.[0]?.message?.content || '';
         if (text.trim()) {
-          logger.info('Minute drafted with Groq', { meetingId, inputTokens, maxOut });
+          logger.info('Minute drafted with Groq', {
+            meetingId,
+            inputTokens,
+            maxOut,
+            trimmed: working.length < meetingTranscript!.length,
+          });
+          // Keep the trimmed text so the caller knows what was actually read.
+          meetingTranscript = working;
           return { text };
         }
         lastError = 'respuesta vacía';
         break;
       }
 
-      lastError = `${res.status}: ${(await res.text()).slice(0, 200)}`;
-      if (res.status === 429 && attempt < 3) {
+      const body = await res.text();
+      lastError = `${res.status}: ${body.slice(0, 200)}`;
+
+      // 413 = the request still did not fit. Our token estimate is only an
+      // approximation of Groq's tokenizer, so rather than give up, cut the
+      // transcript hard and try again.
+      if (res.status === 413 && attempt < 4) {
+        working = working.slice(0, Math.floor(working.length * 0.55));
+        logger.warn('Groq 413, shrinking transcript', { meetingId, keptChars: working.length, attempt });
+        continue;
+      }
+
+      if (res.status === 429 && attempt < 4) {
         await new Promise((r) => setTimeout(r, 15000));
         continue;
       }

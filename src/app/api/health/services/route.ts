@@ -99,10 +99,10 @@ async function checkGemini(): Promise<Check> {
     };
   }
 
-  // Same list, and same order, that processing.ts uses.
-  const models = process.env.GEMINI_MODEL
-    ? [process.env.GEMINI_MODEL]
-    : ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+  // Same discovery, and same ranking, that processing.ts uses — so this page
+  // reports on the models that will actually be tried.
+  const { discoverGeminiModels } = await import('@/lib/processing');
+  const models = await discoverGeminiModels(key);
 
   const failures: string[] = [];
 
