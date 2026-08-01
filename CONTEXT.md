@@ -3,9 +3,9 @@
 
 ---
 
-## 🚦 ESTADO: listo para lanzar (v1.6.0, 2026-07-31)
+## 🚦 ESTADO: pipeline funcionando de extremo a extremo (v1.10.0, 2026-07-31)
 
-Build ✅ · TypeScript ✅ · 80 tests ✅ · Next 15 + React 19 · **En producción** en https://zrnote.vercel.app
+Build ✅ · TypeScript ✅ · 119 tests ✅ · Next 15 + React 19 · **En producción** en https://zrnote.vercel.app
 
 Ya aplicado en producción:
 - ✅ Migración `020_mvp_hardening_and_legal_v2.sql` (vía Management API).
@@ -33,14 +33,6 @@ NEXT_PUBLIC_SUPABASE_URL=https://qmdcpcwigzebqcoeiebi.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon, desde el panel de Supabase>
 ```
 Eso permite verificar páginas públicas, login y middleware. Transcripción y correos requieren las claves reales.
-
-### Cómo ejecutar SQL en producción (la conexión directa está bloqueada)
-`supabase db query`/`db push` cuelgan: el host `db.*.supabase.co` no publica registro A y el CLI intenta Postgres directo. La vía que funciona es la Management API por HTTPS:
-```bash
-curl -X POST "https://api.supabase.com/v1/projects/qmdcpcwigzebqcoeiebi/database/query" \
-  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" -d '{"query":"select 1"}'
-```
 
 ---
 
@@ -216,6 +208,66 @@ npm run typecheck && npm run test && npm run build
 
 ---
 
+## ✅ EL PIPELINE COMPLETO YA FUNCIONA (v1.9.1 → v1.10.0, 2026-07-31)
+
+Primera reunión procesada de extremo a extremo. Los tres fallos que lo impedían,
+diagnosticados con evidencia y no por suposición:
+
+### 1. Los `.aac` subidos fallaban al transcribir
+`400 file must be one of the following types: [flac mp3 mp4 mpeg mpga m4a ogg opus wav webm]` en los 15 segmentos.
+
+Se descargó un segmento real del storage: `ff f1 50 40…` — **ADTS AAC perfectamente válido**, 2,2 MB, 180 s. El troceado estaba bien. **Groq valida el CONTENIDO**, no la extensión ni el `Content-Type`: rechaza AAC sin contenedor se llame como se llame. El reetiquetado a `.m4a` que traía el código (documentado como "el fix de v1.0.5") nunca podía funcionar. Un primer intento arreglando sólo el MIME tampoco bastó — el reintento volvió a dar 400 con `offset 0`, lo que lo confirmó.
+
+**Arreglo:** el ADTS se re-muxea a MP4/M4A con FFmpeg **antes de subirlo** (`-c copy`: envuelve el mismo audio, sin recodificar ni perder calidad). Si el stream copy no produce un contenedor válido, cae a MP3 recodificado. Como ffmpeg no siempre falla de forma ruidosa, `looksLikeContainer()` verifica los magic bytes de cada segmento (`ftyp`, `ID3`/sync, `RIFF+WAVE`, `OggS`, EBML) y descarta la salida si no es un contenedor real.
+
+**Los archivos ya en storage no se pueden salvar desde el servidor** (Node no trae decodificador AAC), así que se detectan por su sync word y se devuelve un mensaje accionable —"vuelve a subir el archivo"— en vez de un 400 que "Reintentar" no puede resolver.
+
+### 2. Gemini: modelos retirados, dos veces
+- `gemini-2.0-flash` → `429 … free_tier_requests, limit: 0` (cuota CERO, no un límite que se pueda esperar).
+- `gemini-2.5-flash-lite` → `404 … no longer available to new users`.
+
+Fijar un nombre de modelo es una apuesta perdida contra Google. Ahora `discoverGeminiModels()` **lista los modelos de la propia clave** (`GET /v1beta/models`), filtra los que soportan `generateContent` y los ordena: flash primero, alias `latest` arriba, preview/experimental y generaciones viejas al fondo. Cachea 10 min. `GEMINI_MODEL` sigue mandando si se quiere fijar uno.
+
+**Además**, Groq sólo se usaba cuando FALTABA la clave de Gemini, así que al fallar Gemini la minuta se perdía con el respaldo configurado y ocioso. Ahora cualquier fallo de Gemini cae a Groq.
+
+### 3. Groq: `413 Request too large — Limit 12000`
+El estimador usaba `caracteres/4`, demasiado optimista para español con acentos, así que el recorte "para que quepa" se quedaba corto. Pasa a `caracteres/3`, presupuesto 10 500, y ante un 413 recorta al 55 % y reintenta en vez de rendirse.
+
+---
+
+## ✍️ EL PROMPT DE LA MINUTA (v1.8.0 → v1.10.0)
+
+Revisado mirando una transcripción **real** de producción:
+> *"bueno este muchacho voy a grabar la reunión voy a utilizar bueno una aplicación…"*
+
+Texto corrido, sin puntuación y **sin ninguna marca de hablante**. Sobre eso, el prompt pedía *"infiere quién se comprometió; si no hay nombre usa el label ('Speaker 1')"*. Se le pedía atribuir responsabilidades sobre un texto que no contiene atribución: inventaba nombres o escribía "Speaker 1". Y la lista de participantes estaba en la base de datos sin usarse.
+
+**Qué se hizo:**
+- `getMeetingContext()` carga título, área y participantes, y alimenta a **ambos** pasos.
+- **Whisper recibe por fin su `prompt`** (sólo se enviaba si existían "speaker hints", que nada en la app crea). Es un *prior* de estilo y vocabulario: una frase bien puntuada le devuelve la puntuación, y los nombres propios hacen que los escriba bien en vez de adivinarlos.
+- El prompt declara **cómo es el texto que va a leer**, prohíbe inventar y limita los responsables a los convocados o a nombres dichos en claro; ante la duda, `null`.
+- **Clasifica primero el tipo de reunión** (seguimiento / decisión / lluvia de ideas / informativa) porque cambia qué merece guardarse. Una informativa con 0 compromisos es un resultado correcto.
+- **Reglas para transcripciones largas**: recorrerla entera antes de escribir, y que lo dicho AL FINAL prevalezca sobre lo corregido antes — los acuerdos se cierran al cierre.
+- **Jerarquía de sacrificio declarada**: si sobra material se recorta `discussion` e `ideas`, nunca compromisos, decisiones ni bloqueos.
+- **Compromiso vs idea** con señales lingüísticas y desempate explícito ("ante la duda es idea"): un compromiso falso destruye la confianza en toda la minuta.
+- Guía de prioridad, para que deje de marcar todo como "media".
+- Lista de repaso final antes de responder.
+
+`parseMinuteJson()` sustituye al `/\{[\s\S]*\}/` (primera llave a **última** llave del texto, que se rompía con cualquier frase final con llaves): recorre llaves balanceadas ignorando las de dentro de strings, quita fences de markdown y desenvuelve el array en el que Gemini a veces mete la minuta.
+
+**Consecuencia esperada y buscada:** más compromisos sin responsable y sin fecha que antes. Es correcto — un responsable equivocado manda la tarea a la bandeja de quien no es.
+
+---
+
+## 📧 CORREOS: FECHA POR DEFINIR (v1.10.0)
+
+El enlace de Google Calendar **sólo se generaba si el compromiso ya traía fecha**, así que desaparecía justo en los casos que más lo necesitan. Ahora:
+- **Todos** los compromisos llevan enlace. Con fecha: *"Añadir a Calendar"*. Sin fecha: propone mañana 9:00 y dice *"Ponerle fecha"* — Google abre la pantalla con el día editable para que lo elija el responsable.
+- Una fecha ausente se muestra como **"Por definir"** en ámbar, no como un guion: es una decisión pendiente, no una celda vacía.
+- La tabla del coordinador también lleva enlace por fila.
+
+---
+
 ## 🔐 AUDITORÍA PRE-LANZAMIENTO (v1.6.0, 2026-07-31)
 
 ### Next.js 14 → 15: no era opcional
@@ -294,14 +346,20 @@ Arreglo (`src/lib/background-audio.ts` + `RecordButton`):
 
 ## 🎯 SIGUIENTE (post-MVP)
 
-| Prioridad | Qué | Por qué |
+| Prioridad | Qué | Por qué / esfuerzo |
 |---|---|---|
-| Alta | Probar la extensión en una reunión real | Reescrita pero sin verificar en vivo |
-| Alta | Procesamiento en servidor (worker) para no depender de la pestaña abierta | Es la fricción número uno que queda |
-| Media | Que los participantes puedan ver la minuta sin ser el creador | Hoy la reunión es solo del creador |
-| Media | Búsqueda full-text de minutas | Barata (`pg_trgm`) y muy útil |
-| Baja | UI de búsqueda semántica (RAG) | El backend ya existe |
+| **Alta** | **Editar la minuta a mano** | La IA se equivoca y hoy no hay forma de corregir un compromiso, un responsable o el resumen. Es lo que más confianza da. ~2 días |
+| **Alta** | **Poner fecha desde la app** (selector en cada compromiso) | Hoy sólo se puede desde el correo → Google Calendar. Debería poder hacerse en "Compromisos". ~1 día |
+| **Alta** | Procesamiento en servidor (worker) | Quita la fricción de tener que dejar la pestaña abierta. Es el cambio de arquitectura pendiente. ~1 semana |
+| **Alta** | Probar la extensión en una reunión real | Reescrita pero sin verificar en vivo |
+| Media | Que los participantes vean la minuta sin ser el creador | Hoy la reunión es sólo del creador; limita el uso en equipo. ~2 días |
+| Media | Recordatorio de compromisos sin fecha | Cierra el círculo de "Por definir": avisar a los 2 días si nadie le puso fecha. ~1 día |
+| Media | Búsqueda full-text de minutas | Barata (`pg_trgm`) y muy útil cuando haya 50 reuniones. ~1 día |
+| Media | Plantillas por tipo de reunión | El prompt ya clasifica el tipo; dejar elegirlo a mano afinaría más la extracción. ~2 días |
+| Baja | Resumen semanal por correo | "Esto es lo que asumiste esta semana". Fideliza. ~2 días |
+| Baja | Exportar a Notion / Trello / Slack | Sólo cuando se sepa qué usa el equipo de verdad |
+| Baja | UI de búsqueda semántica (RAG) | El backend ya existe, falta la interfaz |
 
 ---
 
-*Última actualización: 2026-07-31 — v1.6.0. Auditoría pre-lanzamiento: Next 15 + React 19 (CVE crítico de bypass de autenticación resuelto), dependencias al día, verificación en ejecución real contra la BD de producción, y nueva página de diagnóstico en vivo. Build ✅ · tsc ✅ · 80/80 tests ✅.*
+*Última actualización: 2026-07-31 — v1.10.0. Primera reunión procesada de extremo a extremo: arreglados el rechazo de .aac por Groq (re-mux a MP4 antes de subir), los modelos de Gemini retirados (descubrimiento en runtime) y el 413 de Groq. Prompt de minuta rediseñado con criterio editorial. Enlace de calendario en todos los compromisos, con "fecha por definir". Build ✅ · tsc ✅ · 119/119 tests ✅.*
