@@ -359,6 +359,24 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   return { success: true, transcript: fullTranscript, segmentsProcessed: finalOffset, segmentsTotal: segments.length, more };
 }
 
+
+/**
+ * The minute prompt.
+ *
+ * Written around three things that a transcript-summariser gets wrong by
+ * default, and that showed up in real ZRNote meetings:
+ *
+ *  1. It attributes work to whoever it feels like. The transcript has NO
+ *     speaker labels, so any confident-sounding "María se encargará" is an
+ *     invention. The prompt states the input's limitations outright and makes
+ *     `null` the correct answer under doubt.
+ *  2. It flattens everything into equal-weight bullet points. A commitment
+ *     someone owns is worth ten times a topic that was mentioned, so the model
+ *     is told what the reader actually does with this document.
+ *  3. On long meetings it summarises the beginning and runs out of steam.
+ *     Hence the explicit sweep instruction and the "later overrides earlier"
+ *     rule — in real meetings the end is where things get decided.
+ */
 const MINUTE_PROMPT = (
   transcript: string,
   opts: { meetingDate?: string; context?: MeetingContext } = {},
@@ -367,75 +385,97 @@ const MINUTE_PROMPT = (
   const people = context?.participantNames ?? [];
 
   const contextBlock = [
-    context?.title ? `Título de la reunión: ${context.title}` : null,
+    context?.title ? `Título: ${context.title}` : null,
     context?.coordination ? `Área o coordinación: ${context.coordination}` : null,
-    meetingDate ? `Fecha de la reunión: ${meetingDate}` : null,
+    meetingDate ? `Fecha: ${meetingDate}` : null,
     people.length > 0
-      ? `Personas convocadas: ${people.join(', ')}`
-      : 'Personas convocadas: no se registraron.',
+      ? `Convocados: ${people.join(', ')}`
+      : 'Convocados: no se registró la lista.',
   ]
     .filter(Boolean)
     .join('\n');
 
-  // The attribution rules change completely depending on whether we know who
-  // was in the room, so they are written separately rather than fudged.
   const attributionRules =
     people.length > 0
-      ? `- Los responsables SOLO pueden ser personas de la lista de convocados, o un nombre que se diga claramente en la transcripción.
-- Si no puedes saber con seguridad quién asumió una tarea, pon "assignee_name": null. Un responsable equivocado es peor que ninguno: la tarea acaba en la bandeja de quien no es.`
-      : `- No se registró quién asistió. Asigna un responsable SOLO si en la transcripción alguien dice su nombre o se lo nombran claramente.
-- En cualquier otro caso pon "assignee_name": null. Alguien revisará y asignará después.`;
+      ? `- El responsable SOLO puede ser alguien de la lista de convocados, o un nombre que se pronuncie con claridad en la transcripción.
+- Si no puedes determinarlo con seguridad, pon null. Es la respuesta correcta, no una derrota.
+- Ojo con el reconocimiento de voz: si oyes algo parecido a un nombre de la lista, es casi seguro esa persona (por ejemplo "Mari" o "María Pérez" → María Pérez). Pero no fuerces parecidos remotos.`
+      : `- No se registró quién asistió. Asigna responsable SOLO si en la transcripción alguien dice su propio nombre o lo nombran con claridad.
+- En cualquier otro caso, null.`;
 
-  return `Eres ZRNote. Redactas la minuta de una reunión a partir de su transcripción automática. Escribes para alguien ocupado que solo va a leer lo importante.
+  return `Eres un jefe de gabinete con veinte años levantando actas. Tu trabajo no es resumir lo que se habló: es dejar por escrito lo que hay que hacer y lo que quedó decidido, para que alguien que NO estuvo en la reunión pueda actuar mañana sin preguntar nada.
 
-CONTEXTO
+CONTEXTO DE ESTA REUNIÓN
 ${contextBlock}
 
-CÓMO ES LA TRANSCRIPCIÓN QUE VAS A LEER (importante)
-- La generó un sistema automático de voz a texto. Puede traer palabras mal reconocidas, nombres deformados y frases cortadas.
-- NO indica quién habla. No hay etiquetas de hablante, ni "Speaker 1", ni turnos marcados. Es un texto corrido de toda la reunión.
-- Puede venir con poca puntuación y con muletillas ("bueno", "este", "o sea"). Ignóralas.
-- Si una parte es ininteligible o ambigua, NO la adivines: omítela.
+PRIMERO, ENTIENDE QUÉ REUNIÓN ES
+Antes de extraer nada, decide en silencio de qué tipo es, porque cambia lo que importa:
+- Seguimiento o comité → mandan los compromisos y los bloqueos. Los estados de proyecto importan.
+- Toma de decisión → manda lo que se decidió y bajo qué condiciones.
+- Lluvia de ideas o exploratoria → manda lo que se propuso; es normal que haya 0 decisiones y muchas ideas.
+- Informativa o presentación → manda el resumen; es normal que haya 0 compromisos.
+No fuerces la reunión a una plantilla. Si no hubo decisiones, el array va vacío y ya.
 
-REGLA QUE MANDA SOBRE TODAS
-No inventes. Es preferible una minuta corta y correcta que una completa y falsa. Si algo no se dijo, va como null o como array vacío. Nunca rellenes un campo para que "se vea completo".
+CÓMO ES EL TEXTO QUE VAS A LEER
+- Lo produjo un sistema automático de voz a texto. Trae palabras mal reconocidas, nombres deformados y frases cortadas.
+- NO indica quién habla. No hay etiquetas de hablante, ni turnos, ni "Speaker 1". Es un texto corrido.
+- Trae muletillas ("bueno", "este", "o sea", "¿verdad?") y frases que se abandonan a medias. Ignóralas.
+- Si algo es ininteligible o ambiguo, omítelo. No lo reconstruyas a tu gusto.
+
+LA REGLA QUE MANDA SOBRE TODAS
+No inventes. Una minuta corta y cierta vale más que una completa y falsa. Si algo no se dijo: null, o array vacío. Nunca rellenes un campo para que el documento "se vea completo".
+
+CÓMO LEER UNA REUNIÓN LARGA
+- Recorre la transcripción ENTERA antes de escribir. Los acuerdos suelen cerrarse al final, cuando ya se discutió todo.
+- Si algo se dijo y más tarde se corrigió o se cambió, vale lo ÚLTIMO. Reflejar la versión abandonada es un error grave.
+- Si el mismo asunto vuelve varias veces, únelo en un solo punto; no lo repitas por cada vez que se mencionó.
+- Cuando haya mucho material, sacrifica primero discussion e ideas. Nunca sacrifiques compromisos, decisiones ni bloqueos.
+
+LOS COMPROMISOS SON LO MÁS IMPORTANTE DEL DOCUMENTO
+Es lo único que hace que alguien vuelva a abrir esta minuta. Trátalos con cuidado:
+- Un compromiso es alguien asumiendo algo concreto. Señales: "yo me encargo", "quedamos en que…", "necesito que…", "para el viernes tengo…", "lo hago yo".
+- NO es un compromiso: "habría que…", "estaría bueno…", "en algún momento…", "hay que ver si…" sin que nadie lo tome. Eso es una idea.
+- Ante la duda entre compromiso e idea → es idea. Un compromiso falso hace perder la confianza en toda la minuta.
+- Redacta cada tarea empezando por un verbo, y que se entienda sola: "Enviar la cotización de tuberías al cliente", no "lo de la cotización".
+- Si una tarea la asumen dos personas, escribe un compromiso por cada una.
+- Si alguien asumió varias cosas distintas, sepáralas. Una tarea = una acción.
 
 ${attributionRules}
 
 FECHAS
-${meetingDate ? `- Resuelve los plazos relativos ("el viernes", "la próxima semana", "a fin de mes") a una fecha concreta YYYY-MM-DD tomando como referencia el ${meetingDate}.` : '- Solo usa una fecha si se dijo de forma explícita.'}
-- Si no se mencionó ningún plazo, "due_date": null. No inventes plazos "razonables".
+${meetingDate ? `- Resuelve los plazos relativos tomando como referencia el ${meetingDate}: "el viernes", "la semana que viene", "a fin de mes" → fecha concreta YYYY-MM-DD.` : '- Usa una fecha solo si se dijo explícitamente.'}
+- Si no se acordó plazo, due_date: null. NO inventes plazos "razonables": el responsable pondrá la fecha él mismo.
 
-RESPONDE SOLO CON ESTE JSON (sin markdown, sin texto alrededor):
+PRIORIDAD (úsala, no la pongas toda en media)
+- alta: hay una fecha próxima, alguien está bloqueado esperándolo, o se dijo "urgente" o "esto es lo primero".
+- baja: es un "cuando se pueda", una mejora, algo sin impacto inmediato.
+- media: todo lo demás.
+
+RESPONDE ÚNICAMENTE CON ESTE JSON (sin markdown, sin texto antes ni después):
 {
-  "summary": "3 a 5 frases: para qué se reunieron, qué se resolvió y qué sigue. Cuenta resultados, no narres la conversación. Si la reunión no llegó a nada concreto, dilo con esas palabras.",
+  "summary": "3 a 5 frases. Para qué se reunieron, qué se resolvió y qué queda pendiente. Cuenta resultados, no narres la conversación ni digas 'se habló de'. Si la reunión no llegó a nada concreto, dilo con esas palabras.",
   "action_items": [
     {
-      "assignee_name": "Nombre del responsable, o null si no está claro",
-      "description": "Tarea concreta que empieza por un verbo y dice QUÉ hay que hacer. Ej: 'Enviar la propuesta de precios al cliente'. Que se entienda sin haber estado en la reunión.",
+      "assignee_name": "Nombre del responsable, o null",
+      "description": "Acción concreta que empieza por verbo y se entiende sin contexto",
       "due_date": "YYYY-MM-DD o null",
       "priority": "alta | media | baja"
     }
   ],
-  "decisions": [ { "decision": "Qué se acordó, en concreto", "context": "Por qué o bajo qué condición" } ],
+  "decisions": [ { "decision": "Qué se acordó, en concreto", "context": "Por qué, o bajo qué condición" } ],
   "blockers": [ { "issue": "Qué está frenando el trabajo", "impact": "A qué afecta o qué retrasa", "owner": "Quién debe resolverlo, o null" } ],
-  "project_statuses": [ { "project": "Nombre del proyecto tal como lo llamaron", "status": "en progreso | retrasado | completado | pendiente", "details": "Qué se avanzó y qué falta" } ],
-  "discussion": [ { "topic": "Tema tratado", "details": "Lo esencial, 2-3 frases máximo" } ],
-  "next_steps": [ { "step": "Próximo paso que no sea ya un compromiso de arriba", "owner": "Quién, o null" } ],
-  "ideas": ["Ideas sueltas que nadie asumió y sobre las que no se decidió nada"]
+  "project_statuses": [ { "project": "Nombre tal como lo llamaron ellos", "status": "en progreso | retrasado | completado | pendiente", "details": "Qué se avanzó y qué falta" } ],
+  "discussion": [ { "topic": "Tema tratado", "details": "Lo esencial en 2-3 frases. Solo temas que aporten algo que no esté ya arriba." } ],
+  "next_steps": [ { "step": "Siguiente paso que NO sea ya un compromiso de arriba", "owner": "Quién, o null" } ],
+  "ideas": ["Propuestas que nadie asumió y sobre las que no se decidió nada"]
 }
 
-QUÉ ES CADA COSA
-- action_items: alguien se comprometió a hacer algo concreto. Señales: "yo me encargo", "quedamos en que…", "necesito que…", "para el viernes tengo…".
-- decisions: se cerró un acuerdo. Señales: "se aprueba", "lo dejamos así", "entonces vamos con…".
-- ideas: se mencionó pero nadie lo asumió ni se decidió. Un "estaría bueno que…" es una idea, NO un compromiso.
-- Si dudas entre action_item e idea, es una idea.
-
-CALIDAD
-- Cada compromiso debe entenderse por sí solo, fuera de contexto.
-- No repitas lo mismo en action_items y en next_steps. Si ya es un compromiso con responsable, no lo dupliques abajo.
-- Ordena action_items: primero alta, luego media, luego baja.
-- Arrays vacíos [] cuando no aplique. Una reunión informal puede tener perfectamente 0 decisiones y 0 bloqueos.
+ANTES DE RESPONDER, REVISA
+- ¿Algún compromiso es en realidad una idea que nadie asumió? Muévelo.
+- ¿Algún responsable te lo inventaste porque "encajaba"? Ponlo en null.
+- ¿Repetiste en next_steps algo que ya está en action_items? Bórralo de next_steps.
+- ¿El resumen cuenta resultados, o narra la conversación? Reescríbelo si narra.
+- ¿Alguna tarea se entiende solo si estuviste en la reunión? Reescríbela.
 - Todo en español.
 
 TRANSCRIPCIÓN:

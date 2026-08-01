@@ -3,20 +3,45 @@ import { generateGoogleCalendarUrl } from '@/lib/google-calendar';
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
 
-// Build a "Add to Google Calendar" link for an action item that has a due date.
-// No OAuth — opens Google Calendar prefilled in the recipient's own account.
+/**
+ * "Add to Google Calendar" link for a commitment. No OAuth: it opens Google
+ * Calendar's own compose screen, prefilled, in whatever account the reader is
+ * signed into.
+ *
+ * EVERY commitment gets a link, including the ones with no agreed deadline.
+ * Those used to return an empty string, so the majority of tasks arrived with
+ * no way to act on them — and now that the minute prompt refuses to invent
+ * deadlines, that was most of them. When there is no date we propose tomorrow
+ * 9:00 and label the link so it is obvious the reader is the one choosing:
+ * Google's screen opens with the date editable before saving.
+ */
 function actionItemCalendarLink(item: any): string {
-  if (!item?.due_date) return '';
-  const start = new Date(`${item.due_date}T09:00:00`);
-  if (isNaN(start.getTime())) return '';
+  const hasDate = typeof item?.due_date === 'string' && !Number.isNaN(new Date(`${item.due_date}T09:00:00`).getTime());
+
+  const start = hasDate ? new Date(`${item.due_date}T09:00:00`) : nextMorning();
   const end = new Date(start.getTime() + 30 * 60 * 1000);
+
   const url = generateGoogleCalendarUrl({
-    title: item.description || 'Tarea (ZRNote)',
-    description: `Compromiso de reunión — ZRNote.\nPrioridad: ${item.priority || '—'}`,
+    title: item?.description || 'Compromiso (ZRNote)',
+    description:
+      `Compromiso acordado en una reunión — ZRNote.\n` +
+      `Prioridad: ${item?.priority || 'media'}\n` +
+      (hasDate ? '' : 'Sin fecha acordada en la reunión: ajusta el día antes de guardar.\n') +
+      `${appUrl}/dashboard/action-items`,
     startTime: start,
     endTime: end,
   });
-  return ` <a href="${url}" style="color:#2563eb;text-decoration:none;font-size:12px;white-space:nowrap">📅 Añadir a Calendar</a>`;
+
+  const label = hasDate ? '📅 Añadir a Calendar' : '📅 Ponerle fecha';
+  return ` <a href="${url}" style="color:#2563eb;text-decoration:none;font-size:12px;white-space:nowrap">${label}</a>`;
+}
+
+/** Tomorrow at 09:00 local — a sane, clearly-provisional default. */
+function nextMorning(): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  return d;
 }
 
 /**
@@ -88,16 +113,30 @@ export function buildMinuteHtml(minute: any): string {
 }
 
 export function buildActionItemsHtml(items: any[]): string {
-  if (!items || items.length === 0) return '<p>No se generaron action items.</p>';
+  if (!items || items.length === 0) {
+    return '<p style="color:#666">No se identificaron compromisos concretos en esta reunión.</p>';
+  }
+
   const rows = items.map((i) => {
-    const assignee = escapeHtmlOrEmpty(i.assignee_name) || 'Sin asignar';
+    const assignee = escapeHtmlOrEmpty(i.assignee_name) || '<span style="color:#b45309">Sin asignar</span>';
     const description = escapeHtmlOrEmpty(i.description);
-    const priority = escapeHtmlOrEmpty(i.priority);
-    const dueDate = i.due_date ? escapeHtml(i.due_date) : '—';
-    return `<tr><td>${assignee}</td><td>${description}</td><td>${priority}</td><td>${dueDate}</td></tr>`;
+    const priority = escapeHtmlOrEmpty(i.priority) || 'media';
+    // "Por definir" instead of an em dash: a missing deadline is an open
+    // decision someone has to make, not a blank cell.
+    const dueDate = i.due_date
+      ? escapeHtml(i.due_date)
+      : '<span style="color:#b45309">Por definir</span>';
+    return `<tr>
+      <td>${assignee}</td>
+      <td>${description}</td>
+      <td>${priority}</td>
+      <td>${dueDate}</td>
+      <td style="white-space:nowrap">${actionItemCalendarLink(i)}</td>
+    </tr>`;
   }).join('');
+
   return `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px">
-    <thead><tr style="background:#f3f4f6"><th>Responsable</th><th>Tarea</th><th>Prioridad</th><th>Fecha</th></tr></thead>
+    <thead><tr style="background:#f3f4f6"><th>Responsable</th><th>Tarea</th><th>Prioridad</th><th>Fecha</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -141,15 +180,31 @@ export async function sendWithRetry(
 
 export function buildMyItemsHtml(myItems: any[]): string {
   if (!Array.isArray(myItems) || myItems.length === 0) return '';
+
   const items = myItems.map((i: any) => {
     const desc = escapeHtml(i.description || '');
-    const priority = escapeHtml(i.priority || '');
-    const dueDateSuffix = i.due_date ? `, Fecha: ${escapeHtml(i.due_date)}` : '';
-    return `<li style="margin-bottom:6px"><strong>${desc}</strong> — Prioridad: ${priority}${dueDateSuffix}${actionItemCalendarLink(i)}</li>`;
+    const priority = escapeHtml(i.priority || 'media');
+    const date = i.due_date
+      ? `Fecha: ${escapeHtml(i.due_date)}`
+      : '<span style="color:#b45309;font-weight:600">Fecha por definir</span>';
+    return `<li style="margin-bottom:10px">
+      <strong>${desc}</strong><br/>
+      <span style="font-size:12px;color:#555">Prioridad: ${priority} · ${date}</span>
+      ${actionItemCalendarLink(i)}
+    </li>`;
   }).join('');
-  return `<div style="background:#ecfdf5;border-left:3px solid #22c55e;padding:12px;margin:16px 0;border-radius:0 8px 8px 0">
-    <h3 style="margin:0 0 8px;color:#166534;font-size:16px">Tus compromisos</h3>
-    <ul style="margin:0;padding-left:20px;color:#333">${items}</ul></div>`;
+
+  const sinFecha = myItems.filter((i: any) => !i.due_date).length;
+  const nota = sinFecha > 0
+    ? `<p style="margin:8px 0 0;font-size:12px;color:#166534">
+        ${sinFecha === 1 ? 'Un compromiso no tiene' : `${sinFecha} compromisos no tienen`} fecha acordada.
+        Pulsa «Ponerle fecha» y elige el día en tu calendario.
+      </p>`
+    : '';
+
+  return `<div style="background:#ecfdf5;border-left:3px solid #22c55e;padding:14px;margin:16px 0;border-radius:0 8px 8px 0">
+    <h3 style="margin:0 0 10px;color:#166534;font-size:16px">Tus compromisos</h3>
+    <ul style="margin:0;padding-left:20px;color:#333">${items}</ul>${nota}</div>`;
 }
 
 export function buildOtherItemsHtml(otherItems: any[]): string {

@@ -35,7 +35,29 @@ describe('buildMinuteHtml', () => {
 
 describe('buildActionItemsHtml', () => {
   it('shows a message when there are no items', () => {
-    expect(buildActionItemsHtml([])).toContain('No se generaron');
+    expect(buildActionItemsHtml([])).toContain('No se identificaron compromisos');
+  });
+
+  it('marks a missing deadline as "Por definir", not as a blank cell', () => {
+    // A commitment with no agreed date is an open decision someone has to make.
+    const html = buildActionItemsHtml([{ description: 'Enviar cotización', priority: 'alta' }]);
+    expect(html).toContain('Por definir');
+  });
+
+  it('offers a calendar link even when the item has no due date', () => {
+    // These used to render nothing at all, so most commitments arrived with no
+    // way to act on them — and the minute prompt no longer invents deadlines.
+    const html = buildActionItemsHtml([{ id: 'a1', description: 'Enviar cotización', priority: 'alta' }]);
+    expect(html).toContain('calendar.google.com');
+    expect(html).toContain('Ponerle fecha');
+  });
+
+  it('labels the link differently when the date IS known', () => {
+    const html = buildActionItemsHtml([
+      { id: 'a1', description: 'Enviar cotización', priority: 'alta', due_date: '2026-08-15' },
+    ]);
+    expect(html).toContain('Añadir a Calendar');
+    expect(html).toContain('20260815');
   });
 
   it('renders a table row per item and escapes fields', () => {
