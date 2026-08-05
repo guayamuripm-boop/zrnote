@@ -145,6 +145,32 @@ export async function claimEmailJobs<T extends ClaimableJob>(
 }
 
 /**
+ * De una lista de direcciones, cuáles se han dado de baja.
+ *
+ * Se consulta acotando por las direcciones que nos interesan en vez de traer la
+ * tabla entera: la lista de bajas crece indefinidamente y no queremos leerla
+ * completa en cada envío.
+ *
+ * Ante un error se devuelve un conjunto vacío, o sea «nadie de baja». Es una
+ * decisión incómoda —significa escribir a alguien que pidió no recibir nada— y
+ * la alternativa es peor: un fallo transitorio de la base dejaría a TODA la
+ * reunión sin minuta. El error queda registrado para poder detectarlo.
+ */
+export async function getUnsubscribedEmails(supabase: any, emails: string[]): Promise<Set<string>> {
+  const unique = Array.from(new Set(emails.map((e) => (e || '').toLowerCase().trim()).filter(Boolean)));
+  if (unique.length === 0) return new Set();
+
+  const { data, error } = await supabase.from('email_unsubscribes').select('email').in('email', unique);
+
+  if (error) {
+    logger.error('email-outbox: no se pudo leer la lista de bajas', { error: error.message });
+    return new Set();
+  }
+
+  return new Set((data || []).map((r: any) => (r.email || '').toLowerCase()));
+}
+
+/**
  * Cuántos correos se han enviado hoy, contra el tope del proveedor.
  *
  * Gmail corta a los 500/día (2.000 en Workspace) y lo hace **en silencio**: los

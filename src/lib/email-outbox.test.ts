@@ -1,5 +1,30 @@
 import { describe, it, expect } from 'vitest';
-import { buildDedupeKey, claimEmailJobs, getDailyEmailUsage } from '@/lib/email-outbox';
+import {
+  buildDedupeKey,
+  claimEmailJobs,
+  getDailyEmailUsage,
+  getUnsubscribedEmails,
+} from '@/lib/email-outbox';
+
+/** Supabase de mentira para la lista de bajas. */
+function fakeUnsubs(rows: string[], error?: string) {
+  return {
+    from() {
+      return {
+        select() {
+          return {
+            in: (_col: string, emails: string[]) =>
+              Promise.resolve(
+                error
+                  ? { data: null, error: { message: error } }
+                  : { data: rows.filter((r) => emails.includes(r)).map((email) => ({ email })), error: null },
+              ),
+          };
+        },
+      };
+    },
+  } as any;
+}
 
 /** Supabase de mentira que sólo sabe contar, para la cuota diaria. */
 function fakeCounter(count: number | null, error?: string) {
@@ -207,5 +232,41 @@ describe('getDailyEmailUsage', () => {
     const usage = await getDailyEmailUsage(fakeCounter(null, 'timeout'));
     expect(usage.used).toBe(0);
     expect(usage.remaining).toBe(500);
+  });
+});
+
+describe('getUnsubscribedEmails', () => {
+  it('devuelve sólo los que están de baja', async () => {
+    const db = fakeUnsubs(['luis@x.com']);
+    const bajas = await getUnsubscribedEmails(db, ['ana@x.com', 'luis@x.com']);
+    expect(bajas.has('luis@x.com')).toBe(true);
+    expect(bajas.has('ana@x.com')).toBe(false);
+  });
+
+  it('ignora mayúsculas y espacios', async () => {
+    const db = fakeUnsubs(['luis@x.com']);
+    const bajas = await getUnsubscribedEmails(db, ['  LUIS@X.com ']);
+    expect(bajas.has('luis@x.com')).toBe(true);
+  });
+
+  it('no consulta si no hay direcciones', async () => {
+    // Evita un `.in()` con lista vacía, que en Postgres no filtra nada.
+    const db = fakeUnsubs(['luis@x.com']);
+    expect(await getUnsubscribedEmails(db, [])).toEqual(new Set());
+    expect(await getUnsubscribedEmails(db, ['', '  '])).toEqual(new Set());
+  });
+
+  it('deduplica antes de consultar', async () => {
+    const db = fakeUnsubs(['luis@x.com']);
+    const bajas = await getUnsubscribedEmails(db, ['luis@x.com', 'LUIS@x.com', 'luis@x.com']);
+    expect(bajas.size).toBe(1);
+  });
+
+  it('ante un error de base NO bloquea el envío de toda la reunión', async () => {
+    // Decisión incómoda: se escribe a alguien que pidió no recibir nada. La
+    // alternativa —dejar a la reunión entera sin minuta por un fallo
+    // transitorio— es peor. El error queda registrado.
+    const db = fakeUnsubs([], 'conexión caída');
+    expect(await getUnsubscribedEmails(db, ['luis@x.com'])).toEqual(new Set());
   });
 });

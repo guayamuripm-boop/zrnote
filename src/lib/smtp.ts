@@ -192,22 +192,32 @@ export function htmlToPlainText(html: string): string {
 }
 
 /**
- * Cabecera de baja.
+ * Cabeceras de baja.
  *
- * Es un `mailto:` al organizador, no una URL, y es deliberado: una URL de baja
- * de un clic (RFC 8058) tiene que responder a un POST y darse de baja DE
- * VERDAD. Prometer eso con un enlace que no existe es peor que no ponerlo.
- * El `mailto:` sí funciona hoy: le llega al organizador, que es quien puede
- * quitar al participante de la reunión.
+ * Con `url` se anuncia baja de un clic (RFC 8058): el cliente de correo enseña
+ * «Cancelar suscripción» junto al remitente y hace un POST a esa URL. Es lo que
+ * Gmail y Yahoo premian en la reputación del remitente desde 2024.
  *
- * Cuando tengamos enlaces firmados (la vista pública de la minuta) esto pasa a
- * ser una URL de un clic, que es lo que Gmail premia de verdad.
+ * `List-Unsubscribe-Post` SÓLO se envía si hay URL. Anunciarlo con un `mailto:`
+ * sería mentirle al cliente de correo —un mailto no responde a un POST— y eso
+ * penaliza más que no ofrecer nada.
+ *
+ * Sin URL se cae al `mailto:` al organizador, que al menos llega a alguien que
+ * puede quitar al participante de la reunión.
  */
-export function unsubscribeHeaders(organizerEmail?: string): Record<string, string> {
-  if (!organizerEmail) return {};
-  return {
-    'List-Unsubscribe': `<mailto:${organizerEmail}?subject=Baja%20de%20las%20minutas%20de%20ZRNote>`,
-  };
+export function unsubscribeHeaders(organizerEmail?: string, url?: string): Record<string, string> {
+  if (url) {
+    return {
+      'List-Unsubscribe': `<${url}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    };
+  }
+  if (organizerEmail) {
+    return {
+      'List-Unsubscribe': `<mailto:${organizerEmail}?subject=Baja%20de%20las%20minutas%20de%20ZRNote>`,
+    };
+  }
+  return {};
 }
 
 export async function sendMail(message: MailMessage): Promise<MailResult> {

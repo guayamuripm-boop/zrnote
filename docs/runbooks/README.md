@@ -13,7 +13,8 @@ Un runbook por subsistema. Cada uno responde a las mismas cuatro preguntas:
 | # | Runbook | Cubre |
 |---|---|---|
 | [00](00-respaldo-y-restauracion.md) | Respaldo y restauración | Puntos de restauración, cómo volver atrás, respaldo de la base |
-| [01](01-correo.md) | Sistema de correo | Minutas, recordatorios, idempotencia, diagnóstico de «no llegan» |
+| [01](01-correo.md) | Sistema de correo | Minutas, recordatorios, idempotencia, cuota, diagnóstico de «no llegan» |
+| [02](02-enlaces-publicos.md) | Enlaces públicos y bajas | Vista de minuta sin cuenta, tokens firmados, baja de un clic |
 
 ## Pendientes de escribir
 

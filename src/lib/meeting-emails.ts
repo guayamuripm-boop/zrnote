@@ -16,8 +16,15 @@ import {
   markEmailSent,
   markEmailFailed,
   getDailyEmailUsage,
+  getUnsubscribedEmails,
   EmailKind,
 } from '@/lib/email-outbox';
+import {
+  minuteUrl,
+  signMinuteToken,
+  canSignLinks,
+  unsubscribeUrl as unsubscribeApiUrl,
+} from '@/lib/minute-links';
 import {
   buildMinuteHtml,
   buildActionItemsHtml,
@@ -41,8 +48,10 @@ export interface EmailJob {
   kind: EmailKind;
   /** @deprecated usa `kind`. Se mantiene para no romper llamadas existentes. */
   isCoordinator: boolean;
-  /** Quien convocó la reunión: a él van las respuestas y las bajas. */
+  /** Quien convocó la reunión: a él van las respuestas. */
   replyTo?: string;
+  /** URL de baja de un clic (RFC 8058). Sólo para participantes. */
+  unsubscribeUrl?: string;
   attachments?: EmailAttachment[];
 }
 
@@ -58,15 +67,38 @@ export interface DispatchResult {
 
 const appUrl = () => process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
 
-function shell(bodyHtml: string, meetingId: string): string {
+/**
+ * Envoltorio común de todos los correos de minuta.
+ *
+ * `recipientEmail` decide a dónde apunta el botón:
+ *  - Participante → /minuta/{token firmado}: abre sin cuenta. Antes apuntaba a
+ *    /dashboard/meetings/{id}, que filtra por `created_by`, así que el
+ *    destinatario veía un login y luego un 404. El CTA principal de todos
+ *    nuestros correos estaba roto para todo el que no fuera el organizador.
+ *  - Organizador → su panel de siempre, donde puede editar y reenviar.
+ */
+function shell(bodyHtml: string, meetingId: string, recipientEmail?: string): string {
+  // Si no hay clave de firma, se degrada al enlace del panel en vez de romper.
+  // Para el organizador funciona igual; para un participante será un callejón
+  // sin salida, pero es infinitamente mejor que quedarse sin minuta.
+  const puedeFirmar = Boolean(recipientEmail) && canSignLinks();
+
+  const destino = puedeFirmar
+    ? minuteUrl(meetingId, recipientEmail!)
+    : `${appUrl()}/dashboard/meetings/${meetingId}`;
+
+  const pieBaja = puedeFirmar
+    ? `<br/>¿No quieres recibir más correos? <a href="${appUrl()}/baja/${signMinuteToken(meetingId, recipientEmail!)}" style="color:#9ca3af;text-decoration:underline">Date de baja</a>.`
+    : '';
+
   return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2937;max-width:640px;margin:0 auto">
 ${bodyHtml}
 <hr style="margin:24px 0;border:none;border-top:1px solid #eee"/>
-<p style="text-align:center;margin:16px 0"><a href="${appUrl()}/dashboard/meetings/${meetingId}" style="display:inline-block;background:#2563eb;color:#fff;padding:11px 22px;border-radius:8px;text-decoration:none;font-weight:500">Ver en ZRNote</a></p>
+<p style="text-align:center;margin:16px 0"><a href="${destino}" style="display:inline-block;background:#2563eb;color:#fff;padding:11px 22px;border-radius:8px;text-decoration:none;font-weight:500">Ver la minuta completa</a></p>
 <p style="text-align:center;color:#9ca3af;font-size:11px;line-height:1.6;margin-top:24px">
 Minuta generada automáticamente con inteligencia artificial a partir del audio de la reunión.<br/>
 <strong>Puede contener errores u omisiones</strong>: revísala antes de tomar decisiones o compartirla.<br/>
-Si recibiste este correo por error, avísale a quien convocó la reunión y bórralo.
+Si recibiste este correo por error, avísale a quien convocó la reunión y bórralo.${pieBaja}
 </p>
 </div>`;
 }
@@ -124,12 +156,22 @@ export async function buildMeetingEmailJobs(
   const creatorEmail: string | undefined =
     creatorParticipantResult.data?.email_override || creatorUserResult.data?.email;
 
-  const participants = (participantsResult.data || [])
+  const todosLosParticipantes = (participantsResult.data || [])
     .map((p: any) => ({
       name: p.name || p.email_override?.split('@')[0] || 'Participante',
       email: (p.email_override || '').trim(),
     }))
     .filter((p: any) => p.email);
+
+  // Quien se dio de baja no recibe nada, ni minutas ni recordatorios. Honrarlo
+  // no es opcional: la cabecera List-Unsubscribe promete que funciona, y
+  // prometerlo sin cumplirlo penaliza al remitente más que no ofrecerlo.
+  const bajas = await getUnsubscribedEmails(
+    supabase,
+    todosLosParticipantes.map((p: any) => p.email).concat(creatorEmail ? [creatorEmail] : []),
+  );
+  const participants = todosLosParticipantes.filter((p: any) => !bajas.has(p.email.toLowerCase()));
+  const creatorUnsubscribed = Boolean(creatorEmail && bajas.has(creatorEmail.toLowerCase()));
 
   const safeTitle = escapeHtml(meetingTitle);
   const minuteHtml = buildMinuteHtml(minute);
@@ -153,6 +195,7 @@ ${calendarNote(events.length)}${buildMyItemsHtml(myItems)}${buildOtherItemsHtml(
 <hr style="margin:24px 0;border:none;border-top:1px solid #eee"/>
 <h2 style="color:#1a1a2e;font-size:20px;margin-bottom:12px">Minuta completa</h2>${minuteHtml}`,
         meetingId,
+        p.email,
       ),
       label: p.email,
       kind: 'personal',
@@ -160,11 +203,12 @@ ${calendarNote(events.length)}${buildMyItemsHtml(myItems)}${buildOtherItemsHtml(
       // Responder a la minuta debe llegarle a quien convocó la reunión, no al
       // buzón técnico desde el que sale el correo, que no lee nadie.
       replyTo: creatorEmail,
+      unsubscribeUrl: canSignLinks() ? unsubscribeApiUrl(meetingId, p.email) : undefined,
       attachments: icsAttachment(events, 'compromisos.ics'),
     });
   }
 
-  if (creatorEmail) {
+  if (creatorEmail && !creatorUnsubscribed) {
     const events = itemsToCalendarEvents(allItems, meetingTitle);
     jobs.push({
       to: creatorEmail,
@@ -274,7 +318,7 @@ export async function dispatchEmailJobs(
         subject: job.subject,
         html: job.html,
         replyTo: job.replyTo,
-        headers: unsubscribeHeaders(job.replyTo),
+        headers: unsubscribeHeaders(job.replyTo, job.unsubscribeUrl),
         attachments: job.attachments,
       }),
     );

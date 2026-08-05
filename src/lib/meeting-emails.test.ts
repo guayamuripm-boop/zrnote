@@ -4,12 +4,16 @@ import { buildMeetingEmailJobs, dispatchEmailJobs } from './meeting-emails';
 /**
  * Minimal Supabase stub: only the query shapes buildMeetingEmailJobs uses.
  * `.from(table)` returns a thenable chain that resolves to the fixture rows.
+ *
+ * Para las bajas, pon `email_unsubscribes: [{ email: 'x@y.com' }]` en las
+ * fixtures; si no aparece, no hay nadie de baja.
  */
 function fakeSupabase(fixtures: Record<string, any>) {
   const make = (table: string) => {
     const chain: any = {
       select: () => chain,
       eq: () => chain,
+      in: () => Promise.resolve({ data: fixtures[table] ?? [], error: null }),
       maybeSingle: () => Promise.resolve({ data: fixtures[table] ?? null }),
       then: (resolve: any) => resolve({ data: fixtures[table] ?? [] }),
       insert: (rows: any) => {
@@ -122,6 +126,133 @@ describe('buildMeetingEmailJobs', () => {
       expect(job.html).toContain('inteligencia artificial');
       expect(job.html).toContain('Puede contener errores');
     }
+  });
+
+  // --- Enlace público de la minuta (v1.12) ---
+
+  it('al participante le manda un enlace público, no el panel', async () => {
+    // El bug: el botón apuntaba a /dashboard/meetings/{id}, que filtra por
+    // created_by. El participante veía un login y luego un 404.
+    const supabase = fakeSupabase({
+      action_items: [],
+      minutes: MINUTE,
+      meeting_participants: [{ name: 'Ana', email_override: 'ana@example.com' }],
+      users: { email: 'jefe@example.com' },
+    });
+
+    const jobs = await buildMeetingEmailJobs(supabase, 'm1', 'Reunión', 'creator');
+    const deAna = jobs.find((j) => j.to === 'ana@example.com')!;
+    expect(deAna.html).toContain('/minuta/');
+    expect(deAna.html).not.toContain('/dashboard/meetings/');
+  });
+
+  it('al organizador le sigue mandando su panel', async () => {
+    // Él sí tiene cuenta, y ahí puede editar y reenviar.
+    const supabase = fakeSupabase({
+      action_items: [],
+      minutes: MINUTE,
+      meeting_participants: [{ name: 'Ana', email_override: 'ana@example.com' }],
+      users: { email: 'jefe@example.com' },
+    });
+
+    const jobs = await buildMeetingEmailJobs(supabase, 'm1', 'Reunión', 'creator');
+    const delJefe = jobs.find((j) => j.to === 'jefe@example.com')!;
+    expect(delJefe.html).toContain('/dashboard/meetings/m1');
+  });
+
+  it('cada participante recibe un enlace distinto', async () => {
+    const supabase = fakeSupabase({
+      action_items: [],
+      minutes: MINUTE,
+      meeting_participants: [
+        { name: 'Ana', email_override: 'ana@example.com' },
+        { name: 'Luis', email_override: 'luis@example.com' },
+      ],
+      users: { email: 'jefe@example.com' },
+    });
+
+    const jobs = await buildMeetingEmailJobs(supabase, 'm1', 'Reunión', 'creator');
+    const tokens = jobs
+      .filter((j) => j.kind === 'personal')
+      .map((j) => j.html.match(/\/minuta\/([\w.\-_]+)/)?.[1]);
+    expect(tokens[0]).toBeTruthy();
+    expect(tokens[0]).not.toBe(tokens[1]);
+  });
+
+  it('sin clave de firma NO se cae: degrada al panel', async () => {
+    // Una variable de entorno ausente no puede dejar a nadie sin minuta. Es el
+    // mismo patrón que rompió los correos en v1.10, cuando la URL de Calendar
+    // lanzaba desde dentro de la construcción del HTML.
+    const secret = process.env.MINUTE_LINK_SECRET;
+    const svc = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const svc2 = process.env.SUPABASE_SERVICE_KEY;
+    try {
+      delete process.env.MINUTE_LINK_SECRET;
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      delete process.env.SUPABASE_SERVICE_KEY;
+
+      const supabase = fakeSupabase({
+        action_items: [],
+        minutes: MINUTE,
+        meeting_participants: [{ name: 'Ana', email_override: 'ana@example.com' }],
+        users: { email: 'jefe@example.com' },
+      });
+
+      const jobs = await buildMeetingEmailJobs(supabase, 'm1', 'Reunión', 'creator');
+      expect(jobs).toHaveLength(2); // los correos SALEN igual
+      const deAna = jobs.find((j) => j.to === 'ana@example.com')!;
+      expect(deAna.html).toContain('/dashboard/meetings/');
+      expect(deAna.unsubscribeUrl).toBeUndefined();
+    } finally {
+      if (secret !== undefined) process.env.MINUTE_LINK_SECRET = secret;
+      if (svc !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = svc;
+      if (svc2 !== undefined) process.env.SUPABASE_SERVICE_KEY = svc2;
+    }
+  });
+
+  // --- Bajas (v1.12) ---
+
+  it('no escribe a quien se dio de baja', async () => {
+    const supabase = fakeSupabase({
+      action_items: [],
+      minutes: MINUTE,
+      meeting_participants: [
+        { name: 'Ana', email_override: 'ana@example.com' },
+        { name: 'Luis', email_override: 'luis@example.com' },
+      ],
+      users: { email: 'jefe@example.com' },
+      email_unsubscribes: [{ email: 'luis@example.com' }],
+    });
+
+    const jobs = await buildMeetingEmailJobs(supabase, 'm1', 'Reunión', 'creator');
+    expect(jobs.map((j) => j.to)).toEqual(['ana@example.com', 'jefe@example.com']);
+  });
+
+  it('honra la baja aunque sea el propio organizador', async () => {
+    const supabase = fakeSupabase({
+      action_items: [],
+      minutes: MINUTE,
+      meeting_participants: [{ name: 'Ana', email_override: 'ana@example.com' }],
+      users: { email: 'jefe@example.com' },
+      email_unsubscribes: [{ email: 'jefe@example.com' }],
+    });
+
+    const jobs = await buildMeetingEmailJobs(supabase, 'm1', 'Reunión', 'creator');
+    expect(jobs.map((j) => j.to)).toEqual(['ana@example.com']);
+  });
+
+  it('anuncia la baja de un clic sólo a los participantes', async () => {
+    // El organizador no puede darse de baja de su propio producto desde aquí.
+    const supabase = fakeSupabase({
+      action_items: [],
+      minutes: MINUTE,
+      meeting_participants: [{ name: 'Ana', email_override: 'ana@example.com' }],
+      users: { email: 'jefe@example.com' },
+    });
+
+    const jobs = await buildMeetingEmailJobs(supabase, 'm1', 'Reunión', 'creator');
+    expect(jobs.find((j) => j.to === 'ana@example.com')!.unsubscribeUrl).toContain('/api/baja/');
+    expect(jobs.find((j) => j.to === 'jefe@example.com')!.unsubscribeUrl).toBeUndefined();
   });
 });
 

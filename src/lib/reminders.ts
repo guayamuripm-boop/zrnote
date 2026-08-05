@@ -1,8 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/logger';
 import { escapeHtml } from '@/lib/safe-html';
-import { sendMail, isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
-import { claimEmailJobs, markEmailSent, markEmailFailed } from '@/lib/email-outbox';
+import { sendMail, isEmailConfigured, EMAIL_NOT_CONFIGURED, unsubscribeHeaders } from '@/lib/smtp';
+import {
+  claimEmailJobs,
+  markEmailSent,
+  markEmailFailed,
+  getUnsubscribedEmails,
+} from '@/lib/email-outbox';
+import { unsubscribeUrl, signMinuteToken, canSignLinks } from '@/lib/minute-links';
 
 // Sends one reminder email per assignee for action items due TOMORROW that are
 // not yet completed. Firing exactly one day before the due date means a single,
@@ -49,11 +55,20 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
     (byEmail.get(key) || byEmail.set(key, []).get(key))!.push(it);
   }
 
+  // La baja es global: quien la pidió tampoco quiere recordatorios. Es
+  // justamente el tipo de correo que más molesta a quien ya dijo que no.
+  const bajas = await getUnsubscribedEmails(supabase, Array.from(byEmail.keys()));
+  for (const email of bajas) byEmail.delete(email);
+  if (byEmail.size === 0) return { sent: 0, failed: 0 };
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
 
   // Un recordatorio por destinatario, con el mismo pie legal que las minutas.
   const jobs = Array.from(byEmail.entries()).map(([email, tasks]) => {
     const name = tasks[0].assignee_name || email.split('@')[0];
+    const meetingId = tasks[0].meeting_id as string;
+    // Sin clave de firma no hay enlace de baja, pero el recordatorio sale igual.
+    const bajaToken = canSignLinks() ? signMinuteToken(meetingId, email) : null;
     const rows = tasks
       .map(
         (t) =>
@@ -72,6 +87,9 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
       `<p style="text-align:center;color:#9ca3af;font-size:11px;line-height:1.6">` +
       `Recordatorio automático de ZRNote, a partir de los compromisos detectados por IA en una reunión.<br/>` +
       `<strong>Puede contener errores</strong>: si esta tarea no es tuya, avisa a quien convocó la reunión.` +
+      (bajaToken
+        ? `<br/>¿No quieres recibir más correos? <a href="${appUrl}/baja/${bajaToken}" style="color:#9ca3af;text-decoration:underline">Date de baja</a>.`
+        : '') +
       `</p></div>`;
 
     return {
@@ -79,7 +97,8 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
       subject: `[ZRNote] Recordatorio: ${tasks.length === 1 ? 'una tarea vence' : `${tasks.length} tareas vencen`} mañana`,
       html,
       kind: 'reminder' as const,
-      meetingId: tasks[0].meeting_id as string,
+      meetingId,
+      unsubscribeUrl: bajaToken ? unsubscribeUrl(meetingId, email) : undefined,
     };
   });
 
@@ -93,7 +112,12 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
     const [claimedJob] = await claimEmailJobs(supabase, job.meetingId, [job], { force: false });
     if (!claimedJob) continue;
 
-    const result = await sendMail({ to: job.to, subject: job.subject, html: job.html });
+    const result = await sendMail({
+      to: job.to,
+      subject: job.subject,
+      html: job.html,
+      headers: unsubscribeHeaders(undefined, job.unsubscribeUrl),
+    });
     if (result.ok) {
       sent++;
       await markEmailSent(supabase, claimedJob.logId);
