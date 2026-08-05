@@ -46,6 +46,8 @@ function getSupabaseAdmin() {
 
 export interface MeetingContext {
   title?: string | null;
+  /** El título es la fecha/hora de "Grabar ahora", no información real. */
+  titleIsAuto?: boolean;
   coordination?: string | null;
   participantNames: string[];
 }
@@ -59,7 +61,7 @@ export interface MeetingContext {
  */
 async function getMeetingContext(supabase: any, meetingId: string): Promise<MeetingContext> {
   const [{ data: meeting }, { data: participants }] = await Promise.all([
-    supabase.from('meetings').select('title, coordination').eq('id', meetingId).maybeSingle(),
+    supabase.from('meetings').select('title, coordination, title_is_auto').eq('id', meetingId).maybeSingle(),
     supabase.from('meeting_participants').select('name, email_override').eq('meeting_id', meetingId),
   ]);
 
@@ -68,7 +70,12 @@ async function getMeetingContext(supabase: any, meetingId: string): Promise<Meet
     .filter((n: string) => n.length > 1);
 
   return {
-    title: meeting?.title ?? null,
+    // Con "Grabar ahora" el título es "Grabación 5 ago 14:30" — una marca de
+    // tiempo, no una pista sobre el contenido. Dársela al modelo como si fuera
+    // información real solo lo confunde (y, para el título sugerido más abajo,
+    // lo tienta a copiarla en vez de leer la transcripción).
+    title: meeting?.title_is_auto ? null : (meeting?.title ?? null),
+    titleIsAuto: Boolean(meeting?.title_is_auto),
     coordination: meeting?.coordination ?? null,
     participantNames: Array.from(new Set(names)) as string[],
   };
@@ -386,6 +393,7 @@ const MINUTE_PROMPT = (
 ) => {
   const { meetingDate, context } = opts;
   const people = context?.participantNames ?? [];
+  const needsTitle = Boolean(context?.titleIsAuto);
 
   const contextBlock = [
     context?.title ? `Título: ${context.title}` : null,
@@ -454,8 +462,13 @@ PRIORIDAD (úsala, no la pongas toda en media)
 - baja: es un "cuando se pueda", una mejora, algo sin impacto inmediato.
 - media: todo lo demás.
 
-RESPONDE ÚNICAMENTE CON ESTE JSON (sin markdown, sin texto antes ni después):
-{
+${needsTitle ? `ESTA REUNIÓN NO TIENE TÍTULO TODAVÍA (se grabó con "Grabar ahora", sin pasar por un formulario). Redacta uno tú a partir de lo que de verdad se habló — no la fecha ni la hora, que es lo único que hay ahora mismo.
+- 3 a 8 palabras. Un sustantivo o una frase corta que diga DE QUÉ trató, no "Reunión sobre..." ni "Grabación de...".
+- Ejemplos de tono: "Presupuesto de marketing Q3", "Seguimiento obra edificio B", "Onboarding cliente Acme".
+- Si la reunión no tiene un tema claro (charla suelta, prueba de grabación, audio muy corto), usa algo honesto como "Reunión sin tema definido" — no fuerces un título más interesante de lo que fue.
+
+` : ''}RESPONDE ÚNICAMENTE CON ESTE JSON (sin markdown, sin texto antes ni después):
+{${needsTitle ? '\n  "suggested_title": "El título que redactaste arriba",' : ''}
   "summary": "3 a 5 frases. Para qué se reunieron, qué se resolvió y qué queda pendiente. Cuenta resultados, no narres la conversación ni digas 'se habló de'. Si la reunión no llegó a nada concreto, dilo con esas palabras.",
   "action_items": [
     {
@@ -538,6 +551,28 @@ export function parseMinuteJson(raw: string): Record<string, any> | null {
   }
 
   return null;
+}
+
+/**
+ * Limpia el título que sugiere el modelo antes de usarlo como título real de
+ * la reunión. `null` significa "no lo uses" — el llamador debe entonces dejar
+ * el título automático tal cual, nunca reemplazarlo por una cadena vacía o
+ * basura.
+ */
+export function sanitizeGeneratedTitle(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+
+  const cleaned = raw
+    .trim()
+    // El modelo a veces envuelve el título en comillas pese a la instrucción.
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (cleaned.length === 0) return null;
+  // Más estricto que el máximo de 200 que acepta el PATCH manual del título:
+  // pasado los 80 caracteres ya no es un título, es un resumen.
+  return cleaned.length > 80 ? `${cleaned.slice(0, 79)}…` : cleaned;
 }
 
 /** Map anything the LLM writes onto the `priority` CHECK constraint. */
@@ -910,6 +945,34 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
       logger.error('Action items insert error', { meetingId, error: insertError.message });
     } else {
       logger.info('Action items inserted', { meetingId, count: actionItemsToInsert.length });
+    }
+  }
+
+  // Sustituye el título de "Grabar ahora" (fecha/hora) por uno que la IA acaba
+  // de redactar leyendo la transcripción entera. Sólo cuando se pidió en el
+  // prompt (context.titleIsAuto) — de lo contrario el modelo no generó
+  // suggested_title y no hay nada que aplicar.
+  //
+  // El WHERE ...eq('title_is_auto', true) es la guarda de concurrencia: si
+  // entretanto la persona ya renombró la reunión a mano (PATCH pone
+  // title_is_auto a false), este UPDATE no encuentra fila que tocar y no pisa
+  // el título que eligió. Nunca debe fallar el análisis por esto: la minuta ya
+  // se guardó, así que un problema con el título es secundario.
+  if (context.titleIsAuto) {
+    const newTitle = sanitizeGeneratedTitle(minuteJSON.suggested_title);
+    if (newTitle) {
+      const { error: titleError } = await supabase
+        .from('meetings')
+        .update({ title: newTitle, title_is_auto: false })
+        .eq('id', meetingId)
+        .eq('title_is_auto', true);
+      if (titleError) {
+        logger.warn('No se pudo aplicar el título generado', { meetingId, error: titleError.message });
+      } else {
+        logger.info('Título generado aplicado', { meetingId, title: newTitle });
+      }
+    } else {
+      logger.warn('El modelo no devolvió un título usable', { meetingId });
     }
   }
 

@@ -158,6 +158,52 @@ motivo aparente.
 
 ---
 
+## Prueba 8 — Título generado por IA (v1.13)
+
+**Lo que arregla:** "Grabar ahora" ponía "Grabación 5 ago 14:30" como título y
+se quedaba así para siempre. Con diez reuniones así, la lista es
+indistinguible. Ahora, en cuanto se genera la minuta, ese título se sustituye
+por uno que la IA redacta a partir de lo que de verdad se habló.
+
+**Requiere la migración `023_auto_titles.sql`.** Sin ella el análisis sigue
+funcionando (el `UPDATE` del título falla solo, en silencio, y queda registrado
+en los logs como advertencia) pero el título nunca cambia.
+
+1. Pulsa **«Grabar ahora»** (no el formulario normal). Comprueba que el título
+   queda como `Grabación 5 ago 14:30`.
+2. Graba algo con un tema reconocible — p. ej. habla 30-60 s sobre un
+   presupuesto, o sobre el seguimiento de una obra.
+3. Espera a que termine de procesarse.
+
+| Debe pasar | No debe pasar |
+|---|---|
+| El título cambia a algo relacionado con el contenido | Que se quede en la fecha/hora |
+| El título es corto (3-8 palabras), sin comillas | Un título larguísimo, o con `"` al principio/final |
+| Si grabaste algo sin tema claro, sale algo como «Reunión sin tema definido» | Que la IA se invente un tema que no hubo |
+
+4. **Ahora prueba que NO se pisa un título puesto a mano.** Crea una reunión
+   con el formulario normal (no "Grabar ahora"), ponle un título tú mismo,
+   grábala y procésala.
+   → El título debe quedar **exactamente** como lo escribiste. La IA no debe
+   tocarlo.
+
+5. **Y que un título tecleado a mitad de proceso gana.** Con "Grabar ahora",
+   antes de que termine de procesarse, edita el título manualmente (si hay
+   forma de hacerlo en tu entorno; si no, salta este paso).
+   → Cuando termine el análisis, debe quedar el título que tú pusiste, no el
+   de la IA.
+
+Para verlo por dentro:
+
+```sql
+SELECT title, title_is_auto FROM meetings WHERE id = 'PEGA-EL-ID';
+```
+
+Tras un análisis exitoso de una reunión de "Grabar ahora", `title_is_auto`
+debe quedar en `false` — es la señal de que ya no se debe volver a tocar.
+
+---
+
 ## Si algo falla
 
 1. Mira `email_logs` (consulta de la prueba 3): la columna `last_error` dice el
