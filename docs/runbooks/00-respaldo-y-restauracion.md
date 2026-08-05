@@ -181,4 +181,9 @@ git tag -l && git branch --list "respaldo/*" && ls -la .backups/
 | Etiqueta | Commit | Fecha | Estado | Motivo |
 |---|---|---|---|---|
 | `v1.0.8-stable` | — | (previo) | — | Respaldo antiguo |
-| `v1.10.0-estable` | `7449c4b` | 2026-08-05 | 119/119 tests ✅ | Antes de la refactorización de correo v1.11 |
+| `v1.10.0-estable` | `7449c4b` | 2026-08-05 | 119/119 tests ✅ · **en producción** | Antes de la refactorización de correo v1.11 |
+| `v1.12.0-candidata` | `8ed9573` | 2026-08-05 | 188/188 tests ✅ · **sin desplegar** | Correo endurecido + minuta pública. Pendiente: migración 022 |
+
+> «Candidata» significa que pasa build, tipos y pruebas, pero **no se ha probado
+> contra datos reales**. El punto al que volver ante cualquier duda sigue siendo
+> `v1.10.0-estable`, que es lo que hay en producción hoy.
