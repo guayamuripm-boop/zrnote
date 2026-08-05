@@ -1,5 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { verifyTransport } from '@/lib/smtp';
 
 // Diagnostic: checks whether Gmail SMTP is correctly configured and reachable,
 // WITHOUT sending any email (nodemailer's verify() only does login handshake).
@@ -29,26 +30,25 @@ export async function GET() {
     });
   }
 
-  try {
-    const nodemailer = await import('nodemailer');
-    const transporter = nodemailer.default.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
-    });
-    await transporter.verify();
+  // Verifica el transporte REAL de la app (pooled, el mismo que envía las
+  // minutas). Antes se creaba aquí uno nuevo, así que este diagnóstico podía
+  // decir «OK» sobre una configuración que no era la que se usaba de verdad.
+  const result = await verifyTransport();
+
+  if (result.ok) {
     return NextResponse.json({
       ok: true,
       ...status,
       verdict: 'SMTP OK: Gmail acepta las credenciales. Los correos se pueden enviar.',
     });
-  } catch (err: any) {
-    return NextResponse.json({
-      ok: false,
-      ...status,
-      error: err?.message || String(err),
-      verdict: 'Gmail rechazó las credenciales. La app password suele ser inválida/expirada, o falta activar la verificación en 2 pasos en esa cuenta.',
-    });
   }
+
+  return NextResponse.json({
+    ok: false,
+    ...status,
+    error: result.error,
+    verdict: 'Gmail rechazó las credenciales. La app password suele ser inválida/expirada, o falta activar la verificación en 2 pasos en esa cuenta.',
+  });
 }
 
 function maskEmail(email: string): string {

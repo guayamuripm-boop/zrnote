@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/logger';
 import { embedTexts } from '@/lib/embeddings';
 import { buildMeetingEmailJobs, dispatchEmailJobs } from '@/lib/meeting-emails';
+import { isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
@@ -31,6 +32,8 @@ export interface EmailResult {
   success: boolean;
   sent: number;
   failed: number;
+  /** Omitidos por constar ya como enviados. Ver `email-outbox.ts`. */
+  skipped?: number;
   error?: string;
 }
 
@@ -927,8 +930,8 @@ async function _sendMeetingEmails(meetingId: string): Promise<EmailResult> {
 
   logger.info('Starting email send', { meetingId });
 
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
-    return { success: false, sent: 0, failed: 0, error: 'Gmail SMTP no está configurado (GMAIL_USER / GMAIL_APP_PASSWORD)' };
+  if (!isEmailConfigured()) {
+    return { success: false, sent: 0, failed: 0, error: EMAIL_NOT_CONFIGURED };
   }
 
   const { data: meeting } = await supabase
@@ -942,7 +945,9 @@ async function _sendMeetingEmails(meetingId: string): Promise<EmailResult> {
   }
 
   const jobs = await buildMeetingEmailJobs(supabase, meetingId, meeting.title, meeting.created_by);
-  return await dispatchEmailJobs(supabase, meetingId, jobs);
+  // force: false — este paso lo reintenta el pipeline solo. Reenviar a quien ya
+  // recibió la minuta sería el duplicado que estamos evitando.
+  return await dispatchEmailJobs(supabase, meetingId, jobs, { force: false });
 }
 
 export async function markMeetingCompleted(meetingId: string): Promise<{ success: boolean; error?: string }> {

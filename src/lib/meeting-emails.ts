@@ -11,6 +11,7 @@ import { logger } from '@/lib/logger';
 import { sendMail } from '@/lib/smtp';
 import { generateICS, icsToBuffer, CalendarEvent } from '@/lib/ics';
 import { escapeHtml } from '@/lib/safe-html';
+import { claimEmailJobs, markEmailSent, markEmailFailed, EmailKind } from '@/lib/email-outbox';
 import {
   buildMinuteHtml,
   buildActionItemsHtml,
@@ -31,6 +32,8 @@ export interface EmailJob {
   subject: string;
   html: string;
   label: string;
+  kind: EmailKind;
+  /** @deprecated usa `kind`. Se mantiene para no romper llamadas existentes. */
   isCoordinator: boolean;
   attachments?: EmailAttachment[];
 }
@@ -39,6 +42,8 @@ export interface DispatchResult {
   success: boolean;
   sent: number;
   failed: number;
+  /** Omitidos por constar ya como enviados (idempotencia). */
+  skipped: number;
   error?: string;
   details: Array<{ email: string; ok: boolean; error?: string }>;
 }
@@ -142,6 +147,7 @@ ${calendarNote(events.length)}${buildMyItemsHtml(myItems)}${buildOtherItemsHtml(
         meetingId,
       ),
       label: p.email,
+      kind: 'personal',
       isCoordinator: false,
       attachments: icsAttachment(events, 'compromisos.ics'),
     });
@@ -160,6 +166,7 @@ ${calendarNote(events.length)}${allItemsHtml}
         meetingId,
       ),
       label: `coordinator (${creatorEmail})`,
+      kind: 'coordinator_summary',
       isCoordinator: true,
       attachments: icsAttachment(events, 'compromisos_todos.ics'),
     });
@@ -168,57 +175,98 @@ ${calendarNote(events.length)}${allItemsHtml}
   return jobs;
 }
 
-/** Send every job with retry + throttling, then record the outcome in email_logs. */
+/**
+ * Presupuesto de tiempo. La función de Vercel tiene un límite duro; si lo
+ * superamos nos matan a mitad del bucle. Paramos antes por decisión propia y
+ * dejamos las filas restantes en 'pending', que es un estado del que se puede
+ * continuar. Antes esto era una muerte súbita sin registro de nada.
+ */
+const DISPATCH_BUDGET_MS = 45_000;
+/** Gmail estrangula las ráfagas. Un segundo entre mensajes deja margen de sobra. */
+const THROTTLE_MS = 1000;
+
+/**
+ * Envía los correos con reintentos, sin duplicar y registrando cada uno por
+ * separado.
+ *
+ * Tres cosas cambiaron respecto a la versión anterior:
+ *  1. La fila de email_logs se escribe ANTES de enviar (ver email-outbox.ts),
+ *     así que morir a mitad ya no borra la memoria de lo que sí salió.
+ *  2. Se salta a quien ya lo recibió, salvo que sea un reenvío explícito.
+ *  3. Se para sola antes del límite de la función en vez de que la maten.
+ */
 export async function dispatchEmailJobs(
   supabase: any,
   meetingId: string,
   jobs: EmailJob[],
+  opts: { force?: boolean } = {},
 ): Promise<DispatchResult> {
   if (jobs.length === 0) {
     return {
       success: false,
       sent: 0,
       failed: 0,
+      skipped: 0,
       error: 'No hay destinatarios: agrega participantes con correo a la reunión.',
       details: [],
     };
   }
 
+  const claimed = await claimEmailJobs(supabase, meetingId, jobs, opts);
+  const skipped = jobs.length - claimed.length;
+
+  if (claimed.length === 0) {
+    // Todo estaba ya enviado. Es éxito, no fallo: el usuario quería que sus
+    // participantes tuvieran la minuta, y la tienen.
+    logger.info('Todos los correos constaban ya como enviados', { meetingId, skipped });
+    return { success: true, sent: 0, failed: 0, skipped, details: [] };
+  }
+
   const details: DispatchResult['details'] = [];
+  const startedAt = Date.now();
   let sent = 0;
   let failed = 0;
+  let ranOutOfTime = false;
 
-  for (let i = 0; i < jobs.length; i++) {
-    const job = jobs[i];
+  for (let i = 0; i < claimed.length; i++) {
+    if (Date.now() - startedAt > DISPATCH_BUDGET_MS) {
+      // Las filas restantes se quedan en 'pending': un reintento las recoge.
+      ranOutOfTime = true;
+      logger.warn('Presupuesto de tiempo agotado al enviar correos', {
+        meetingId,
+        enviados: sent,
+        pendientes: claimed.length - i,
+      });
+      break;
+    }
+
+    const { job, logId } = claimed[i];
     const result = await sendWithRetry(() =>
       sendMail({ to: job.to, subject: job.subject, html: job.html, attachments: job.attachments }),
     );
-    if (result.ok) sent++;
-    else failed++;
-    details.push({ email: job.to, ok: result.ok, error: result.error });
-    // Gmail throttles bursts; one second between messages keeps us well clear.
-    if (i < jobs.length - 1) await new Promise((r) => setTimeout(r, 1000));
-  }
 
-  try {
-    await supabase.from('email_logs').insert(
-      jobs.map((job, i) => ({
-        meeting_id: meetingId,
-        recipient_email: job.to,
-        type: job.isCoordinator ? 'coordinator_summary' : 'personal',
-        status: details[i].ok ? 'sent' : 'failed',
-      })),
-    );
-  } catch (err: any) {
-    // Logging must never break a successful send.
-    logger.error('Failed to insert email_logs', { meetingId, error: err?.message });
+    if (result.ok) {
+      sent++;
+      await markEmailSent(supabase, logId);
+    } else {
+      failed++;
+      await markEmailFailed(supabase, logId, result.error);
+    }
+    details.push({ email: job.to, ok: result.ok, error: result.error });
+
+    if (i < claimed.length - 1) await new Promise((r) => setTimeout(r, THROTTLE_MS));
   }
 
   const errors = details.filter((d) => !d.ok).map((d) => `${d.email}: ${d.error}`);
+  if (ranOutOfTime) {
+    errors.push(`Quedaron ${claimed.length - details.length} correo(s) por enviar: vuelve a pulsar «Enviar correos».`);
+  }
+
   return {
-    success: failed === 0,
+    success: failed === 0 && !ranOutOfTime,
     sent,
     failed,
+    skipped,
     error: errors.length > 0 ? errors.join('; ') : undefined,
     details,
   };
