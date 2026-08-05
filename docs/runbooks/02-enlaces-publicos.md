@@ -111,7 +111,27 @@ construcción del HTML y **ningún** correo salía.
 
 ---
 
-## 5. Diagnóstico
+## 5. Probar en una vista previa de Vercel
+
+Los enlaces se construyen con `appUrl()` (`src/lib/app-url.ts`), que resuelve en
+este orden:
+
+1. **Vista previa** (`VERCEL_ENV=preview`) → `VERCEL_URL`, el dominio de **esa**
+   vista previa.
+2. **Producción** → `NEXT_PUBLIC_APP_URL`.
+3. Como último recurso, `https://zrnote.vercel.app`.
+
+El primer caso existe justamente para poder probar esto. Sin él, un despliegue
+de prueba mandaría correos con enlaces apuntando a **producción** —donde el
+código nuevo todavía no está—, el enlace daría 404 y parecería que la función
+está rota cuando lo que falla es la prueba.
+
+> Si el enlace de un correo de prueba te lleva a producción, mira si
+> `VERCEL_ENV` vale `preview` en ese despliegue.
+
+---
+
+## 6. Diagnóstico
 
 ### «Me dice que el enlace no es válido»
 
@@ -152,7 +172,7 @@ consentimiento que retiró.
 
 ---
 
-## 6. Revocar un enlace filtrado
+## 7. Revocar un enlace filtrado
 
 No hay revocación individual: el token no se guarda en ninguna parte (por eso no
 hace falta escribir en base de datos para emitirlo). Las opciones son:
@@ -167,7 +187,7 @@ consulta a cada apertura para un caso que aún no ha ocurrido.
 
 ---
 
-## 7. Cómo retroceder
+## 8. Cómo retroceder
 
 ### Sólo el código
 
@@ -194,7 +214,7 @@ completitud, no como recomendación.
 
 ---
 
-## 8. Invariantes
+## 9. Invariantes
 
 1. **`verifyMinuteToken` falla cerrado.** Cualquier duda es un no.
 2. **La comparación de la firma es en tiempo constante** (`timingSafeEqual`).

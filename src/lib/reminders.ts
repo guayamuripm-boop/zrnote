@@ -9,6 +9,7 @@ import {
   getUnsubscribedEmails,
 } from '@/lib/email-outbox';
 import { unsubscribeUrl, signMinuteToken, canSignLinks } from '@/lib/minute-links';
+import { appUrl } from '@/lib/app-url';
 
 // Sends one reminder email per assignee for action items due TOMORROW that are
 // not yet completed. Firing exactly one day before the due date means a single,
@@ -61,7 +62,7 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
   for (const email of bajas) byEmail.delete(email);
   if (byEmail.size === 0) return { sent: 0, failed: 0 };
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
+  const base = appUrl();
 
   // Un recordatorio por destinatario, con el mismo pie legal que las minutas.
   const jobs = Array.from(byEmail.entries()).map(([email, tasks]) => {
@@ -74,7 +75,7 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
         (t) =>
           `<li style="margin-bottom:6px"><strong>${escapeHtml(t.description)}</strong>` +
           ` — Prioridad: ${escapeHtml(t.priority || '—')}` +
-          ` · <a href="${appUrl}/dashboard/meetings/${t.meeting_id}" style="color:#2563eb">ver reunión</a></li>`
+          ` · <a href="${base}/dashboard/meetings/${t.meeting_id}" style="color:#2563eb">ver reunión</a></li>`
       )
       .join('');
 
@@ -88,7 +89,7 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
       `Recordatorio automático de ZRNote, a partir de los compromisos detectados por IA en una reunión.<br/>` +
       `<strong>Puede contener errores</strong>: si esta tarea no es tuya, avisa a quien convocó la reunión.` +
       (bajaToken
-        ? `<br/>¿No quieres recibir más correos? <a href="${appUrl}/baja/${bajaToken}" style="color:#9ca3af;text-decoration:underline">Date de baja</a>.`
+        ? `<br/>¿No quieres recibir más correos? <a href="${base}/baja/${bajaToken}" style="color:#9ca3af;text-decoration:underline">Date de baja</a>.`
         : '') +
       `</p></div>`;
 

@@ -1,7 +1,7 @@
 import { escapeHtml, escapeHtmlOrEmpty } from '@/lib/safe-html';
 import { generateGoogleCalendarUrl } from '@/lib/google-calendar';
 
-const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
+import { appUrl } from '@/lib/app-url';
 
 /**
  * "Add to Google Calendar" link for a commitment. No OAuth: it opens Google
@@ -27,7 +27,7 @@ function actionItemCalendarLink(item: any): string {
       `Compromiso acordado en una reunión — ZRNote.\n` +
       `Prioridad: ${item?.priority || 'media'}\n` +
       (hasDate ? '' : 'Sin fecha acordada en la reunión: ajusta el día antes de guardar.\n') +
-      `${appUrl}/dashboard/action-items`,
+      `${appUrl()}/dashboard/action-items`,
     startTime: start,
     endTime: end,
   });
@@ -295,4 +295,5 @@ export function buildOtherItemsHtml(otherItems: any[]): string {
     <ul style="padding-left:20px;color:#666;font-size:13px">${items}</ul></div>`;
 }
 
-export { appUrl };
+// `appUrl` se reexportaba desde aquí por costumbre. Ya no: vive en
+// `@/lib/app-url` y nadie la importaba a través de este módulo.

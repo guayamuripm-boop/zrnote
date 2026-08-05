@@ -65,7 +65,7 @@ export interface DispatchResult {
   details: Array<{ email: string; ok: boolean; error?: string }>;
 }
 
-const appUrl = () => process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
+import { appUrl } from '@/lib/app-url';
 
 /**
  * Envoltorio común de todos los correos de minuta.

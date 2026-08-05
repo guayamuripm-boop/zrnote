@@ -150,7 +150,7 @@ export function verifyMinuteToken(token: string): VerifyResult {
   return { ok: true, payload };
 }
 
-const appUrl = () => process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
+import { appUrl } from '@/lib/app-url';
 
 /** URL pública de la minuta para un destinatario. */
 export function minuteUrl(meetingId: string, email: string, ttlDays?: number): string {
