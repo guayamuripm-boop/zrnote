@@ -13,6 +13,7 @@
 
 import { createHash } from 'crypto';
 import { logger } from '@/lib/logger';
+import { dailyEmailLimit } from '@/lib/smtp';
 
 export type EmailKind = 'personal' | 'coordinator_summary' | 'reminder';
 
@@ -141,6 +142,42 @@ export async function claimEmailJobs<T extends ClaimableJob>(
   }
 
   return toSend;
+}
+
+/**
+ * Cuántos correos se han enviado hoy, contra el tope del proveedor.
+ *
+ * Gmail corta a los 500/día (2.000 en Workspace) y lo hace **en silencio**: los
+ * envíos empiezan a fallar sin que nada explique por qué. Contar lo que llevamos
+ * permite avisar ANTES de chocar, en vez de descubrirlo porque los correos
+ * dejaron de salir.
+ *
+ * Cuenta desde medianoche UTC, no desde la medianoche local: es una
+ * aproximación al día de Gmail, que se recalcula sobre una ventana móvil. Si el
+ * número baila unas unidades da igual — sirve para avisar, no para facturar.
+ */
+export async function getDailyEmailUsage(
+  supabase: any,
+): Promise<{ used: number; limit: number; remaining: number }> {
+  const limit = dailyEmailLimit();
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+
+  const { count, error } = await supabase
+    .from('email_logs')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'sent')
+    .gte('sent_at', startOfDay.toISOString());
+
+  if (error) {
+    // No poder contar no puede impedir enviar. Se informa de un consumo de 0,
+    // que en la práctica desactiva el aviso.
+    logger.error('email-outbox: no se pudo contar la cuota del día', { error: error.message });
+    return { used: 0, limit, remaining: limit };
+  }
+
+  const used = count ?? 0;
+  return { used, limit, remaining: Math.max(0, limit - used) };
 }
 
 /** Cierra la fila como enviada. `providerId` queda listo para Resend (v1.12). */

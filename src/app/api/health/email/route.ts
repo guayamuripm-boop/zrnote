@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { verifyTransport } from '@/lib/smtp';
+import { getDailyEmailUsage } from '@/lib/email-outbox';
 
 // Diagnostic: checks whether Gmail SMTP is correctly configured and reachable,
 // WITHOUT sending any email (nodemailer's verify() only does login handshake).
@@ -35,11 +36,24 @@ export async function GET() {
   // decir «OK» sobre una configuración que no era la que se usaba de verdad.
   const result = await verifyTransport();
 
+  // Consumo del día. Gmail corta a los 500 en silencio, así que verlo aquí es
+  // la diferencia entre «se agotó la cuota» y «no sé por qué no salen».
+  const quota = await getDailyEmailUsage(supabase);
+  status.enviadosHoy = quota.used;
+  status.topeDiario = quota.limit;
+  status.quedanHoy = quota.remaining;
+
   if (result.ok) {
+    const aviso =
+      quota.remaining === 0
+        ? ' ⚠️ CUOTA AGOTADA: hoy ya no saldrá ningún correo más.'
+        : quota.remaining < quota.limit * 0.2
+          ? ` ⚠️ Quedan sólo ${quota.remaining} envíos hoy.`
+          : '';
     return NextResponse.json({
       ok: true,
       ...status,
-      verdict: 'SMTP OK: Gmail acepta las credenciales. Los correos se pueden enviar.',
+      verdict: `SMTP OK: Gmail acepta las credenciales. Los correos se pueden enviar.${aviso}`,
     });
   }
 

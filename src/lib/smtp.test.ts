@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { htmlToPlainText, isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
+import {
+  htmlToPlainText,
+  isEmailConfigured,
+  EMAIL_NOT_CONFIGURED,
+  unsubscribeHeaders,
+  dailyEmailLimit,
+} from '@/lib/smtp';
 
 describe('htmlToPlainText', () => {
   it('quita las etiquetas y deja el texto', () => {
@@ -72,5 +78,62 @@ describe('isEmailConfigured', () => {
     // Estaba repetido en tres sitios con tres textos distintos.
     expect(EMAIL_NOT_CONFIGURED).toContain('GMAIL_USER');
     expect(EMAIL_NOT_CONFIGURED).toContain('GMAIL_APP_PASSWORD');
+  });
+});
+
+describe('unsubscribeHeaders', () => {
+  it('apunta la baja al organizador', () => {
+    const h = unsubscribeHeaders('jefe@empresa.com');
+    expect(h['List-Unsubscribe']).toContain('mailto:jefe@empresa.com');
+  });
+
+  it('no promete una baja que no existe si no hay organizador', () => {
+    // Mejor sin cabecera que con una que no lleve a ninguna parte.
+    expect(unsubscribeHeaders(undefined)).toEqual({});
+    expect(unsubscribeHeaders('')).toEqual({});
+  });
+
+  it('no anuncia baja de un clic', () => {
+    // List-Unsubscribe-Post exige responder a un POST y dar de baja de verdad.
+    // Con un mailto sería mentir a Gmail, y eso penaliza más que no ponerlo.
+    const h = unsubscribeHeaders('jefe@empresa.com');
+    expect(h['List-Unsubscribe-Post']).toBeUndefined();
+  });
+});
+
+describe('dailyEmailLimit', () => {
+  it('por defecto son los 500/día de una cuenta Gmail gratuita', () => {
+    const prev = process.env.EMAIL_DAILY_LIMIT;
+    try {
+      delete process.env.EMAIL_DAILY_LIMIT;
+      expect(dailyEmailLimit()).toBe(500);
+    } finally {
+      if (prev === undefined) delete process.env.EMAIL_DAILY_LIMIT;
+      else process.env.EMAIL_DAILY_LIMIT = prev;
+    }
+  });
+
+  it('se puede subir a los 2.000 de Workspace sin tocar código', () => {
+    const prev = process.env.EMAIL_DAILY_LIMIT;
+    try {
+      process.env.EMAIL_DAILY_LIMIT = '2000';
+      expect(dailyEmailLimit()).toBe(2000);
+    } finally {
+      if (prev === undefined) delete process.env.EMAIL_DAILY_LIMIT;
+      else process.env.EMAIL_DAILY_LIMIT = prev;
+    }
+  });
+
+  it('ignora un valor absurdo y vuelve al defecto', () => {
+    const prev = process.env.EMAIL_DAILY_LIMIT;
+    try {
+      process.env.EMAIL_DAILY_LIMIT = 'muchos';
+      expect(dailyEmailLimit()).toBe(500);
+      process.env.EMAIL_DAILY_LIMIT = '-5';
+      expect(dailyEmailLimit()).toBe(500);
+    } finally {
+      if (prev === undefined) delete process.env.EMAIL_DAILY_LIMIT;
+      else process.env.EMAIL_DAILY_LIMIT = prev;
+    }
   });
 });

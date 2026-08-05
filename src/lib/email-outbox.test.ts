@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { buildDedupeKey, claimEmailJobs } from '@/lib/email-outbox';
+import { buildDedupeKey, claimEmailJobs, getDailyEmailUsage } from '@/lib/email-outbox';
+
+/** Supabase de mentira que sólo sabe contar, para la cuota diaria. */
+function fakeCounter(count: number | null, error?: string) {
+  return {
+    from() {
+      return {
+        select(_c: string, _o: any) {
+          const chain = {
+            eq: () => chain,
+            gte: () =>
+              Promise.resolve(error ? { count: null, error: { message: error } } : { count, error: null }),
+          };
+          return chain;
+        },
+      };
+    },
+  } as any;
+}
 
 /**
  * Supabase de mentira con sólo las formas de consulta que usa el libro mayor:
@@ -160,5 +178,34 @@ describe('claimEmailJobs', () => {
     const claimed = await claimEmailJobs(db, 'm1', [job('ana@x.com')]);
     expect(claimed).toHaveLength(1);
     expect(claimed[0].logId).toBeNull();
+  });
+});
+
+describe('getDailyEmailUsage', () => {
+  it('calcula lo que queda del tope diario', async () => {
+    const usage = await getDailyEmailUsage(fakeCounter(120));
+    expect(usage.used).toBe(120);
+    expect(usage.limit).toBe(500);
+    expect(usage.remaining).toBe(380);
+  });
+
+  it('detecta la cuota agotada', async () => {
+    const usage = await getDailyEmailUsage(fakeCounter(500));
+    expect(usage.remaining).toBe(0);
+  });
+
+  it('nunca devuelve un restante negativo', async () => {
+    // Gmail cuenta sobre una ventana móvil, así que podemos pasarnos del tope
+    // nominal. Un "quedan -13" en pantalla no ayudaría a nadie.
+    const usage = await getDailyEmailUsage(fakeCounter(513));
+    expect(usage.remaining).toBe(0);
+  });
+
+  it('si no puede contar, NO bloquea el envío', async () => {
+    // Un fallo del contador no puede convertirse en «hoy no sale ningún
+    // correo». Ante la duda, dejar pasar.
+    const usage = await getDailyEmailUsage(fakeCounter(null, 'timeout'));
+    expect(usage.used).toBe(0);
+    expect(usage.remaining).toBe(500);
   });
 });

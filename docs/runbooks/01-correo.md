@@ -71,6 +71,9 @@ dos veces *el mismo* correo, no volver a informar de algo nuevo.
 | 8 | El mismo compromiso ocupaba **09:00–10:00 en el .ics y 09:00–09:30 en Google** | Dos implementaciones de la hora | Las dos dicen 09:00–09:30 |
 | 9 | El diagnóstico podía decir «OK» sobre una config que no se usaba | `/api/health/email` creaba su propio transporte | `verifyTransport()` verifica el transporte real |
 | 10 | El mismo fallo se explicaba de 3 maneras | Comprobación de `GMAIL_*` repetida en 3 sitios | `isEmailConfigured()` + `EMAIL_NOT_CONFIGURED` |
+| 11 | **Responder a una minuta no le llegaba a nadie** | Sin `Reply-To`: las respuestas iban al buzón técnico | `Reply-To` = quien convocó la reunión |
+| 12 | Sin forma de darse de baja | Sin `List-Unsubscribe` | Cabecera `mailto:` al organizador (ver §6) |
+| 13 | **Los correos dejaban de salir sin explicación** al pasar de 500/día | Gmail corta la cuota en silencio | `getDailyEmailUsage()` avisa antes de chocar |
 
 ---
 
@@ -111,9 +114,13 @@ Interpretación:
 > webhooks de un ESP (v1.12).** Si `status='sent'` y el destinatario jura que no
 > le llegó: mirar su carpeta de spam, y mirar la bandeja de `GMAIL_USER`.
 
-**3. ¿Se pasó el límite de Gmail?** 500 destinatarios/día en Gmail gratis,
-2.000 en Workspace. Si `last_error` menciona *rate*, *limit* o *quota*, es eso:
-hay que esperar 24 h. **No hay forma de subirlo**; es el techo del diseño actual.
+**3. ¿Se pasó el límite de Gmail?** Míralo directamente en
+`/api/health/email`: los campos `enviadosHoy`, `topeDiario` y `quedanHoy`.
+
+500 destinatarios/día en Gmail gratis, 2.000 en Workspace (ajustable con
+`EMAIL_DAILY_LIMIT`). Si `quedanHoy` es 0, `dispatchEmailJobs` ni lo intenta y
+devuelve un error que lo dice con todas las letras. **No hay forma de subir el
+tope real**; es el techo del diseño actual (ver §6).
 
 **4. ¿Está la migración aplicada?**
 
@@ -208,28 +215,78 @@ recomendable salvo como parada de emergencia.
 
 ---
 
-## 6. Hacia dónde va (v1.12)
+## 6. Por qué seguimos en Gmail (investigado 2026-08-05)
 
-Gmail + contraseña de aplicación es un **techo duro**, no una elección:
+**Conclusión: sin dominio propio, Gmail SMTP es la única opción gratuita que
+funciona. No la cambies «a algo mejor» sin leer esto.**
 
-- 500 destinatarios/día, y las ráfagas se estrangulan.
-- Un pico bloquea **la cuenta entera** → se caen todos los clientes a la vez.
-- El remitente es una dirección `@gmail.com`: no se puede firmar DKIM del
-  dominio propio.
-- **Los rebotes son invisibles.** Es la limitación más grave.
+### El motivo
 
-El plan es **Resend** (la columna `resend_id` existe en la tabla desde
-`001_initial.sql`: era el diseño original):
+Desde 2024, Gmail, Yahoo y Microsoft exigen que el remitente esté autenticado
+(SPF + DKIM + DMARC). **Un dominio gratuito como `gmail.com` no se puede
+autenticar en un ESP de terceros**, porque no controlas su DNS.
 
-- `POST /emails/batch` manda hasta 100 correos en **una** llamada (~300 ms).
-  Desaparece el bucle, desaparecen las esperas y desaparece el límite de tiempo.
-- Webhooks `delivered` / `bounced` / `complained` → `status` deja de mentir.
-- SPF + DKIM + DMARC sobre dominio propio, y `Reply-To` al organizador.
-- $20/mes para 50.000 correos ≈ 1.000 reuniones de 6 participantes.
+Gmail SMTP funciona precisamente porque **Google firma con la clave DKIM de
+`gmail.com`, que es suya**. Eres tú enviando desde tu cuenta, no un tercero
+suplantándote.
 
-El libro mayor de este runbook **no cambia** con esa migración: seguirá dando
-idempotencia y auditoría. Lo único que cambia es quién transporta el mensaje, y
-que `resend_id` por fin se rellenará.
+Si mandas desde una dirección `@gmail.com` **a través de** Brevo/Resend/etc., no
+hay alineación DKIM y los correos hacia destinatarios de Gmail **fallan en
+silencio**: sin error, sin rebote, sin nada. Documentado
+[aquí](https://dev.to/tigawanna/brevo-smtp-emails-to-other-gmail-accounts-silently-failing-verified-domain-to-the-rescue-1d78)
+y confirmado en la ayuda de Brevo: *«los dominios de remitente gratuitos no se
+pueden autenticar»*.
+
+Migrar a un ESP sin dominio dejaría el correo **peor** de lo que está.
+
+### El estado de los planes gratuitos (agosto 2026)
+
+| Proveedor | Gratis | ¿Sirve sin dominio? |
+|---|---|---|
+| **Gmail SMTP** (actual) | 500/día | ✅ **La única** |
+| Brevo | 300/día = 9.000/mes, webhooks de rebote incluidos | ❌ Fallos silenciosos |
+| Resend | 3.000/mes (100/día) | ❌ |
+| MailerSend | 3.000/mes | ❌ |
+| SendGrid | Plan gratuito **eliminado**; hoy es prueba de 60 días | ❌ |
+
+Detalle de Brevo: **cada destinatario cuenta**. Una reunión de 5 participantes
+gasta 5 de los 300, no 1.
+
+### Qué desbloquea un dominio (~10 €/año)
+
+Un `.com` cuesta ~9-11 $/año en Cloudflare o Porkbun (mismo precio en la
+renovación; Namecheap y GoDaddy descuentan el primer año y lo recuperan
+después). No es una suscripción: es una vez al año.
+
+Con dominio se abre **Brevo gratis**: 9.000 correos/mes (18× lo de hoy),
+webhooks de rebote reales —lo que arregla que `status='sent'` sea una verdad a
+medias— y `minutas@tudominio.com` en vez de una dirección de Gmail personal.
+
+**Cómo se haría el cambio:** `smtp.ts` ya tiene el proveedor detrás de una
+interfaz `MailProvider`. Añadir Brevo es un `const brevoProvider` y un `case` en
+`activeProvider()`; se activa con `MAIL_PROVIDER=brevo`. El libro mayor, la
+idempotencia y los constructores de HTML **no cambian**.
+
+### Lo que sigue sin resolverse mientras estemos en Gmail
+
+- **Los rebotes son invisibles.** `status='sent'` significa «Gmail lo aceptó»,
+  no «llegó». Los rebotes duros vuelven a la bandeja de `GMAIL_USER`, que no lee
+  nadie. Sólo lo arreglan los webhooks de un ESP.
+- **Un pico bloquea la cuenta entera**, o sea todos los usuarios a la vez.
+- El tope de 500/día no se puede subir (2.000 con Workspace).
+
+### Mitigaciones aplicadas mientras tanto (v1.11)
+
+- **`Reply-To` al organizador**: responder a la minuta le llega a quien convocó
+  la reunión, no al buzón técnico.
+- **`List-Unsubscribe`** apuntando a ese mismo organizador. Es un `mailto:`, no
+  una URL de un clic, deliberadamente: RFC 8058 exige que una URL responda a un
+  POST y dé de baja de verdad; prometerlo sin implementarlo penaliza más que no
+  ponerlo. Pasará a URL cuando existan los enlaces firmados.
+- **Aviso de cuota**: `getDailyEmailUsage()` cuenta lo enviado hoy y
+  `dispatchEmailJobs` se niega a intentarlo si no queda margen, explicando por
+  qué. Antes te quedabas sin correos sin saber la razón. Visible en
+  `/api/health/email` (`enviadosHoy`, `topeDiario`, `quedanHoy`).
 
 ---
 

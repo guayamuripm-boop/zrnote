@@ -1,20 +1,67 @@
 import nodemailer from 'nodemailer';
 import { logger } from '@/lib/logger';
 
+// Punto único de salida de TODO el correo de la aplicación.
+//
+// `reminders.ts` tenía su propio `createTransport` en paralelo. Es la misma
+// clase de duplicación que ya nos costó un fallo cuando había dos
+// constructores de minutas distintos: uno escapaba el HTML y el otro no.
+//
+// El proveedor está detrás de una interfaz A PROPÓSITO. Hoy sólo hay uno
+// (Gmail), y es la única opción gratuita que funciona: Gmail firma con la clave
+// DKIM de gmail.com, que es suya. Cualquier ESP de terceros (Brevo, Resend,
+// MailerSend) exige un dominio propio verificado — mandar desde una dirección
+// @gmail.com a través de ellos provoca fallos SILENCIOSOS hacia destinatarios
+// de Gmail desde los requisitos de remitente de 2024.
+//
+// Cuando haya dominio propio (~10 €/año), añadir Brevo es un `const` más aquí
+// abajo y un `case` en `activeProvider()`. Nada más del sistema se entera.
+
+export interface MailMessage {
+  to: string;
+  subject: string;
+  html: string;
+  /** Alternativa en texto plano. Si no se pasa, se deriva del HTML. */
+  text?: string;
+  /** A dónde van las respuestas. Sin esto caen en un buzón que nadie lee. */
+  replyTo?: string;
+  /** Cabeceras extra (List-Unsubscribe, etc.). */
+  headers?: Record<string, string>;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer | string;
+    contentType?: string;
+  }>;
+}
+
+export interface MailResult {
+  ok: boolean;
+  error?: string;
+  /** Id del proveedor, para cruzar con sus webhooks. Gmail no da ninguno. */
+  providerId?: string;
+}
+
+interface MailProvider {
+  readonly name: string;
+  isConfigured(): boolean;
+  /** Qué falta por configurar, en un mensaje que el usuario pueda accionar. */
+  readonly missingConfigMessage: string;
+  send(message: MailMessage): Promise<MailResult>;
+  /** Comprueba credenciales sin enviar nada. */
+  verify(): Promise<{ ok: boolean; error?: string }>;
+  /** Tope diario del proveedor, para avisar antes de chocar contra él. */
+  readonly dailyLimit: number;
+}
+
+// --- Proveedor: Gmail SMTP -------------------------------------------------
+
 /**
- * Transporte único para TODO el correo de la aplicación.
- *
- * `reminders.ts` tenía su propio `createTransport` en paralelo. Es la misma
- * clase de duplicación que ya nos costó un fallo cuando había dos
- * constructores de minutas distintos: uno escapaba el HTML y el otro no.
- * Si hay que tocar el envío, se toca aquí y afecta a todo.
- *
  * `pool: true` importa más de lo que parece: sin él, nodemailer abre y cierra
  * una conexión TLS por mensaje. En una reunión de 8 participantes eso es un
  * handshake completo ocho veces (~1 s cada uno) que se sumaba al límite de
  * tiempo de la función.
  */
-const transporter = nodemailer.createTransport({
+const gmailTransporter = nodemailer.createTransport({
   service: 'gmail',
   pool: true,
   maxConnections: 3,
@@ -25,19 +72,62 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-interface SendMailOptions {
-  to: string;
-  subject: string;
-  html: string;
-  /** Alternativa en texto plano. Si no se pasa, se deriva del HTML. */
-  text?: string;
-  /** A dónde van las respuestas. Sin esto caen en un buzón que nadie lee. */
-  replyTo?: string;
-  attachments?: Array<{
-    filename: string;
-    content: Buffer | string;
-    contentType?: string;
-  }>;
+const gmailProvider: MailProvider = {
+  name: 'gmail',
+
+  isConfigured() {
+    return Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+  },
+
+  missingConfigMessage:
+    'El envío de correos no está configurado en el servidor (faltan GMAIL_USER / GMAIL_APP_PASSWORD).',
+
+  // 500/día en una cuenta Gmail gratuita, 2.000 en Workspace. Se puede ajustar
+  // con EMAIL_DAILY_LIMIT sin tocar código.
+  get dailyLimit() {
+    const fromEnv = Number(process.env.EMAIL_DAILY_LIMIT);
+    return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 500;
+  },
+
+  async send(message) {
+    try {
+      const info = await gmailTransporter.sendMail({
+        from: `"ZRNote" <${process.env.GMAIL_USER}>`,
+        to: message.to,
+        replyTo: message.replyTo,
+        subject: message.subject,
+        html: message.html,
+        text: message.text ?? htmlToPlainText(message.html),
+        headers: message.headers,
+        attachments: message.attachments,
+      });
+      return { ok: true, providerId: info?.messageId };
+    } catch (err: any) {
+      logger.error('SMTP error', { to: message.to, subject: message.subject, error: err.message });
+      return { ok: false, error: err.message };
+    }
+  },
+
+  async verify() {
+    try {
+      await gmailTransporter.verify();
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  },
+};
+
+/**
+ * El proveedor activo. Hoy siempre Gmail; `MAIL_PROVIDER` existe para que el
+ * día de mañana el cambio sea una variable de entorno, no un despliegue.
+ */
+function activeProvider(): MailProvider {
+  switch (process.env.MAIL_PROVIDER) {
+    case 'gmail':
+    default:
+      return gmailProvider;
+  }
 }
 
 /**
@@ -48,12 +138,16 @@ interface SendMailOptions {
  * el mismo problema se explicaba de tres maneras según por dónde entraras.
  */
 export function isEmailConfigured(): boolean {
-  return Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+  return activeProvider().isConfigured();
 }
 
 /** El mensaje único para cuando no lo está. */
-export const EMAIL_NOT_CONFIGURED =
-  'El envío de correos no está configurado en el servidor (faltan GMAIL_USER / GMAIL_APP_PASSWORD).';
+export const EMAIL_NOT_CONFIGURED = gmailProvider.missingConfigMessage;
+
+/** Tope de envíos diarios del proveedor activo. */
+export function dailyEmailLimit(): number {
+  return activeProvider().dailyLimit;
+}
 
 /**
  * Comprueba las credenciales contra Gmail sin enviar nada.
@@ -64,13 +158,9 @@ export const EMAIL_NOT_CONFIGURED =
  * comprobaba una configuración que no era la que luego se usaba.
  */
 export async function verifyTransport(): Promise<{ ok: boolean; error?: string }> {
-  if (!isEmailConfigured()) return { ok: false, error: EMAIL_NOT_CONFIGURED };
-  try {
-    await transporter.verify();
-    return { ok: true };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || String(err) };
-  }
+  const provider = activeProvider();
+  if (!provider.isConfigured()) return { ok: false, error: provider.missingConfigMessage };
+  return provider.verify();
 }
 
 /**
@@ -101,31 +191,29 @@ export function htmlToPlainText(html: string): string {
     .trim();
 }
 
-export async function sendMail({
-  to,
-  subject,
-  html,
-  text,
-  replyTo,
-  attachments,
-}: SendMailOptions): Promise<{ ok: boolean; error?: string }> {
-  if (!isEmailConfigured()) {
-    return { ok: false, error: EMAIL_NOT_CONFIGURED };
-  }
+/**
+ * Cabecera de baja.
+ *
+ * Es un `mailto:` al organizador, no una URL, y es deliberado: una URL de baja
+ * de un clic (RFC 8058) tiene que responder a un POST y darse de baja DE
+ * VERDAD. Prometer eso con un enlace que no existe es peor que no ponerlo.
+ * El `mailto:` sí funciona hoy: le llega al organizador, que es quien puede
+ * quitar al participante de la reunión.
+ *
+ * Cuando tengamos enlaces firmados (la vista pública de la minuta) esto pasa a
+ * ser una URL de un clic, que es lo que Gmail premia de verdad.
+ */
+export function unsubscribeHeaders(organizerEmail?: string): Record<string, string> {
+  if (!organizerEmail) return {};
+  return {
+    'List-Unsubscribe': `<mailto:${organizerEmail}?subject=Baja%20de%20las%20minutas%20de%20ZRNote>`,
+  };
+}
 
-  try {
-    await transporter.sendMail({
-      from: `"ZRNote" <${process.env.GMAIL_USER}>`,
-      to,
-      replyTo,
-      subject,
-      html,
-      text: text ?? htmlToPlainText(html),
-      attachments,
-    });
-    return { ok: true };
-  } catch (err: any) {
-    logger.error('SMTP error', { to, subject, error: err.message });
-    return { ok: false, error: err.message };
+export async function sendMail(message: MailMessage): Promise<MailResult> {
+  const provider = activeProvider();
+  if (!provider.isConfigured()) {
+    return { ok: false, error: provider.missingConfigMessage };
   }
+  return provider.send(message);
 }

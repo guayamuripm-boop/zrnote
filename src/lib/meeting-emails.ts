@@ -8,10 +8,16 @@
 // the builders here.
 
 import { logger } from '@/lib/logger';
-import { sendMail } from '@/lib/smtp';
+import { sendMail, unsubscribeHeaders } from '@/lib/smtp';
 import { generateICS, icsToBuffer, CalendarEvent } from '@/lib/ics';
 import { escapeHtml } from '@/lib/safe-html';
-import { claimEmailJobs, markEmailSent, markEmailFailed, EmailKind } from '@/lib/email-outbox';
+import {
+  claimEmailJobs,
+  markEmailSent,
+  markEmailFailed,
+  getDailyEmailUsage,
+  EmailKind,
+} from '@/lib/email-outbox';
 import {
   buildMinuteHtml,
   buildActionItemsHtml,
@@ -35,6 +41,8 @@ export interface EmailJob {
   kind: EmailKind;
   /** @deprecated usa `kind`. Se mantiene para no romper llamadas existentes. */
   isCoordinator: boolean;
+  /** Quien convocó la reunión: a él van las respuestas y las bajas. */
+  replyTo?: string;
   attachments?: EmailAttachment[];
 }
 
@@ -149,6 +157,9 @@ ${calendarNote(events.length)}${buildMyItemsHtml(myItems)}${buildOtherItemsHtml(
       label: p.email,
       kind: 'personal',
       isCoordinator: false,
+      // Responder a la minuta debe llegarle a quien convocó la reunión, no al
+      // buzón técnico desde el que sale el correo, que no lee nadie.
+      replyTo: creatorEmail,
       attachments: icsAttachment(events, 'compromisos.ics'),
     });
   }
@@ -215,6 +226,22 @@ export async function dispatchEmailJobs(
   const claimed = await claimEmailJobs(supabase, meetingId, jobs, opts);
   const skipped = jobs.length - claimed.length;
 
+  // Gmail corta a los 500/día EN SILENCIO. Saber cuánto queda permite decir
+  // «no salieron porque se agotó la cuota, vuelve mañana» en vez de dejar al
+  // usuario con un fallo sin explicación.
+  const quota = await getDailyEmailUsage(supabase);
+  if (claimed.length > 0 && quota.remaining === 0) {
+    logger.warn('Cuota diaria de correo agotada', { meetingId, ...quota });
+    return {
+      success: false,
+      sent: 0,
+      failed: 0,
+      skipped,
+      error: `Se agotó la cuota diaria de correo (${quota.used}/${quota.limit}). Los correos no salieron: vuelve a intentarlo mañana o pulsa «Enviar correos» pasada la medianoche.`,
+      details: [],
+    };
+  }
+
   if (claimed.length === 0) {
     // Todo estaba ya enviado. Es éxito, no fallo: el usuario quería que sus
     // participantes tuvieran la minuta, y la tienen.
@@ -242,7 +269,14 @@ export async function dispatchEmailJobs(
 
     const { job, logId } = claimed[i];
     const result = await sendWithRetry(() =>
-      sendMail({ to: job.to, subject: job.subject, html: job.html, attachments: job.attachments }),
+      sendMail({
+        to: job.to,
+        subject: job.subject,
+        html: job.html,
+        replyTo: job.replyTo,
+        headers: unsubscribeHeaders(job.replyTo),
+        attachments: job.attachments,
+      }),
     );
 
     if (result.ok) {
