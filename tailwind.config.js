@@ -33,6 +33,7 @@ module.exports = {
       },
       fontFamily: {
         poppins: ['var(--font-poppins)', 'sans-serif'],
+        sora: ['var(--font-sora)', 'sans-serif'],
       },
       animation: {
         'float': 'float 3s ease-in-out infinite',

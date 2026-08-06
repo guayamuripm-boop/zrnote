@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Poppins } from 'next/font/google';
+import { Poppins, Sora } from 'next/font/google';
 import './globals.css';
 import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar';
 
@@ -8,6 +8,16 @@ const poppins = Poppins({
   weight: ['400', '500', '600', '700'],
   display: 'swap',
   variable: '--font-poppins',
+});
+
+// Sólo para los titulares grandes de la landing pública — el resto de la app
+// sigue en Poppins. Autohospedada por next/font, así que no añade ningún
+// dominio nuevo a la CSP.
+const sora = Sora({
+  subsets: ['latin'],
+  weight: ['600', '700', '800'],
+  display: 'swap',
+  variable: '--font-sora',
 });
 
 export const viewport: Viewport = {
@@ -19,10 +29,30 @@ export const viewport: Viewport = {
   themeColor: '#2563eb',
 };
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
+
 export const metadata: Metadata = {
-  title: 'ZRNote — Minutas Inteligentes | ZR Mecacademy',
-  description: 'Sistema de minutas automáticas para ZR Mecacademy. Graba, transcribe, genera minutas y envía action items.',
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: 'ZRNote — Minutas y compromisos automáticos de cada reunión',
+    template: '%s · ZRNote',
+  },
+  description:
+    'Graba cualquier reunión, presencial o virtual, y recibe el acta con los compromisos de cada persona por correo, sin que nadie tenga que tomar notas. En español, sin cuenta para los invitados.',
   manifest: '/manifest.json',
+  authors: [{ name: 'Pedro Mejías' }],
+  creator: 'Pedro Mejías',
+  publisher: 'ZR Tech Solutions',
+  applicationName: 'ZRNote',
+  keywords: [
+    'minutas de reunión con IA',
+    'acta de reunión automática',
+    'transcripción de reuniones en español',
+    'grabar reunión presencial',
+    'seguimiento de compromisos y tareas',
+    'software de actas para juntas directivas',
+    'ZRNote',
+  ],
   icons: {
     // The .ico carries 16/32/48 for browsers and Windows that still want it;
     // the SVG is what modern browsers pick and stays crisp at any zoom.
@@ -37,6 +67,21 @@ export const metadata: Metadata = {
     title: 'ZRNote',
     statusBarStyle: 'default',
   },
+  openGraph: {
+    type: 'website',
+    locale: 'es_ES',
+    url: siteUrl,
+    siteName: 'ZRNote',
+    title: 'ZRNote — Minutas y compromisos automáticos de cada reunión',
+    description:
+      'Graba cualquier reunión, presencial o virtual. La IA transcribe, redacta el acta y envía a cada persona sus compromisos por correo.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'ZRNote — Minutas y compromisos automáticos de cada reunión',
+    description:
+      'Graba cualquier reunión, presencial o virtual. La IA transcribe, redacta el acta y envía a cada persona sus compromisos por correo.',
+  },
   other: {
     // Next's appleWebApp only emits the (deprecated) apple- prefixed tag.
     // Chrome/Android wants this standard one too.
@@ -50,7 +95,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning className="scroll-smooth">
       <head>
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
@@ -63,7 +108,7 @@ export default function RootLayout({
           })()
         ` }} />
       </head>
-      <body className={`${poppins.variable} font-sans`}>
+      <body className={`${poppins.variable} ${sora.variable} font-sans`}>
         <ServiceWorkerRegistrar />
         {children}
       </body>
