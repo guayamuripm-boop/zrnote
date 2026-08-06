@@ -127,6 +127,31 @@ async function closeOffscreen() {
   }
 }
 
+/**
+ * Habla con el documento de grabación, reintentando mientras arranca.
+ *
+ * `chrome.offscreen.createDocument()` resuelve cuando el documento EXISTE, no
+ * cuando su script ya registró `chrome.runtime.onMessage`. Enviar en ese hueco
+ * falla con «Receiving end does not exist» y la grabación no empezaba nunca,
+ * aunque todo lo demás estuviera bien.
+ */
+async function sendToOffscreen(message, attempts = 10) {
+  let lastError = 'El grabador no respondió.';
+
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const reply = await chrome.runtime.sendMessage(message);
+      return reply || {};
+    } catch (err) {
+      lastError = err?.message || String(err);
+      if (!/Could not establish connection|Receiving end does not exist/i.test(lastError)) throw err;
+      await sleep(100 * i);
+    }
+  }
+
+  throw new Error(lastError);
+}
+
 // ---------------------------------------------------------------------------
 // Recording lifecycle
 // ---------------------------------------------------------------------------
@@ -170,7 +195,7 @@ async function startRecording(tab) {
   const backend = await getBackendUrl();
   const token = await getAccessToken();
 
-  const result = await chrome.runtime.sendMessage({
+  const result = await sendToOffscreen({
     target: 'offscreen',
     type: 'START',
     streamId,
@@ -203,7 +228,9 @@ async function stopRecording() {
   chrome.action.setBadgeText({ text: '' });
 
   // The offscreen document finishes the last segment and uploads it.
-  await chrome.runtime.sendMessage({ target: 'offscreen', type: 'STOP' }).catch(() => {});
+  // Si esto falla, el último minuto de audio se pierde pero la reunión sigue
+  // siendo procesable con lo ya subido — por eso no aborta el resto.
+  await sendToOffscreen({ target: 'offscreen', type: 'STOP' }, 3).catch(() => {});
   await closeOffscreen();
 
   notify('Procesando la reunión', 'Transcribiendo y generando la minuta…');
@@ -281,6 +308,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
       switch (msg?.type) {
+        // Sirve para comprobar desde la consola si el service worker está vivo,
+        // sin depender de cookies ni de la red:
+        //   chrome.runtime.sendMessage({type:'PING'}, console.log)
+        case 'PING':
+          sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
+          break;
+
         case 'GET_STATUS': {
           if (!session) {
             const stored = await chrome.storage.session.get('session');

@@ -119,6 +119,11 @@
 }
 #zrnote-recorder-ui .zrn-check input { margin: 2px 0 0; flex-shrink: 0; }
 
+/* Mismo problema que en popup.html: `hidden` es sólo `display:none` en la hoja
+   del navegador, así que `.zrn-btn { display:block }` lo anulaba y el botón
+   "Detener y generar minuta" aparecía aunque no hubiera nada grabándose. */
+#zrnote-recorder-ui [hidden] { display: none !important; }
+
 #zrnote-recorder-ui .zrn-btn {
   display: block;
   width: 100%;

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ZRNote — Grabador de Reuniones",
   "short_name": "ZRNote",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Graba reuniones de Meet, Zoom o Teams, genera la minuta con IA y envía los compromisos por correo.",
   "icons": {
     "16": "icons/icon-16.png",
