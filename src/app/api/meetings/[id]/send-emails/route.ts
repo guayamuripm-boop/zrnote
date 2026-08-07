@@ -2,6 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { buildMeetingEmailJobs, dispatchEmailJobs } from '@/lib/meeting-emails';
+import { isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
 import { logger } from '@/lib/logger';
 
 /**
@@ -29,11 +30,8 @@ export async function POST(
     userId = user.id;
   }
 
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
-    return NextResponse.json(
-      { error: 'El envío de correos no está configurado en el servidor (GMAIL_USER / GMAIL_APP_PASSWORD).' },
-      { status: 503 },
-    );
+  if (!isEmailConfigured()) {
+    return NextResponse.json({ error: EMAIL_NOT_CONFIGURED }, { status: 503 });
   }
 
   let meetingQuery = supabase.from('meetings').select('id, title, created_by').eq('id', resolvedParams.id);
@@ -48,18 +46,28 @@ export async function POST(
   const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey);
 
   const jobs = await buildMeetingEmailJobs(admin, resolvedParams.id, meeting.title, meeting.created_by);
-  const result = await dispatchEmailJobs(admin, resolvedParams.id, jobs);
+
+  // force: true — aquí el usuario ha pulsado «Enviar correos» a propósito. Una
+  // acción explícita debe hacer lo que dice, aunque ya se hubiera enviado
+  // antes. La idempotencia protege al pipeline automático, no al usuario.
+  const result = await dispatchEmailJobs(admin, resolvedParams.id, jobs, { force: true });
 
   if (jobs.length === 0) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  logger.info('Manual email send', { meetingId: resolvedParams.id, sent: result.sent, failed: result.failed });
+  logger.info('Manual email send', {
+    meetingId: resolvedParams.id,
+    sent: result.sent,
+    failed: result.failed,
+    skipped: result.skipped,
+  });
 
   return NextResponse.json({
     ok: result.failed === 0,
     sent: result.sent,
     failed: result.failed,
+    skipped: result.skipped,
     error: result.error,
     results: result.details.map((r) => `${r.email}: ${r.ok ? 'enviado' : `error: ${r.error}`}`),
   });

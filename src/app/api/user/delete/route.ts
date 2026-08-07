@@ -93,6 +93,13 @@ export async function POST(request: Request) {
     // 5. Delete email_logs where user is recipient
     await adminSupabase.from('email_logs').delete().eq('recipient_email', user.email);
 
+    // NOTA: `email_unsubscribes` NO se borra a propósito. Parece contradictorio
+    // con el derecho de supresión, pero borrarlo haría que esta persona
+    // volviera a recibir correos en cuanto alguien la añadiera a una reunión:
+    // ejercer el derecho de supresión reactivaría un consentimiento que había
+    // retirado. Se conserva el dato mínimo (la dirección) con el único fin de
+    // no volver a escribirle. Ver la migración 022 y el runbook 01.
+
     // 6. Delete the consent audit trail and the user profile.
     // (user_consent_log also cascades from auth.users, but be explicit.)
     await adminSupabase.from('user_consent_log').delete().eq('user_id', userId);

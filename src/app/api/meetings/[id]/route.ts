@@ -63,9 +63,15 @@ export async function PATCH(
 
   const { participants, ...meetingFields } = parsed.data;
 
+  // Un título puesto a mano deja de ser "provisional": si más tarde
+  // analyzeMeeting genera uno con la IA, no debe pisar lo que la persona
+  // escribió a propósito. Ver migración 023.
+  const updateFields: Record<string, unknown> = { ...meetingFields };
+  if (meetingFields.title !== undefined) updateFields.title_is_auto = false;
+
   const { data: meeting, error } = await supabase
     .from('meetings')
-    .update(Object.keys(meetingFields).length > 0 ? meetingFields : { id: resolvedParams.id })
+    .update(Object.keys(updateFields).length > 0 ? updateFields : { id: resolvedParams.id })
     .eq('id', resolvedParams.id)
     .eq('created_by', user.id)
     .select()

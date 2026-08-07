@@ -17,3 +17,6 @@ nul
 *.pem
 extension.crx
 
+
+# Respaldos locales (snapshots de codigo). No se versionan ni se suben.
+.backups/

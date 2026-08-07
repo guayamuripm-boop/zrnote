@@ -5,6 +5,12 @@
     <title>ZRNote</title>
     <style>
       * { box-sizing: border-box; }
+      /* El atributo `hidden` es sólo `display:none` en la hoja del navegador,
+         así que CUALQUIER regla de autor con `display:block` lo anula. Eso hacía
+         que `#start` y `#stop` (ambos `.btn { display:block }`) se vieran SIEMPRE,
+         incluso en el estado de error o sin sesión: el popup ofrecía "Grabar" y
+         "Detener" a la vez. Esta regla devuelve a `hidden` su significado. */
+      [hidden] { display: none !important; }
       body {
         margin: 0;
         width: 330px;
@@ -110,6 +116,7 @@
 
       <button class="btn" id="start" hidden disabled>Grabar esta reunión</button>
       <button class="btn danger" id="stop" hidden>Detener y generar minuta</button>
+      <button class="btn ghost" id="retry" hidden>Reintentar</button>
       <a class="btn ghost" id="open-app" href="#" target="_blank" rel="noreferrer">Abrir ZRNote</a>
 
       <div class="msg" id="msg"></div>

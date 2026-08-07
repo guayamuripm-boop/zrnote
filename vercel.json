@@ -9,6 +9,9 @@
     "src/app/api/meetings/[id]/process/route.ts": {
       "maxDuration": 60
     },
+    "src/app/api/meetings/[id]/send-emails/route.ts": {
+      "maxDuration": 60
+    },
     "src/app/api/cron/retention/route.ts": {
       "maxDuration": 60
     }

@@ -3,9 +3,50 @@
 
 ---
 
-## 🚦 ESTADO: pipeline funcionando de extremo a extremo (v1.10.0, 2026-07-31)
+## 🚦 ESTADO: correo endurecido, minuta pública y título por IA (v1.13.0, 2026-08-05)
 
-Build ✅ · TypeScript ✅ · 119 tests ✅ · Next 15 + React 19 · **En producción** en https://zrnote.vercel.app
+Build ✅ · TypeScript ✅ · 195 tests ✅ · Next 15 + React 19 · **En producción** en https://zrnote.vercel.app
+
+> 📘 **Los procedimientos operativos viven ahora en [`docs/runbooks/`](docs/runbooks/README.md)**,
+> uno por subsistema, cada uno con su diagnóstico y su marcha atrás.
+> Empieza por [00 — Respaldo y restauración](docs/runbooks/00-respaldo-y-restauracion.md).
+> La [guía de prueba v1.12](docs/runbooks/03-guia-de-prueba-v1.12.md) cubre también el título por IA (Prueba 8).
+
+### Sin desplegar todavía — rama `fix/v1.11-correo-y-bugs`
+
+| Migración | Estado |
+|---|---|
+| `021_email_idempotency.sql` | ✅ aplicada en producción |
+| `022_email_unsubscribes.sql` | ⏳ **pendiente de aplicar** |
+| `023_auto_titles.sql` | ⏳ **pendiente de aplicar** |
+
+Variables de entorno: **no hace falta ninguna nueva.** `MINUTE_LINK_SECRET` es
+opcional; sin ella la clave de firma se deriva de `SUPABASE_SERVICE_ROLE_KEY`.
+
+**Punto de restauración:** etiqueta `v1.10.0-estable` (commit `7449c4b`),
+rama `respaldo/v1.10.0-estable`, snapshot en `.backups/`.
+
+### Qué cambió (v1.11 → v1.12)
+
+- **Fuga de compromisos entre personas**: `matchItemsToParticipant` comparaba con
+  `includes()`, así que Ana recibía las tareas de Mariana como suyas. Y los
+  nombres con tilde no coincidían nunca.
+- **Correos duplicados**: `email_logs` se escribe ahora ANTES de enviar, con
+  `dedupe_key` UNIQUE.
+- **`/send-emails` se cortaba a los 10 s**: faltaba en `vercel.json`.
+- **La minuta se abre sin cuenta** (`/minuta/{token}` firmado). El botón «Ver en
+  ZRNote» llevaba a un 404 para todo el que no fuera el organizador.
+- **Baja de un clic** (RFC 8058) con `List-Unsubscribe`.
+- **Aviso de cuota**: Gmail corta a los 500/día en silencio; ahora se avisa.
+- Proveedor de correo tras una interfaz: cambiar a Brevo/Resend el día que haya
+  dominio propio es un `case`, no una reescritura. Ver [runbook 01 §6](docs/runbooks/01-correo.md).
+
+### Qué cambió (v1.12 → v1.13)
+
+- **Título por IA en "Grabar ahora".** Antes se quedaba para siempre como
+  "Grabación 5 ago 14:30". Ahora, al generar la minuta, se sustituye por uno
+  que la IA redacta a partir de la transcripción — nunca pisa un título que la
+  persona haya escrito a mano (columna `title_is_auto`, migración `023`).
 
 Ya aplicado en producción:
 - ✅ Migración `020_mvp_hardening_and_legal_v2.sql` (vía Management API).

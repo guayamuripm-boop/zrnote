@@ -83,7 +83,7 @@ describe('matchItemsToParticipant', () => {
     expect(r[0].description).toBe('A');
   });
 
-  it('matches by name (case-insensitive, partial)', () => {
+  it('matches by name, ignoring case', () => {
     const r = matchItemsToParticipant(items, 'luis', 'luis@nope.com');
     expect(r.map((i) => i.description)).toContain('B');
   });
@@ -93,8 +93,72 @@ describe('matchItemsToParticipant', () => {
     expect(r).toHaveLength(0);
   });
 
-  it('returns empty when name is missing', () => {
-    expect(matchItemsToParticipant(items, '', 'ana@x.com')).toHaveLength(0);
+  it('matches on exact e-mail even with no name', () => {
+    // Antes devolvía [] por una guarda `if (!participantName) return []`. El
+    // correo exacto es la señal MÁS fiable que existe: no tiene sentido
+    // descartarla porque falte el nombre.
+    const r = matchItemsToParticipant(items, '', 'ana@x.com');
+    expect(r.map((i) => i.description)).toEqual(['A']);
+  });
+
+  it('returns empty when there is nothing to match on', () => {
+    expect(matchItemsToParticipant(items, '', '')).toHaveLength(0);
+  });
+
+  // --- Regresiones: fuga de compromisos entre personas (v1.11) ---
+
+  it('NO asigna a "Ana" los compromisos de "Mariana"', () => {
+    // El bug: "mariana gomez".includes("ana") === true, así que Ana recibía la
+    // tarea de Mariana bajo el encabezado «Tus compromisos». Fuga de datos.
+    const leaky = [
+      { assignee_name: 'Mariana Gómez', assignee_email: null, description: 'Presupuesto confidencial' },
+      { assignee_name: 'Ana Pérez', assignee_email: null, description: 'Tarea de Ana' },
+    ];
+    const r = matchItemsToParticipant(leaky, 'Ana', 'ana@x.com');
+    expect(r.map((i) => i.description)).toEqual(['Tarea de Ana']);
+  });
+
+  it('NO asigna nada por una parte local de correo de 2 letras', () => {
+    // `jp@empresa.com` → local "jp"; antes "juan perez".includes("jp") no,
+    // pero locales de 1 letra hacían coincidir absolutamente todo.
+    const all = [
+      { assignee_name: 'Ana Pérez', assignee_email: null, description: 'X' },
+      { assignee_name: 'Luis Soto', assignee_email: null, description: 'Y' },
+    ];
+    expect(matchItemsToParticipant(all, 'A', 'a@empresa.com')).toHaveLength(0);
+  });
+
+  it('empareja nombres con y sin tilde', () => {
+    // "Ana Pérez" vs "Ana Perez" eran dos personas distintas. En español eso
+    // es la mitad de los nombres reales.
+    const accented = [{ assignee_name: 'Ana Pérez', assignee_email: null, description: 'Z' }];
+    expect(matchItemsToParticipant(accented, 'Ana Perez', 'ap@x.com')).toHaveLength(1);
+    expect(matchItemsToParticipant(accented, 'Ana Pérez', 'ap@x.com')).toHaveLength(1);
+  });
+
+  it('empareja cuando el LLM sólo da el nombre de pila', () => {
+    const partial = [{ assignee_name: 'Ana', assignee_email: null, description: 'W' }];
+    expect(matchItemsToParticipant(partial, 'Ana Pérez', 'ana.perez@x.com')).toHaveLength(1);
+  });
+
+  it('distingue dos personas con el mismo nombre de pila', () => {
+    const twins = [
+      { assignee_name: 'Ana Pérez', assignee_email: null, description: 'de Perez' },
+      { assignee_name: 'Ana Gómez', assignee_email: null, description: 'de Gomez' },
+    ];
+    const r = matchItemsToParticipant(twins, 'Ana Gómez', 'ag@x.com');
+    expect(r.map((i) => i.description)).toEqual(['de Gomez']);
+  });
+
+  it('ignora partículas ("de", "la") al comparar', () => {
+    const particles = [{ assignee_name: 'Juan de la Cruz', assignee_email: null, description: 'P' }];
+    expect(matchItemsToParticipant(particles, 'Juan Cruz', 'jcruz@x.com')).toHaveLength(1);
+  });
+
+  it('deduce el nombre de la parte local del correo', () => {
+    const byEmail = [{ assignee_name: 'Ana Pérez', assignee_email: null, description: 'Q' }];
+    // El participante se apuntó sin nombre, pero el correo lo delata.
+    expect(matchItemsToParticipant(byEmail, '', 'ana.perez@empresa.com')).toHaveLength(1);
   });
 });
 

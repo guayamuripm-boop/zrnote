@@ -12,16 +12,52 @@ const MEETING_HOSTS = /^https:\/\/(meet\.google\.com|[\w-]+\.zoom\.us|teams\.(mi
 
 let timerHandle = null;
 
-const send = (message) =>
+/**
+ * Errores que significan «el service worker todavía no está despierto», no
+ * «algo está roto».
+ *
+ * En Manifest V3 el service worker se apaga tras ~30 s sin actividad. Al abrir
+ * el popup, Chrome tiene que arrancarlo otra vez, y si el mensaje llega antes
+ * de que termine de arrancar falla con estos textos. No es un fallo de la
+ * extensión: es el ciclo de vida normal de MV3, y la respuesta correcta es
+ * reintentar, no enseñarle al usuario «Could not establish connection».
+ */
+const TRANSIENT = /Could not establish connection|Receiving end does not exist|message port closed/i;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const sendOnce = (message) =>
   new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (reply) => {
-      if (chrome.runtime.lastError) {
-        resolve({ error: chrome.runtime.lastError.message });
-        return;
-      }
-      resolve(reply || {});
-    });
+    try {
+      chrome.runtime.sendMessage(message, (reply) => {
+        if (chrome.runtime.lastError) {
+          resolve({ error: chrome.runtime.lastError.message });
+          return;
+        }
+        resolve(reply || {});
+      });
+    } catch (err) {
+      resolve({ error: err?.message || 'No se pudo contactar con la extensión.' });
+    }
   });
+
+/** Envía reintentando mientras el error sea de los que se curan solos. */
+async function send(message, attempts = 5) {
+  let last = { error: 'Sin respuesta' };
+
+  for (let i = 1; i <= attempts; i++) {
+    last = await sendOnce(message);
+    if (!last.error) return last;
+    // Un error real (sin sesión, servidor caído…) no mejora reintentando.
+    if (!TRANSIENT.test(last.error)) return last;
+    await sleep(120 * i);
+  }
+
+  return {
+    error:
+      'No se pudo contactar con la extensión. Abre chrome://extensions, pulsa «Actualizar» sobre ZRNote y vuelve a intentarlo.',
+  };
+}
 
 function setStatus(text, kind) {
   $('status').textContent = text;
@@ -74,11 +110,13 @@ async function refresh() {
   $('consent').hidden = true;
   $('start').hidden = true;
   $('stop').hidden = true;
+  $('retry').hidden = true;
   stopTimer();
 
   if (status.error) {
     setStatus('Error de conexión', 'warn');
     $('hint').textContent = status.error;
+    $('retry').hidden = false;
     return;
   }
 
@@ -118,6 +156,16 @@ async function refresh() {
 
 $('consent-box').addEventListener('change', (e) => {
   $('start').disabled = !e.target.checked;
+});
+
+$('retry').addEventListener('click', async () => {
+  $('retry').disabled = true;
+  $('retry').textContent = 'Reintentando…';
+  setStatus('Comprobando…');
+  $('hint').textContent = '';
+  await refresh();
+  $('retry').disabled = false;
+  $('retry').textContent = 'Reintentar';
 });
 
 $('start').addEventListener('click', async () => {

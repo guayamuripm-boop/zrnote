@@ -1,0 +1,57 @@
+# ZRNote
+
+> ZRNote graba reuniones — presenciales o virtuales — y produce automáticamente
+> el acta y los compromisos de cada participante, en español, sin que nadie
+> tenga que tomar notas. Cada asistente recibe por correo únicamente lo suyo,
+> sin necesitar cuenta ni licencia.
+
+ZRNote es un producto de ZR Tech Solutions, desarrollado por Pedro Mejías.
+Está en fase de prueba (beta): las funciones descritas aquí están implementadas
+y en uso, no son un plan a futuro.
+
+## Qué hace
+
+- Graba audio desde el navegador o el móvil, en reuniones presenciales o
+  virtuales — no depende de integrarse dentro de una videollamada.
+- Transcribe el audio con reconocimiento de voz (Groq Whisper), optimizado
+  para español.
+- Redacta el acta con un modelo de lenguaje, con la estructura de un acta
+  formal: resumen, temas discutidos, decisiones, compromisos, bloqueos,
+  estado de proyectos, próximos pasos e ideas sin asumir.
+- Extrae los compromisos como tareas independientes: responsable, prioridad
+  (alta/media/baja) y fecha límite si se acordó una.
+- Envía un correo personalizado a cada participante con SUS compromisos
+  primero y el resto de la reunión después — sin que necesite crear una
+  cuenta para leerlo, mediante un enlace firmado.
+- Manda un recordatorio automático el día antes de que venza un compromiso.
+- Permite buscar en reuniones anteriores con lenguaje natural (recuperación
+  semántica sobre el histórico de reuniones de la organización).
+- Exporta el acta a PDF, la comparte por WhatsApp y añade cada compromiso a
+  Google Calendar (enlace directo o archivo .ics adjunto).
+- Cumple con baja de un clic (RFC 8058) y borrado/exportación de datos bajo
+  solicitud (derechos tipo RGPD).
+
+## En qué se diferencia
+
+- No depende de estar dentro de una videollamada: cubre también comités,
+  consejos, visitas de obra y reuniones de sala — donde la mayoría de
+  herramientas de notas con IA no llegan porque sólo se integran en
+  Zoom/Meet/Teams.
+- Pensado en español desde el diseño del acta, no una traducción de un
+  resumen en inglés con viñetas genéricas.
+- El producto central son los compromisos y su seguimiento, no sólo el
+  resumen de lo hablado.
+- Los invitados a una reunión no pagan ni necesitan cuenta: reciben su parte
+  por correo y pueden verla con un enlace personal.
+
+## Para quién
+
+Comités y consejos directivos, centros educativos y academias, direcciones y
+coordinaciones de equipo, y equipos de campo u obra que se reúnen fuera de una
+videollamada.
+
+## Enlaces
+
+- Sitio: https://zrnote.vercel.app
+- Documentos legales: https://zrnote.vercel.app/legal
+- Contacto: zr.coordinacion.tecnologia@gmail.com

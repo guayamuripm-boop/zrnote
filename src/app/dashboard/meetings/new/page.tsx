@@ -31,7 +31,10 @@ export default function NewMeetingPage() {
     const response = await fetch('/api/meetings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: autoTitle, coordination: '', type: 'presencial', participants: [] }),
+      // autoTitle: true marca este título de fecha/hora como provisional. En
+      // cuanto haya transcripción, analyzeMeeting lo sustituye por uno que la
+      // IA redacta a partir de lo que realmente se habló.
+      body: JSON.stringify({ title: autoTitle, coordination: '', type: 'presencial', participants: [], autoTitle: true }),
     });
     if (response.ok) {
       const { id } = await response.json();

@@ -1,7 +1,7 @@
 import { escapeHtml, escapeHtmlOrEmpty } from '@/lib/safe-html';
 import { generateGoogleCalendarUrl } from '@/lib/google-calendar';
 
-const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zrnote.vercel.app';
+import { appUrl } from '@/lib/app-url';
 
 /**
  * "Add to Google Calendar" link for a commitment. No OAuth: it opens Google
@@ -27,7 +27,7 @@ function actionItemCalendarLink(item: any): string {
       `Compromiso acordado en una reunión — ZRNote.\n` +
       `Prioridad: ${item?.priority || 'media'}\n` +
       (hasDate ? '' : 'Sin fecha acordada en la reunión: ajusta el día antes de guardar.\n') +
-      `${appUrl}/dashboard/action-items`,
+      `${appUrl()}/dashboard/action-items`,
     startTime: start,
     endTime: end,
   });
@@ -141,20 +141,96 @@ export function buildActionItemsHtml(items: any[]): string {
 }
 
 /**
+ * Partículas que no identifican a nadie: aparecen en medio de los apellidos
+ * ("Juan de la Cruz", "Ana del Río") y no deben contar como coincidencia.
+ */
+const NAME_STOPWORDS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'da', 'do', 'van', 'von', 'di']);
+
+/**
+ * Minúsculas y sin tildes. Sin esto, "Ana Pérez" y "Ana Perez" eran dos personas
+ * distintas — y en español eso es la mitad de los nombres.
+ */
+export function normalizeName(value: string): string {
+  // NFD separa "é" en "e" + acento combinante; luego descartamos los acentos.
+  // Se hace recorriendo los puntos de código en vez de con una expresión
+  // regular a propósito: el rango U+0300–U+036F escrito como caracteres
+  // literales en el fuente es invisible y se corrompe al copiar o al pasar por
+  // herramientas de texto.
+  const decomposed = (value || '').normalize('NFD');
+  let out = '';
+  for (const ch of decomposed) {
+    const code = ch.codePointAt(0) ?? 0;
+    const isCombiningMark = code >= 0x0300 && code <= 0x036f;
+    if (!isCombiningMark) out += ch;
+  }
+  return out.toLowerCase().trim();
+}
+
+/** Palabras significativas de un nombre, ya normalizadas. */
+function nameTokens(value: string): string[] {
+  return normalizeName(value)
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 1 && !NAME_STOPWORDS.has(t));
+}
+
+/**
+ * Palabras que se pueden deducir de la parte local del correo.
+ * `ana.perez@x.com` → ["ana", "perez"]. `anaperez@x.com` → ["anaperez"].
+ * Se descartan las de menos de 3 letras: un buzón `jp@` o `rh@` no identifica
+ * a nadie y antes hacía que todo coincidiera con todo.
+ */
+function emailTokens(email: string): string[] {
+  const local = (email || '').split('@')[0];
+  return normalizeName(local)
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && !NAME_STOPWORDS.has(t));
+}
+
+/**
+ * ¿Son la misma persona? Coinciden si **todas** las palabras significativas del
+ * nombre más corto están, como palabras completas, en el más largo.
+ *
+ *   "Ana Pérez" ~ "Ana"          → sí  (el LLM suele dar sólo el nombre de pila)
+ *   "Ana Pérez" ~ "Ana Perez"    → sí  (tildes)
+ *   "Ana"       ~ "Mariana Gómez"→ NO
+ *
+ * El código anterior usaba `includes()` sobre la cadena entera, así que
+ * "mariana gomez".includes("ana") daba `true` y Ana recibía los compromisos de
+ * Mariana bajo el título «Tus compromisos». Era una fuga de datos entre
+ * personas, no sólo un fallo cosmético.
+ */
+function sameName(aTokens: string[], bTokens: string[]): boolean {
+  if (aTokens.length === 0 || bTokens.length === 0) return false;
+  const [shorter, longer] = aTokens.length <= bTokens.length ? [aTokens, bTokens] : [bTokens, aTokens];
+  // Al menos una palabra de 3+ letras: dos iniciales sueltas no identifican a nadie.
+  if (!shorter.some((t) => t.length >= 3)) return false;
+  const longerSet = new Set(longer);
+  return shorter.every((t) => longerSet.has(t));
+}
+
+/**
  * Identifica los action items que pertenecen a un participante concreto.
- * Usa match exacto por email > match por nombre > match parcial.
+ * Prioridad: correo exacto > nombre por palabras completas > nombre deducido
+ * de la parte local del correo.
  */
 export function matchItemsToParticipant(items: any[], participantName: string, participantEmail: string): any[] {
-  if (!items || !participantName) return [];
-  const nameLower = participantName.toLowerCase().trim();
-  const emailLocal = (participantEmail || '').split('@')[0].toLowerCase().trim();
+  if (!items) return [];
+
+  const email = (participantEmail || '').toLowerCase().trim();
+  const pNameTokens = nameTokens(participantName);
+  const pEmailTokens = emailTokens(participantEmail);
+  if (pNameTokens.length === 0 && pEmailTokens.length === 0 && !email) return [];
+
   return items.filter((item: any) => {
-    if (item.assignee_email && item.assignee_email.toLowerCase() === (participantEmail || '').toLowerCase()) return true;
+    // 1. El correo del responsable es la única señal inequívoca.
+    if (email && item.assignee_email && item.assignee_email.toLowerCase().trim() === email) return true;
     if (!item.assignee_name) return false;
-    const itemName = item.assignee_name.toLowerCase().trim();
-    if (itemName === nameLower) return true;
-    if (itemName.includes(nameLower) || nameLower.includes(itemName)) return true;
-    if (emailLocal && (itemName.includes(emailLocal) || emailLocal.includes(itemName))) return true;
+
+    const iTokens = nameTokens(item.assignee_name);
+    // 2. Nombre contra nombre.
+    if (sameName(pNameTokens, iTokens)) return true;
+    // 3. Nombre contra lo que se deduce del correo (ana.perez@ → "ana perez").
+    if (sameName(pEmailTokens, iTokens)) return true;
     return false;
   });
 }
@@ -219,4 +295,5 @@ export function buildOtherItemsHtml(otherItems: any[]): string {
     <ul style="padding-left:20px;color:#666;font-size:13px">${items}</ul></div>`;
 }
 
-export { appUrl };
+// `appUrl` se reexportaba desde aquí por costumbre. Ya no: vive en
+// `@/lib/app-url` y nadie la importaba a través de este módulo.

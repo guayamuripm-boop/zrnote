@@ -26,6 +26,14 @@ export async function GET() {
     supabase.from('meeting_participants').select('*, meetings(title, created_at)').eq('user_id', userId).order('created_at', { ascending: false }),
   ]);
 
+  // Derecho de acceso: si esta dirección está en la lista de bajas, la persona
+  // tiene derecho a saberlo. Es el único dato suyo que sobrevive al borrado de
+  // cuenta, y precisamente por eso hay que enseñarlo (ver migración 022).
+  const { data: unsubscribes } = await supabase
+    .from('email_unsubscribes')
+    .select('*')
+    .eq('email', (user.email || '').toLowerCase());
+
   // Also get meetings where user is participant (not creator)
   const { data: participatedMeetings } = await supabase
     .from('meetings')
@@ -55,6 +63,7 @@ export async function GET() {
     meetings_participated: participatedMeetings || [],
     action_items_assigned: actionItems || [],
     email_logs: emailLogs || [],
+    email_unsubscribes: unsubscribes || [],
     minutes: minutes || [],
   };
 

@@ -6,20 +6,32 @@ function escapeICS(text: string): string {
     .replace(/\n/g, '\\n');
 }
 
+/**
+ * `2026-08-05` → `20260805`.
+ *
+ * Antes esto construía un `new Date(dateStr + 'T09:00:00')` para acto seguido
+ * volver a extraerle el año, el mes y el día — un viaje de ida y vuelta inútil
+ * que además puede desplazar la fecha un día al cruzar husos o cambios de hora.
+ * La fecha ya viene en el formato correcto: basta con quitarle los guiones.
+ */
+function compactDate(dateStr: string): string {
+  return dateStr.slice(0, 10).replace(/-/g, '');
+}
+
+/**
+ * Los compromisos se agendan a las 09:00 y duran media hora.
+ *
+ * El .ics reservaba de 09:00 a 10:00 mientras que el enlace de Google Calendar
+ * del mismo compromiso proponía 09:00–09:30: la misma tarea ocupaba distinto
+ * hueco según por dónde la añadieras. Ahora las dos rutas dicen lo mismo.
+ * Ver `actionItemCalendarLink` en `email-service.ts`.
+ */
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + 'T09:00:00');
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}${m}${day}T090000`;
+  return `${compactDate(dateStr)}T090000`;
 }
 
 function formatEnd(dateStr: string): string {
-  const d = new Date(dateStr + 'T10:00:00');
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}${m}${day}T100000`;
+  return `${compactDate(dateStr)}T093000`;
 }
 
 function nowStamp(): string {

@@ -12,6 +12,12 @@ const createMeetingSchema = z.object({
     name: z.string().min(1),
     email: z.string().email(),
   })).optional().default([]),
+  // "Grabar ahora" manda `title` como la fecha/hora porque todavía no hay
+  // audio del que sacar un título real. Esta marca es lo que permite que,
+  // cuando analyzeMeeting ya haya leído la transcripción, lo sustituya por uno
+  // que la IA redacte a partir del contenido — sin pisar nunca un título que
+  // alguien haya escrito a propósito en el formulario normal.
+  autoTitle: z.boolean().optional().default(false),
 });
 
 export async function GET() {
@@ -86,6 +92,7 @@ export async function POST(request: Request) {
       created_by: user.id,
       org_id: orgId,
       status: 'scheduled',
+      title_is_auto: parsed.data.autoTitle,
     })
     .select()
     .single();
