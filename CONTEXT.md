@@ -3,28 +3,41 @@
 
 ---
 
-## 🚦 ESTADO: correo endurecido, minuta pública y título por IA (v1.13.0, 2026-08-05)
+## 🚦 ESTADO: correo endurecido, minuta pública y título por IA (v1.13.0, 2026-08-06)
 
-Build ✅ · TypeScript ✅ · 195 tests ✅ · Next 15 + React 19 · **En producción** en https://zrnote.vercel.app
+Build ✅ · TypeScript ✅ · 195 tests ✅ · Next 15 + React 19 · **En producción** en
+https://zrnote.vercel.app — desplegado, commit `9a692ff` (merge de
+`fix/v1.11-correo-y-bugs` a `main`).
 
-> 📘 **Los procedimientos operativos viven ahora en [`docs/runbooks/`](docs/runbooks/README.md)**,
+> 📘 **Los procedimientos operativos viven en [`docs/runbooks/`](docs/runbooks/README.md)**,
 > uno por subsistema, cada uno con su diagnóstico y su marcha atrás.
 > Empieza por [00 — Respaldo y restauración](docs/runbooks/00-respaldo-y-restauracion.md).
 > La [guía de prueba v1.12](docs/runbooks/03-guia-de-prueba-v1.12.md) cubre también el título por IA (Prueba 8).
 
-### Sin desplegar todavía — rama `fix/v1.11-correo-y-bugs`
+### Migraciones — las tres aplicadas en producción
 
 | Migración | Estado |
 |---|---|
-| `021_email_idempotency.sql` | ✅ aplicada en producción |
-| `022_email_unsubscribes.sql` | ⏳ **pendiente de aplicar** |
-| `023_auto_titles.sql` | ⏳ **pendiente de aplicar** |
+| `021_email_idempotency.sql` | ✅ aplicada |
+| `022_email_unsubscribes.sql` | ✅ aplicada |
+| `023_auto_titles.sql` | ✅ aplicada |
 
-Variables de entorno: **no hace falta ninguna nueva.** `MINUTE_LINK_SECRET` es
+Variables de entorno: **no hizo falta ninguna nueva.** `MINUTE_LINK_SECRET` es
 opcional; sin ella la clave de firma se deriva de `SUPABASE_SERVICE_ROLE_KEY`.
 
+**Comprobación de humo tras el despliegue (2026-08-06):** `/` → 200,
+`/robots.txt` → 200, `/sitemap.xml` → 200, `/llms.txt` → 200, `/login` → 200,
+`/minuta/token-invalido` → 200 con «enlace no válido» (falla cerrado, no 500).
+
+**Pendiente:** las 8 pruebas de la [guía de prueba](docs/runbooks/03-guia-de-prueba-v1.12.md)
+contra producción real — en particular la Prueba 1 (enlace público desde un
+correo real) y la extensión de Chrome en una reunión en vivo, que sigue sin
+verificarse con audio real.
+
 **Punto de restauración:** etiqueta `v1.10.0-estable` (commit `7449c4b`),
-rama `respaldo/v1.10.0-estable`, snapshot en `.backups/`.
+rama `respaldo/v1.10.0-estable`, snapshot en `.backups/`. Ver
+[runbook 00](docs/runbooks/00-respaldo-y-restauracion.md) para el
+procedimiento completo de vuelta atrás si algo falla en producción.
 
 ### Qué cambió (v1.11 → v1.12)
 
