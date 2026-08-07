@@ -27,17 +27,18 @@ sin `.next/`), por eso son 320 KB y no 500 MB.
 
 | | |
 |---|---|
-| **Etiqueta** | `v1.10.0-estable` |
-| **Rama** | `respaldo/v1.10.0-estable` |
-| **Snapshot** | `.backups/v1.10.0-estable_2026-08-05.zip` |
-| **Commit** | `7449c4b8758712f1b73413df25566977473d5a1d` |
-| **Fecha** | 2026-08-05 |
-| **Estado verificado** | Build ✅ · TypeScript ✅ · **119/119 tests ✅** |
-| **Qué funciona ahí** | Pipeline completo: grabar → transcribir → minuta → correos. **Ya no es lo que hay en producción** (ver más abajo) — es el punto seguro al que volver si `v1.13` falla. |
+| **Etiqueta** | `v1.13.0-estable` |
+| **Rama** | `respaldo/v1.13.0-estable` |
+| **Snapshot** | `.backups/v1.13.0-estable_2026-08-06.zip` |
+| **Commit** | `9a692ffe6e83eb398c56d049b3a3e5bf64c7ce70` |
+| **Fecha** | 2026-08-06 |
+| **Estado verificado** | Build ✅ · TypeScript ✅ · **195/195 tests ✅** · comprobación de humo en producción OK |
+| **Qué funciona ahí** | Todo lo de v1.10 + correo con idempotencia y sin fuga de compromisos, minuta pública, baja de un clic, título por IA, extensión 2.0.1, landing pública. **Es lo que hay en producción ahora mismo.** |
 
-Producción está ahora en `9a692ff` (v1.13.0 — ver el historial más abajo). Este
-sigue siendo el punto de restauración de referencia porque es la última
-versión que estuvo semanas en producción sin sobresaltos.
+**Respaldo de segunda línea:** `v1.10.0-estable` (commit `7449c4b`,
+2026-08-05) — la versión que estuvo en producción semanas antes de este
+cambio. Úsalo sólo si algo en v1.13 resulta grave y volver a ese mismo
+commit no sirve.
 
 `.backups/` está en `.gitignore`: los ZIP no se versionan ni se suben nunca.
 
@@ -185,12 +186,11 @@ git tag -l && git branch --list "respaldo/*" && ls -la .backups/
 | Etiqueta | Commit | Fecha | Estado | Motivo |
 |---|---|---|---|---|
 | `v1.0.8-stable` | — | (previo) | — | Respaldo antiguo |
-| `v1.10.0-estable` | `7449c4b` | 2026-08-05 | 119/119 tests ✅ · fue producción hasta el 2026-08-06 | Antes de la refactorización de correo v1.11 — **es el punto al que volver si v1.13 falla** |
-| `v1.12.0-candidata` | `8ed9573` | 2026-08-05 | 188/188 tests ✅ · superada por v1.13 | Correo endurecido + minuta pública, antes de la extensión y la landing |
-| — (sin etiqueta) | `9a692ff` | 2026-08-06 | 195/195 tests ✅ · **en producción** | Merge de `fix/v1.11-correo-y-bugs` a `main`: v1.11 a v1.13 completo, extensión 2.0.1, landing pública |
+| `v1.10.0-estable` | `7449c4b` | 2026-08-05 | 119/119 tests ✅ · fue producción hasta el 2026-08-06 | Antes de la refactorización de correo v1.11 — el punto seguro más atrás si `v1.13.0-estable` falla de forma grave |
+| `v1.12.0-candidata` | `8ed9573` | 2026-08-05 | 188/188 tests ✅ · superada | Correo endurecido + minuta pública, antes de la extensión y la landing |
+| **`v1.13.0-estable`** | `9a692ff` | 2026-08-06 | 195/195 tests ✅ · **en producción** | Merge de `fix/v1.11-correo-y-bugs` a `main`: v1.11 a v1.13 completo, extensión 2.0.1, landing pública. Migraciones 021-023 aplicadas, comprobación de humo OK |
 
-> `v1.10.0-estable` sigue siendo el respaldo de referencia: es la última
-> versión que estuvo en producción semanas antes de este cambio, con las
-> pruebas 021→023 aplicadas y todo verificado. Si algo falla en `9a692ff`,
-> el Caso C del punto 5 (`git reset --hard v1.10.0-estable` + push) es la
-> vuelta atrás.
+> **El punto de restauración vigente es `v1.13.0-estable`** — es lo que hay
+> ahora mismo en producción, verificado. `v1.10.0-estable` queda como segunda
+> línea: si algo en v1.13 resulta grave y `v1.13.0-estable` no sirve de nada
+> por ser la misma versión rota, esa es la vuelta atrás más profunda.
