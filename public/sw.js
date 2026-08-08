@@ -11,7 +11,16 @@
 // Once installed, the recording tab is far less likely to be discarded by the
 // system while the screen is off.
 
-const VERSION = 'zrnote-v3';
+// Al subir VERSION se borran TODAS las cachés anteriores (ver `activate`).
+// Hay que subirla siempre que cambie un recurso estático de raíz — los iconos,
+// el manifiesto, la página offline —, porque esos ficheros NO llevan hash en
+// el nombre y la URL no cambia con el contenido.
+//
+// v4: los iconos de marca se cambiaron en la v1.7.0 pero esta versión seguía
+// en `v3` desde la v1.5.0. Como `/icon-512.png` se servía en cache-first sin
+// revalidar, las PWA instaladas conservaban el icono ANTERIOR a la marca para
+// siempre. De ahí que la app instalada "no tuviera logo".
+const VERSION = 'zrnote-v4';
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = '/offline.html';
 
@@ -37,13 +46,28 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-function isCacheableAsset(url) {
-  // Build output and icons: content-hashed or static, never user-specific.
-  return (
-    url.pathname.startsWith('/_next/static/') ||
-    url.pathname.startsWith('/ffmpeg/') ||
-    /\.(png|svg|ico|woff2?)$/.test(url.pathname)
-  );
+/**
+ * Recursos INMUTABLES de verdad: el nombre del fichero lleva un hash del
+ * contenido, así que si el contenido cambia, la URL cambia. Cachear para
+ * siempre es correcto y no puede quedarse obsoleto.
+ */
+function isImmutableAsset(url) {
+  return url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/ffmpeg/');
+}
+
+/**
+ * Recursos estáticos que SÍ pueden cambiar bajo la misma URL: los iconos de la
+ * app, el manifiesto, las fuentes de la carpeta pública.
+ *
+ * Antes entraban en el mismo saco que los anteriores y se servían cache-first
+ * sin revalidar nunca. Como `/icon-512.png` no lleva hash, cambiar el icono no
+ * cambiaba la URL: la copia vieja se servía indefinidamente y las PWA ya
+ * instaladas se quedaban con el logo anterior. Estos van con
+ * stale-while-revalidate: se responde al instante con lo cacheado y se
+ * actualiza por detrás, así el cambio entra en la siguiente visita.
+ */
+function isMutableAsset(url) {
+  return /\.(png|svg|ico|webmanifest|woff2?)$/.test(url.pathname) || url.pathname === '/manifest.json';
 }
 
 self.addEventListener('fetch', (event) => {
@@ -56,8 +80,8 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
 
-  if (isCacheableAsset(url)) {
-    // Cache-first: these URLs are immutable.
+  if (isImmutableAsset(url)) {
+    // Cache-first: la URL lleva hash, no puede quedarse obsoleta.
     event.respondWith(
       caches.match(request).then(
         (cached) =>
@@ -70,6 +94,30 @@ self.addEventListener('fetch', (event) => {
             return response;
           }),
       ),
+    );
+    return;
+  }
+
+  if (isMutableAsset(url)) {
+    // Stale-while-revalidate: se responde ya con lo cacheado (rápido, y
+    // funciona sin conexión) pero SIEMPRE se pide la versión nueva por detrás.
+    // Así un icono cambiado entra solo en la siguiente visita, sin depender de
+    // que alguien se acuerde de subir VERSION.
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        const fresh = fetch(request)
+          .then((response) => {
+            if (response.ok) {
+              const clone = response.clone();
+              caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
+            }
+            return response;
+          })
+          // Sin red: si hay copia cacheada ya se devolvió; si no, propaga el fallo.
+          .catch(() => cached);
+
+        return cached || fresh;
+      }),
     );
     return;
   }

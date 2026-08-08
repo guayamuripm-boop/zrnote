@@ -2,6 +2,7 @@ import { escapeHtml, escapeHtmlOrEmpty } from '@/lib/safe-html';
 import { generateGoogleCalendarUrl } from '@/lib/google-calendar';
 
 import { appUrl } from '@/lib/app-url';
+import { toParagraphs } from '@/lib/readable-text';
 
 /**
  * "Add to Google Calendar" link for a commitment. No OAuth: it opens Google
@@ -51,7 +52,16 @@ function nextMorning(): Date {
 export function buildMinuteHtml(minute: any): string {
   if (!minute) return '<p>Minuta no disponible.</p>';
   let html = '';
-  html += `<h2 style="color:#1a1a2e;font-size:18px;margin-bottom:8px">Resumen</h2><p style="color:#333;line-height:1.6">${escapeHtml(minute.summary) || 'No disponible'}</p>`;
+  // El resumen en párrafos cortos, uno por <p>. En un cliente de correo móvil
+  // un bloque de 5 frases se lee como un muro y se salta entero.
+  const summaryParagraphs = toParagraphs(minute.summary);
+  const summaryHtml =
+    summaryParagraphs.length > 0
+      ? summaryParagraphs
+          .map((p) => `<p style="color:#333;line-height:1.6;margin:0 0 12px">${escapeHtml(p)}</p>`)
+          .join('')
+      : `<p style="color:#333;line-height:1.6">No disponible</p>`;
+  html += `<h2 style="color:#1a1a2e;font-size:18px;margin-bottom:8px">Resumen</h2>${summaryHtml}`;
 
   if (Array.isArray(minute.discussion) && minute.discussion.length > 0) {
     html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">Temas Discutidos</h2>`;

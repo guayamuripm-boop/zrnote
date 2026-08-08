@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger';
 import { embedTexts } from '@/lib/embeddings';
 import { buildMeetingEmailJobs, dispatchEmailJobs } from '@/lib/meeting-emails';
 import { isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
+import { cleanWhisperResult } from '@/lib/whisper-quality';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
@@ -212,12 +213,38 @@ async function transcribeSegment(
 
       if (response.ok) {
         const result = await response.json();
-        if (result.text && result.text.trim().length > 0) {
-          logger.info('Segment transcribed', { meetingId, segmentIndex: segment.segment_index, tryExt, chars: result.text.length });
-          return { text: result.text };
+
+        // Whisper NO se calla ante el silencio: emite trozos de sus datos de
+        // entrenamiento («Gracias por ver el video», «Subtítulos por
+        // Amara.org»). Antes bastaba con que el texto no estuviera vacío para
+        // darlo por bueno, así que una grabación muda producía una
+        // transcripción plausible y el LLM redactaba un acta creíble de una
+        // reunión que nunca ocurrió. `verbose_json` ya venía con las métricas
+        // por fragmento para detectarlo; sólo faltaba usarlas.
+        const cleaned = cleanWhisperResult(result);
+
+        if (cleaned.isSilence) {
+          logger.warn('Segment discarded as silence/hallucination', {
+            meetingId,
+            segmentIndex: segment.segment_index,
+            dropped: cleaned.dropped,
+            total: cleaned.total,
+            rawPreview: (result.text || '').slice(0, 120),
+          });
+          return { text: null, error: 'SIN_VOZ: no se detectó voz audible en este fragmento' };
         }
-        logger.warn('Segment produced empty transcription', { meetingId, segmentIndex: segment.segment_index });
-        return { text: null, error: 'transcripción vacía (¿el audio no tiene voz audible?)' };
+
+        if (cleaned.dropped > 0) {
+          logger.info('Segment cleaned of hallucinated parts', {
+            meetingId,
+            segmentIndex: segment.segment_index,
+            dropped: cleaned.dropped,
+            total: cleaned.total,
+          });
+        }
+
+        logger.info('Segment transcribed', { meetingId, segmentIndex: segment.segment_index, tryExt, chars: cleaned.text.length });
+        return { text: cleaned.text };
       }
 
       const errText = await response.text();
@@ -339,6 +366,22 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   // an empty transcript (which used to surface later as a confusing 400 on analyze).
   if (processed === 0 && !existingTranscript.trim()) {
     const reason = segErrors[0] || 'ningún segmento pudo transcribirse';
+
+    // Silencio no es un fallo técnico: el audio se grabó y se transcribió bien,
+    // simplemente no había nadie hablando. Merece su propio mensaje, porque lo
+    // que tiene que hacer el usuario es distinto (revisar el micrófono, no
+    // reintentar). Reintentar sobre silencio da silencio otra vez.
+    if (segErrors.length > 0 && segErrors.every((e) => e.startsWith('SIN_VOZ'))) {
+      return {
+        success: false,
+        error:
+          'No se detectó voz audible en la grabación. Puede que el micrófono estuviera silenciado, muy lejos o apagado. Revisa el audio antes de reintentar: no se generó minuta porque no había nada que transcribir.',
+        segmentsProcessed: 0,
+        segmentsTotal: segments.length,
+        more: false,
+      };
+    }
+
     // A format the transcriber cannot read is not a transient failure: retrying
     // will never fix it, so say what will.
     if (reason.startsWith('AUDIO_FORMATO_NO_SOPORTADO')) {
@@ -436,6 +479,12 @@ CÓMO ES EL TEXTO QUE VAS A LEER
 LA REGLA QUE MANDA SOBRE TODAS
 No inventes. Una minuta corta y cierta vale más que una completa y falsa. Si algo no se dijo: null, o array vacío. Nunca rellenes un campo para que el documento "se vea completo".
 
+SI LA TRANSCRIPCIÓN NO DA PARA UN ACTA, DILO
+El reconocimiento de voz alucina cuando el audio está en silencio o muy bajo: inventa frases sueltas, saludos, despedidas o coletillas de vídeos de YouTube ("gracias por ver el video", "suscríbete"). Si lo que has recibido es eso —o son cuatro frases inconexas sin tema, sin acuerdos y sin nadie asumiendo nada— NO redactes un acta.
+En ese caso responde con TODOS los arrays vacíos y en "summary" exactamente esto:
+"No se pudo generar el acta: el audio no contiene una conversación reconocible. Revisa la grabación."
+Es la respuesta correcta y esperada, no un fracaso. Un acta inventada de una reunión que no ocurrió destruye la confianza en todas las demás.
+
 CÓMO LEER UNA REUNIÓN LARGA
 - Recorre la transcripción ENTERA antes de escribir. Los acuerdos suelen cerrarse al final, cuando ya se discutió todo.
 - Si algo se dijo y más tarde se corrigió o se cambió, vale lo ÚLTIMO. Reflejar la versión abandonada es un error grave.
@@ -469,7 +518,7 @@ ${needsTitle ? `ESTA REUNIÓN NO TIENE TÍTULO TODAVÍA (se grabó con "Grabar a
 
 ` : ''}RESPONDE ÚNICAMENTE CON ESTE JSON (sin markdown, sin texto antes ni después):
 {${needsTitle ? '\n  "suggested_title": "El título que redactaste arriba",' : ''}
-  "summary": "3 a 5 frases. Para qué se reunieron, qué se resolvió y qué queda pendiente. Cuenta resultados, no narres la conversación ni digas 'se habló de'. Si la reunión no llegó a nada concreto, dilo con esas palabras.",
+  "summary": "3 a 5 frases repartidas en 2 o 3 párrafos CORTOS separados por un salto de línea doble (\\n\\n): primero para qué se reunieron y qué se resolvió, después qué queda pendiente. Máximo 2 frases por párrafo — se lee en el móvil y en WhatsApp, y un bloque largo no lo lee nadie. Cuenta resultados, no narres la conversación ni digas 'se habló de'. Si la reunión no llegó a nada concreto, dilo con esas palabras.",
   "action_items": [
     {
       "assignee_name": "Nombre del responsable, o null",
@@ -684,6 +733,26 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
 
   if (!meetingTranscript || meetingTranscript.trim().length === 0) {
     return { success: false, error: 'No transcript available for analysis' };
+  }
+
+  // Segunda barrera contra las alucinaciones de Whisper.
+  //
+  // El filtro fuerte está en la transcripción (ver `cleanWhisperResult`), pero
+  // una transcripción vieja —guardada antes de que ese filtro existiera— o un
+  // resto que se cuele llegarían aquí. Redactar un acta sobre eso produce un
+  // documento creíble de una reunión que no ocurrió, que es el peor fallo
+  // posible en este producto: destruye la confianza en TODAS las demás actas.
+  const audible = cleanWhisperResult({ text: meetingTranscript });
+  if (audible.isSilence) {
+    logger.warn('Analyze aborted: transcript has no usable speech', {
+      meetingId,
+      preview: meetingTranscript.slice(0, 120),
+    });
+    return {
+      success: false,
+      error:
+        'La transcripción no contiene voz reconocible. Puede que el micrófono estuviera silenciado o muy lejos. No se generó minuta para no inventar contenido.',
+    };
   }
 
   // Giving the model the real meeting date is what turns "para el viernes" into

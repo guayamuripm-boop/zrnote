@@ -11,6 +11,7 @@ import ActionItemStatus from '@/components/ActionItemStatus';
 import MeetingParticipants from '@/components/MeetingParticipants';
 import ResendEmailsButton from '@/components/ResendEmailsButton';
 import { sortActionItems } from '@/lib/action-items';
+import { toParagraphs } from '@/lib/readable-text';
 
 export default async function MeetingDetailPage({
   params,
@@ -126,7 +127,14 @@ export default async function MeetingDetailPage({
             </h2>
             <div>
               <h3 className="font-medium text-sm text-slate-500 dark:text-slate-400 mb-1">Resumen</h3>
-              <p className="text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">{minute.summary}</p>
+              {/* Párrafos cortos en vez de un bloque: ver `readable-text.ts`. */}
+              <div className="space-y-3">
+                {toParagraphs(minute.summary).map((p, i) => (
+                  <p key={i} className="text-slate-700 dark:text-slate-200 leading-relaxed">
+                    {p}
+                  </p>
+                ))}
+              </div>
             </div>
           </section>
 

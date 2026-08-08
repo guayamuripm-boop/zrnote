@@ -1,9 +1,21 @@
 'use client';
 
-// Free WhatsApp sharing: builds the FULL minute (not just the summary) as
-// nicely formatted plain text — WhatsApp doesn't render HTML, so we use its
-// own markup (*bold*) and emojis as section markers — then opens WhatsApp
-// with it prefilled. The user reviews and sends with one tap. No paid API.
+import { toParagraphs } from '@/lib/readable-text';
+
+// Compartir por WhatsApp, gratis: se arma el mensaje como texto plano con el
+// marcado propio de WhatsApp (*negrita*) y emojis como separadores de sección,
+// y se abre WhatsApp con todo prellenado. El usuario revisa y envía. Sin API
+// de pago.
+//
+// QUÉ SE MANDA Y QUÉ NO
+// Antes se volcaba el acta ENTERA: resumen, decisiones, bloqueos, hasta 12
+// compromisos y próximos pasos, con un tope de 3.500 caracteres. En un chat
+// eso es un muro que nadie lee.
+//
+// Ahora el mensaje es lo accionable —resumen en párrafos cortos y los
+// compromisos— y el resto queda detrás del enlace público de la minuta, que
+// desde la v1.12 cualquier participante abre sin necesidad de cuenta. Las
+// decisiones se incluyen sólo si son pocas; si son muchas, están en el enlace.
 
 interface MinuteLike {
   summary?: string | null;
@@ -29,8 +41,16 @@ function formatDate(d?: string | null): string {
   return ` · vence ${date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`;
 }
 
-// WhatsApp/browsers handle very long wa.me URLs poorly — keep the message tight.
-const MAX_LEN = 3500;
+// WhatsApp y los navegadores llevan mal las URLs `wa.me` muy largas, pero el
+// límite real aquí es la paciencia de quien lo recibe: un mensaje de chat que
+// hay que desplazar tres pantallas no se lee. El acta completa está a un toque
+// de distancia en el enlace.
+const MAX_LEN = 1400;
+
+/** Por encima de esto, las decisiones se dejan para el enlace. */
+const MAX_DECISIONS_INLINE = 3;
+/** Compromisos que caben en un chat sin volverlo un listado. */
+const MAX_ITEMS_INLINE = 6;
 
 export default function ShareWhatsApp({
   title,
@@ -55,27 +75,21 @@ export default function ShareWhatsApp({
       }
     }
 
-    if (minute?.summary) {
-      parts.push(`\n📝 *Resumen*\n${minute.summary}`);
-    }
-
-    const decisions = minute?.decisions || [];
-    if (decisions.length > 0) {
-      parts.push(`\n✅ *Decisiones*\n` + decisions.map((d) => `• ${d}`).join('\n'));
-    }
-
-    const blockers = minute?.blockers || [];
-    if (blockers.length > 0) {
-      parts.push(
-        `\n🚧 *Bloqueos*\n` +
-          blockers.map((b) => `• ${b.issue}${b.impact ? ` — ${b.impact}` : ''}`).join('\n')
-      );
+    // El resumen va en párrafos cortos separados por línea en blanco: en el
+    // móvil un bloque de 5 frases se ve como un muro y se salta entero.
+    const paragraphs = toParagraphs(minute?.summary);
+    if (paragraphs.length > 0) {
+      parts.push(`\n📝 *Resumen*\n${paragraphs.join('\n\n')}`);
     }
 
     const items = actionItems || [];
     if (items.length > 0) {
+      // Lo pendiente primero: es lo único que el lector tiene que hacer.
       const notDone = items.filter((i) => i.status !== 'completado');
-      const list = (notDone.length > 0 ? notDone : items).slice(0, 12);
+      const relevant = notDone.length > 0 ? notDone : items;
+      const list = relevant.slice(0, MAX_ITEMS_INLINE);
+      const rest = relevant.length - list.length;
+
       parts.push(
         `\n📌 *Compromisos (${items.length})*\n` +
           list
@@ -84,25 +98,28 @@ export default function ShareWhatsApp({
               const who = t.assignee_name ? ` — _${t.assignee_name}_` : '';
               return `${emoji} ${t.description}${who}${formatDate(t.due_date)}`;
             })
-            .join('\n')
+            .join('\n') +
+          (rest > 0 ? `\n_…y ${rest} más en la minuta completa_` : '')
       );
     }
 
-    const nextSteps = minute?.next_steps || [];
-    if (nextSteps.length > 0) {
-      parts.push(
-        `\n➡️ *Próximos pasos*\n` +
-          nextSteps
-            .map((n) => (typeof n === 'string' ? `• ${n}` : `• ${n.step}${n.owner ? ` — ${n.owner}` : ''}`))
-            .join('\n')
-      );
+    // Las decisiones caben sólo si son pocas. Muchas decisiones convierten el
+    // mensaje en el documento que precisamente queremos dejar en el enlace.
+    const decisions = minute?.decisions || [];
+    if (decisions.length > 0 && decisions.length <= MAX_DECISIONS_INLINE) {
+      parts.push(`\n✅ *Decisiones*\n` + decisions.map((d) => `• ${d}`).join('\n'));
     }
 
-    if (url) parts.push(`\n📄 Minuta completa: ${url}`);
+    // Bloqueos y próximos pasos ya NO van en el chat: son contexto de lectura,
+    // no acciones para quien recibe el mensaje. Están en la minuta completa.
+
+    if (url) parts.push(`\n📄 *Acta completa:* ${url}`);
 
     let text = parts.join('\n');
     if (text.length > MAX_LEN) {
-      text = text.slice(0, MAX_LEN - 30) + `\n…\n📄 Minuta completa: ${url}`;
+      // Se recorta por el último salto de línea para no cortar a media palabra.
+      const cut = text.slice(0, MAX_LEN - 60);
+      text = cut.slice(0, cut.lastIndexOf('\n')) + `\n\n📄 *Acta completa:* ${url}`;
     }
 
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');

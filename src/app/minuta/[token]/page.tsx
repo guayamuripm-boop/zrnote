@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyMinuteToken } from '@/lib/minute-links';
 import { matchItemsToParticipant } from '@/lib/email-service';
 import { sortActionItems } from '@/lib/action-items';
+import { toParagraphs } from '@/lib/readable-text';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import ZRLogo from '@/components/ZRLogo';
 
@@ -166,9 +167,15 @@ export default async function MinutaPublicaPage({
         {minute?.summary && (
           <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Resumen</h2>
-            <p className="text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
-              {minute.summary}
-            </p>
+            {/* Párrafos cortos: esta página se abre casi siempre desde el
+                móvil, tras pulsar el enlace de un correo. */}
+            <div className="space-y-3">
+              {toParagraphs(minute.summary).map((p, i) => (
+                <p key={i} className="text-slate-700 dark:text-slate-200 leading-relaxed">
+                  {p}
+                </p>
+              ))}
+            </div>
           </section>
         )}
 
