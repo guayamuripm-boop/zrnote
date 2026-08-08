@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import ZRLogo from '@/components/ZRLogo';
 import ThemeToggle from '@/components/ThemeToggle';
+import InstallAppButton from '@/components/InstallAppButton';
 import RevealOnScroll from '@/components/landing/RevealOnScroll';
 import LiveDemo from '@/components/landing/LiveDemo';
 import AudienceTabs, { type Audience } from '@/components/landing/AudienceTabs';
@@ -232,6 +233,7 @@ export default function LandingPage() {
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <InstallAppButton iconOnly />
             <ThemeToggle />
             <Link href="/login" className="hidden sm:inline-block px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 transition">
               Iniciar sesión

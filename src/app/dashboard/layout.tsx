@@ -2,6 +2,7 @@ import Link from 'next/link';
 import ZRLogo from '@/components/ZRLogo';
 import { createServerSupabase } from '@/lib/supabase/server';
 import ThemeToggle from '@/components/ThemeToggle';
+import InstallAppButton from '@/components/InstallAppButton';
 import { VersionLogger } from '@/components/VersionLogger';
 import { VERSION, COMMIT_SHA } from '@/lib/version';
 import TermsGate from '@/components/legal/TermsGate';
@@ -45,6 +46,7 @@ export default async function DashboardLayout({
 
               <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-3" />
 
+              <InstallAppButton iconOnly />
               <ThemeToggle />
 
               <div className="flex items-center gap-3 ml-2">

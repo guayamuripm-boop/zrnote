@@ -3,41 +3,69 @@
 
 ---
 
-## 🚦 ESTADO: correo endurecido, minuta pública y título por IA (v1.13.0, 2026-08-06)
+## 🚦 ESTADO: acta sin alucinaciones, legible, e instalación de la app (v1.15.0 en curso, 2026-08-08)
 
-Build ✅ · TypeScript ✅ · 195 tests ✅ · Next 15 + React 19 · **En producción** en
-https://zrnote.vercel.app — desplegado, commit `9a692ff` (merge de
-`fix/v1.11-correo-y-bugs` a `main`).
+**En producción: v1.14.0** (commit `6a325c0`). Build ✅ · TypeScript ✅ ·
+220 tests ✅ · Next 15 + React 19 · https://zrnote.vercel.app
+
+**En curso, sin desplegar todavía: v1.15.0** — botón «Instalar app» (PWA) y
+página `/dashboard/ayuda`. Ver [runbook 06](docs/runbooks/06-instalacion-y-ayuda.md).
 
 > 📘 **Los procedimientos operativos viven en [`docs/runbooks/`](docs/runbooks/README.md)**,
 > uno por subsistema, cada uno con su diagnóstico y su marcha atrás.
 > Empieza por [00 — Respaldo y restauración](docs/runbooks/00-respaldo-y-restauracion.md).
-> La [guía de prueba v1.12](docs/runbooks/03-guia-de-prueba-v1.12.md) cubre también el título por IA (Prueba 8).
 
-### Migraciones — las tres aplicadas en producción
+### Migraciones — todas aplicadas en producción, ninguna pendiente
 
-| Migración | Estado |
-|---|---|
-| `021_email_idempotency.sql` | ✅ aplicada |
-| `022_email_unsubscribes.sql` | ✅ aplicada |
-| `023_auto_titles.sql` | ✅ aplicada |
+`021_email_idempotency.sql` · `022_email_unsubscribes.sql` ·
+`023_auto_titles.sql` — las tres aplicadas. v1.14 y v1.15 no añaden ninguna
+migración nueva.
 
-Variables de entorno: **no hizo falta ninguna nueva.** `MINUTE_LINK_SECRET` es
+Variables de entorno: **no hace falta ninguna nueva.** `MINUTE_LINK_SECRET` es
 opcional; sin ella la clave de firma se deriva de `SUPABASE_SERVICE_ROLE_KEY`.
 
-**Comprobación de humo tras el despliegue (2026-08-06):** `/` → 200,
-`/robots.txt` → 200, `/sitemap.xml` → 200, `/llms.txt` → 200, `/login` → 200,
-`/minuta/token-invalido` → 200 con «enlace no válido» (falla cerrado, no 500).
+**Comprobación de humo tras el despliegue de v1.14 (2026-08-08):** `/` → 200,
+`/robots.txt` → 200, `/manifest.json` → 200, `/login` → 200, `sw.js` sirve
+`zrnote-v4`, `/minuta/token-invalido` → 200 con «enlace no válido» (falla
+cerrado, no 500).
 
-**Pendiente:** las 8 pruebas de la [guía de prueba](docs/runbooks/03-guia-de-prueba-v1.12.md)
-contra producción real — en particular la Prueba 1 (enlace público desde un
-correo real) y la extensión de Chrome en una reunión en vivo, que sigue sin
-verificarse con audio real.
+**Pendiente de verificar contra producción real:** las 8 pruebas de la
+[guía de prueba](docs/runbooks/03-guia-de-prueba-v1.12.md) — en particular la
+Prueba 1 (enlace público desde un correo real) — y la extensión de Chrome en
+una reunión en vivo, que sigue sin verificarse con audio real.
 
-**Punto de restauración:** etiqueta `v1.10.0-estable` (commit `7449c4b`),
-rama `respaldo/v1.10.0-estable`, snapshot en `.backups/`. Ver
+**Punto de restauración:** etiqueta `v1.14.0-estable` (commit `6a325c0`),
+rama `respaldo/v1.14.0-estable`, snapshot en `.backups/`. Ver
 [runbook 00](docs/runbooks/00-respaldo-y-restauracion.md) para el
 procedimiento completo de vuelta atrás si algo falla en producción.
+
+### Qué cambió (v1.14 → v1.15, sin desplegar)
+
+- **Botón «Instalar app»** en la landing, el dashboard y el perfil — usa
+  `beforeinstallprompt` en Chrome/Edge/Android y un modal de instrucciones en
+  iOS Safari, que nunca dispara ese evento. Se auto-oculta si ya está
+  instalada o si el navegador no soporta instalar PWAs.
+- **Página `/dashboard/ayuda`** con un tema por sección: grabar, acta,
+  compromisos, correos, buscar, compartir, instalar, privacidad.
+- **Decisión explícita: NO hay botón para descargar la extensión de Chrome.**
+  `extension.pem` sigue comprometida (pendiente #1 más abajo) y Chrome
+  moderno bloquea los `.crx` sueltos de todos modos. Ver
+  [runbook 04 §6.5](docs/runbooks/04-extension-chrome.md).
+
+### Qué cambió (v1.13 → v1.14)
+
+- **Alucinaciones de Whisper sobre silencio.** Ya no se genera un acta creíble
+  de una reunión que no ocurrió: dos barreras (transcripción y análisis) usan
+  las métricas `no_speech_prob` / `avg_logprob` / `compression_ratio` que la
+  petición ya pedía y se ignoraban. Si no hay voz audible, la reunión falla
+  con un mensaje claro y no se manda ningún correo.
+- **Acta en párrafos cortos**, en los 4 sitios donde se muestra (página,
+  correo, minuta pública, WhatsApp) — antes era un bloque de 3-5 frases.
+- **WhatsApp reducido a lo accionable**: resumen + compromisos + enlace,
+  ~600 caracteres en vez de volcar el acta entera con tope de 3.500.
+- **Logo de la PWA arreglado.** No faltaba: el service worker servía el icono
+  antiguo en caché desde la v1.5.0, pese a que la marca cambió en la v1.7.0.
+  Ver [runbook 05](docs/runbooks/05-transcripcion-y-legibilidad.md).
 
 ### Qué cambió (v1.11 → v1.12)
 

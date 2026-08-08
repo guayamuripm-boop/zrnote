@@ -181,6 +181,33 @@ avisaste**. La responsabilidad es de quien graba.
 
 ---
 
+## 6.5. Por qué NO hay un botón «Descargar extensión» en la web (2026-08-08)
+
+Se planteó en esta versión y se descartó, por dos motivos:
+
+1. **`extension.pem` (la clave privada de firma) está comprometida.** Estuvo
+   versionada en un repo público y sigue en el historial de Git — es el
+   pendiente crítico #1 en `CONTEXT.md` desde antes de este cambio.
+   `extension.crx` está firmado con esa clave: repartirlo perpetúa la
+   exposición, porque cualquiera con acceso al historial podría firmar una
+   actualización maliciosa con la misma identidad.
+2. **Aunque no lo estuviera, Chrome moderno bloquea instalar `.crx` sueltos**
+   fuera de la Chrome Web Store para la mayoría de usuarios. Un botón que
+   descargara el `.crx` no instalaría nada en la práctica.
+
+La vía correcta es publicar en la Chrome Web Store (cuenta de desarrollador +
+pago + revisión — fuera de lo que se puede automatizar) o repartir un `.zip`
+sin firmar para «Cargar descomprimida» en modo desarrollador. Ninguna de las
+dos se implementó todavía: **el botón de instalación que sí se añadió es sólo
+para la PWA** (ver [runbook 06](06-instalacion-y-ayuda.md)), que no tiene
+ninguno de estos dos problemas.
+
+Antes de rotar la clave (punto pendiente #1 de `CONTEXT.md`) y de considerar
+un botón de descarga de la extensión, hay que decidir cuál de las dos vías se
+sigue.
+
+---
+
 ## 7. Invariantes
 
 1. **La grabación se inicia desde el popup**, nunca desde la página — es un

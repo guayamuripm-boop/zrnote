@@ -2,6 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
 import DeleteAccountSection from '@/components/DeleteAccountSection';
+import InstallAppButton from '@/components/InstallAppButton';
 
 export default async function ProfilePage() {
   const supabase = await createServerSupabase();
@@ -37,6 +38,20 @@ export default async function ProfilePage() {
 
         <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
           <ThemeToggle />
+        </div>
+
+        <InstallAppButton variant="section" />
+
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+          <Link
+            href="/dashboard/ayuda"
+            className="block w-full text-center gradient-primary text-white py-3 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all"
+          >
+            Cómo usar ZRNote
+          </Link>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+            Dónde está cada cosa y para qué sirve, explicado en corto.
+          </p>
         </div>
 
         {/* Data rights. `/api/user/export` existed since day one but had no UI,

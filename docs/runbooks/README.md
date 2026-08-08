@@ -18,6 +18,7 @@ Un runbook por subsistema. Cada uno responde a las mismas cuatro preguntas:
 | [03](03-guia-de-prueba-v1.12.md) | **Guía de prueba v1.12** | Qué comprobar antes de dar por buena esta versión |
 | [04](04-extension-chrome.md) | Extensión de Chrome | Grabar en Meet/Zoom/Teams, service worker, «Error de conexión» |
 | [05](05-transcripcion-y-legibilidad.md) | Transcripción y legibilidad | Alucinaciones de Whisper sobre silencio, párrafos del acta, caché del logo PWA |
+| [06](06-instalacion-y-ayuda.md) | Instalación y ayuda | Botón «Instalar app» (iOS incluido), página `/dashboard/ayuda`, por qué no hay descarga de la extensión |
 
 ## Pendientes de escribir
 

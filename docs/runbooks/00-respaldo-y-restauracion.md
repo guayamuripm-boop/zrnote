@@ -27,18 +27,18 @@ sin `.next/`), por eso son 320 KB y no 500 MB.
 
 | | |
 |---|---|
-| **Etiqueta** | `v1.13.0-estable` |
-| **Rama** | `respaldo/v1.13.0-estable` |
-| **Snapshot** | `.backups/v1.13.0-estable_2026-08-06.zip` |
-| **Commit** | `9a692ffe6e83eb398c56d049b3a3e5bf64c7ce70` |
-| **Fecha** | 2026-08-06 |
-| **Estado verificado** | Build ✅ · TypeScript ✅ · **195/195 tests ✅** · comprobación de humo en producción OK |
-| **Qué funciona ahí** | Todo lo de v1.10 + correo con idempotencia y sin fuga de compromisos, minuta pública, baja de un clic, título por IA, extensión 2.0.1, landing pública. **Es lo que hay en producción ahora mismo.** |
+| **Etiqueta** | `v1.14.0-estable` |
+| **Rama** | `respaldo/v1.14.0-estable` |
+| **Snapshot** | `.backups/v1.14.0-estable_2026-08-08.zip` |
+| **Commit** | `6a325c01fb3e03d7fee657415a34c352c4c9a8e8` |
+| **Fecha** | 2026-08-08 |
+| **Estado verificado** | Build ✅ · TypeScript ✅ · **220/220 tests ✅** · comprobación de humo en producción OK |
+| **Qué funciona ahí** | Todo lo de v1.13 + filtro de alucinaciones de Whisper, acta en párrafos legibles, WhatsApp reducido a lo accionable, logo de la PWA arreglado. **Es lo que hay en producción ahora mismo.** |
 
-**Respaldo de segunda línea:** `v1.10.0-estable` (commit `7449c4b`,
-2026-08-05) — la versión que estuvo en producción semanas antes de este
-cambio. Úsalo sólo si algo en v1.13 resulta grave y volver a ese mismo
-commit no sirve.
+**Respaldo de segunda línea:** `v1.13.0-estable` (commit `9a692ff`,
+2026-08-06) y, más atrás, `v1.10.0-estable` (commit `7449c4b`, 2026-08-05).
+Úsalos sólo si algo en v1.14 resulta grave y volver a ese mismo commit no
+sirve.
 
 `.backups/` está en `.gitignore`: los ZIP no se versionan ni se suben nunca.
 
@@ -61,11 +61,22 @@ git status --short && npm test
 git tag -a v1.11.0-estable -m "Punto de restauracion: descripcion de que funciona aqui" && git branch respaldo/v1.11.0-estable
 ```
 
-**3. Crea el snapshot físico** (PowerShell):
+**3. Crea el snapshot físico.**
+
+Usa `git archive`, no `Compress-Archive` sobre el árbol de trabajo:
 
 ```bash
-powershell -Command "$r='C:\Dev\ZR Note'; $i=@(); foreach($d in @('src','supabase','scripts','extension')){$i+=(Join-Path $r $d)}; foreach($f in @('package.json','package-lock.json','next.config.js','tailwind.config.js','postcss.config.js','tsconfig.json','vercel.json','vitest.config.ts','vitest.setup.ts','CONTEXT.md','BACKLOG.md','ROADMAP_STATUS.md')){$p=Join-Path $r $f; if(Test-Path $p){$i+=$p}}; Compress-Archive -Path $i -DestinationPath (Join-Path $r '.backups\v1.11.0-estable_FECHA.zip') -CompressionLevel Optimal -Force"
+git archive --format=zip -o .backups/v1.11.0-estable_FECHA.zip v1.11.0-estable
 ```
+
+> ⚠️ **Por qué no `Compress-Archive` directo sobre las carpetas.** Esa vía
+> copia lo que hay en el DISCO en ese momento — y si hay cambios sin comitear
+> encima (algo que pasa constantemente a mitad de una sesión), el snapshot
+> queda mezclado con trabajo posterior, no con el commit que se quería
+> respaldar. Pasó de verdad al crear el snapshot de `v1.14.0-estable`: el zip
+> salió con el trabajo de `v1.15` ya empezado encima. `git archive` lee
+> directamente del commit — nunca toca el árbol de trabajo, así que es
+> imposible que se cuele nada que no esté en ese commit exacto.
 
 **4. Trabaja siempre en una rama aparte**, nunca directamente sobre `main`:
 
@@ -186,11 +197,12 @@ git tag -l && git branch --list "respaldo/*" && ls -la .backups/
 | Etiqueta | Commit | Fecha | Estado | Motivo |
 |---|---|---|---|---|
 | `v1.0.8-stable` | — | (previo) | — | Respaldo antiguo |
-| `v1.10.0-estable` | `7449c4b` | 2026-08-05 | 119/119 tests ✅ · fue producción hasta el 2026-08-06 | Antes de la refactorización de correo v1.11 — el punto seguro más atrás si `v1.13.0-estable` falla de forma grave |
+| `v1.10.0-estable` | `7449c4b` | 2026-08-05 | 119/119 tests ✅ · fue producción hasta el 2026-08-06 | Antes de la refactorización de correo v1.11 |
 | `v1.12.0-candidata` | `8ed9573` | 2026-08-05 | 188/188 tests ✅ · superada | Correo endurecido + minuta pública, antes de la extensión y la landing |
-| **`v1.13.0-estable`** | `9a692ff` | 2026-08-06 | 195/195 tests ✅ · **en producción** | Merge de `fix/v1.11-correo-y-bugs` a `main`: v1.11 a v1.13 completo, extensión 2.0.1, landing pública. Migraciones 021-023 aplicadas, comprobación de humo OK |
+| `v1.13.0-estable` | `9a692ff` | 2026-08-06 | 195/195 tests ✅ · fue producción hasta el 2026-08-08 | v1.11 a v1.13 completo, extensión 2.0.1, landing pública |
+| **`v1.14.0-estable`** | `6a325c0` | 2026-08-08 | 220/220 tests ✅ · **en producción** | Filtro de alucinaciones de Whisper, acta legible, WhatsApp reducido, logo PWA arreglado. Comprobación de humo OK |
 
-> **El punto de restauración vigente es `v1.13.0-estable`** — es lo que hay
-> ahora mismo en producción, verificado. `v1.10.0-estable` queda como segunda
-> línea: si algo en v1.13 resulta grave y `v1.13.0-estable` no sirve de nada
-> por ser la misma versión rota, esa es la vuelta atrás más profunda.
+> **El punto de restauración vigente es `v1.14.0-estable`** — es lo que hay
+> ahora mismo en producción, verificado. `v1.13.0-estable` y `v1.10.0-estable`
+> quedan como líneas de defensa más atrás, por si `v1.14.0-estable` no sirve
+> de nada por ser la misma versión rota.
