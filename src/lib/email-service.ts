@@ -5,35 +5,53 @@ import { appUrl } from '@/lib/app-url';
 import { toParagraphs } from '@/lib/readable-text';
 
 /**
- * "Add to Google Calendar" link for a commitment. No OAuth: it opens Google
- * Calendar's own compose screen, prefilled, in whatever account the reader is
- * signed into.
+ * Enlace de acción para un compromiso: "Añadir a Calendar" o "Marcar en
+ * ZRNote", según qué clase de cosa sea. No todo compromiso es lo mismo:
  *
- * EVERY commitment gets a link, including the ones with no agreed deadline.
- * Those used to return an empty string, so the majority of tasks arrived with
- * no way to act on them — and now that the minute prompt refuses to invent
- * deadlines, that was most of them. When there is no date we propose tomorrow
- * 9:00 and label the link so it is obvious the reader is the one choosing:
- * Google's screen opens with the date editable before saving.
+ *  - **Evento** (`kind: 'evento'`) — ocurre EN un momento concreto: una
+ *    reunión, una llamada, una visita. Se agenda como un bloque de tiempo, con
+ *    hora. Si no se acordó fecha, se propone mañana 9:00 como punto de
+ *    partida editable — un evento sin ningún horario propuesto no es
+ *    accionable.
+ *  - **Tarea** (`kind: 'tarea'`, el caso por defecto y más común) — se
+ *    completa ANTES de una fecha, no ocurre EN ella. "Enviar la cotización"
+ *    no pasa "de 9:00 a 9:30": eso es forzar un molde de evento sobre algo que
+ *    no lo es. Con fecha, se marca el DÍA ENTERO en Calendar (`allDay`), no un
+ *    bloque de media hora que no representa nada real.
+ *  - **Tarea sin fecha** — no se inventa una. Antes se le ponía "mañana 9:00"
+ *    de relleno para que hubiera algo que hacer con el enlace; ahora, en su
+ *    lugar, se enlaza directo a la lista de compromisos dentro de ZRNote,
+ *    donde de verdad se puede poner fecha o marcarla como hecha.
  */
 function actionItemCalendarLink(item: any): string {
   const hasDate = typeof item?.due_date === 'string' && !Number.isNaN(new Date(`${item.due_date}T09:00:00`).getTime());
+  const isEvent = item?.kind === 'evento';
+
+  if (!isEvent && !hasDate) {
+    const url = `${appUrl()}/dashboard/action-items`;
+    return ` <a href="${url}" style="color:#2563eb;text-decoration:none;font-size:12px;white-space:nowrap">☑️ Marcar en ZRNote</a>`;
+  }
 
   const start = hasDate ? new Date(`${item.due_date}T09:00:00`) : nextMorning();
   const end = new Date(start.getTime() + 30 * 60 * 1000);
 
+  const description =
+    `${isEvent ? 'Evento' : 'Tarea'} acordado en una reunión — ZRNote.\n` +
+    `Prioridad: ${item?.priority || 'media'}\n` +
+    (hasDate ? '' : 'Sin fecha acordada en la reunión: ajusta el día antes de guardar.\n') +
+    `${appUrl()}/dashboard/action-items`;
+
   const url = generateGoogleCalendarUrl({
     title: item?.description || 'Compromiso (ZRNote)',
-    description:
-      `Compromiso acordado en una reunión — ZRNote.\n` +
-      `Prioridad: ${item?.priority || 'media'}\n` +
-      (hasDate ? '' : 'Sin fecha acordada en la reunión: ajusta el día antes de guardar.\n') +
-      `${appUrl()}/dashboard/action-items`,
+    description,
     startTime: start,
     endTime: end,
+    // Una tarea con fecha marca el día entero; un evento reserva su bloque de
+    // tiempo — es justo la distinción que motiva esta función.
+    allDay: !isEvent,
   });
 
-  const label = hasDate ? '📅 Añadir a Calendar' : '📅 Ponerle fecha';
+  const label = isEvent ? (hasDate ? '📅 Añadir a Calendar' : '📅 Ponerle fecha') : '📅 Añadir a Calendar (todo el día)';
   return ` <a href="${url}" style="color:#2563eb;text-decoration:none;font-size:12px;white-space:nowrap">${label}</a>`;
 }
 

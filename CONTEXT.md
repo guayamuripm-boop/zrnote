@@ -3,23 +3,27 @@
 
 ---
 
-## 🚦 ESTADO: acta sin alucinaciones, legible, e instalación de la app (v1.15.0 en curso, 2026-08-08)
+## 🚦 ESTADO: falsos positivos de silencio corregidos, evento vs. tarea (v1.16.0 en curso, 2026-08-08)
 
 **En producción: v1.14.0** (commit `6a325c0`). Build ✅ · TypeScript ✅ ·
 220 tests ✅ · Next 15 + React 19 · https://zrnote.vercel.app
 
-**En curso, sin desplegar todavía: v1.15.0** — botón «Instalar app» (PWA) y
-página `/dashboard/ayuda`. Ver [runbook 06](docs/runbooks/06-instalacion-y-ayuda.md).
+**En curso, sin desplegar todavía: v1.15.0 y v1.16.0** —
+botón «Instalar app» + página de ayuda (v1.15), corrección de falsos
+positivos del filtro de silencio + compromisos evento/tarea (v1.16).
+Ver [runbook 06](docs/runbooks/06-instalacion-y-ayuda.md),
+[runbook 05 §1.5](docs/runbooks/05-transcripcion-y-legibilidad.md) y
+[runbook 01 §7](docs/runbooks/01-correo.md).
 
 > 📘 **Los procedimientos operativos viven en [`docs/runbooks/`](docs/runbooks/README.md)**,
 > uno por subsistema, cada uno con su diagnóstico y su marcha atrás.
 > Empieza por [00 — Respaldo y restauración](docs/runbooks/00-respaldo-y-restauracion.md).
 
-### Migraciones — todas aplicadas en producción, ninguna pendiente
+### Migraciones — una pendiente de aplicar
 
-`021_email_idempotency.sql` · `022_email_unsubscribes.sql` ·
-`023_auto_titles.sql` — las tres aplicadas. v1.14 y v1.15 no añaden ninguna
-migración nueva.
+`021` a `023` aplicadas. **`024_action_item_kind.sql` (v1.16) todavía NO se
+ha aplicado** — añade `action_items.kind`. Aditiva y con degradación segura:
+sin ella, todo compromiso simplemente sigue tratándose como `'tarea'`.
 
 Variables de entorno: **no hace falta ninguna nueva.** `MINUTE_LINK_SECRET` es
 opcional; sin ella la clave de firma se deriva de `SUPABASE_SERVICE_ROLE_KEY`.
@@ -38,6 +42,32 @@ una reunión en vivo, que sigue sin verificarse con audio real.
 rama `respaldo/v1.14.0-estable`, snapshot en `.backups/`. Ver
 [runbook 00](docs/runbooks/00-respaldo-y-restauracion.md) para el
 procedimiento completo de vuelta atrás si algo falla en producción.
+
+### Qué cambió (v1.15 → v1.16, sin desplegar)
+
+- **Corregidos falsos positivos del filtro de silencio (v1.14).** Reportado en
+  producción: reuniones audibles se marcaban como "sin voz detectada". Causa:
+  `/hasta la proxima/` no estaba anclado y esa despedida es normalísima en
+  cualquier cierre de reunión o clase real; y `isRepetitionLoop` se aplicaba
+  también sobre texto real con métricas de Whisper sanas. Arreglo: las
+  alucinaciones de Whisper son siempre frases cortas y enlatadas, así que
+  ahora el filtro de patrones ignora cualquier texto de más de 80 caracteres,
+  y la heurística de repetición sólo se usa cuando Whisper no mandó
+  `compression_ratio`. Ver [runbook 05 §1.5](docs/runbooks/05-transcripcion-y-legibilidad.md).
+- **Compromisos: evento vs. tarea.** La IA clasifica cada compromiso —
+  `'evento'` si ocurre en un momento concreto (reunión, llamada, visita),
+  `'tarea'` para todo lo demás (el caso común: enviar, revisar, preparar). Ya
+  no se ofrece un bloque de 30 minutos en Calendar para algo que no lo es: una
+  tarea con fecha marca el día entero; una tarea SIN fecha ya no fabrica una
+  fecha falsa — enlaza directo a los compromisos dentro de ZRNote. Se
+  investigó integrar Google Tasks de verdad y se descartó: a diferencia de
+  Calendar, no tiene URL de "añadir rápido" sin OAuth. Ver
+  [runbook 01 §7](docs/runbooks/01-correo.md). Migración `024_action_item_kind.sql`.
+- Confirmado, sin cambios de código: **no hay ningún límite de cantidad de
+  compromisos** en el correo ni en la app — se investigó a petición explícita
+  y no existe tal `.slice()`. El único techo real es el presupuesto de tokens
+  de Groq (el modelo de respaldo gratuito) en reuniones muy densas, una
+  restricción de la cuota gratuita, no del código.
 
 ### Qué cambió (v1.14 → v1.15, sin desplegar)
 

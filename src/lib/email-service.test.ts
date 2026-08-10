@@ -44,20 +44,51 @@ describe('buildActionItemsHtml', () => {
     expect(html).toContain('Por definir');
   });
 
-  it('offers a calendar link even when the item has no due date', () => {
-    // These used to render nothing at all, so most commitments arrived with no
-    // way to act on them — and the minute prompt no longer invents deadlines.
+  // --- evento vs tarea: ver actionItemCalendarLink en email-service.ts ---
+
+  it('una tarea (por defecto) sin fecha enlaza al propio ZRNote, no a Calendar', () => {
+    // Antes se inventaba "mañana 9:00" de relleno para que hubiera algo que
+    // hacer con el enlace. Ahora, en su lugar, se enlaza a donde de verdad se
+    // puede poner fecha o marcarla como hecha — sin fabricar una fecha falsa.
     const html = buildActionItemsHtml([{ id: 'a1', description: 'Enviar cotización', priority: 'alta' }]);
+    expect(html).not.toContain('calendar.google.com');
+    expect(html).toContain('Marcar en ZRNote');
+    expect(html).toContain('/dashboard/action-items');
+  });
+
+  it('un evento sin fecha SÍ propone Calendar, porque necesita un horario para ser accionable', () => {
+    const html = buildActionItemsHtml([
+      { id: 'a1', description: 'Reunión de seguimiento con el proveedor', priority: 'alta', kind: 'evento' },
+    ]);
     expect(html).toContain('calendar.google.com');
     expect(html).toContain('Ponerle fecha');
   });
 
-  it('labels the link differently when the date IS known', () => {
+  it('una tarea con fecha marca el día entero, no un bloque de 30 minutos', () => {
     const html = buildActionItemsHtml([
       { id: 'a1', description: 'Enviar cotización', priority: 'alta', due_date: '2026-08-15' },
     ]);
     expect(html).toContain('Añadir a Calendar');
+    expect(html).toContain('todo el día');
     expect(html).toContain('20260815');
+    // "Todo el día" en la API de Google es sin componente de hora.
+    expect(html).not.toContain('20260815T090000Z');
+  });
+
+  it('un evento con fecha SÍ reserva un bloque de tiempo concreto', () => {
+    const html = buildActionItemsHtml([
+      { id: 'a1', description: 'Llamada con el cliente', priority: 'alta', due_date: '2026-08-15', kind: 'evento' },
+    ]);
+    expect(html).toContain('Añadir a Calendar');
+    expect(html).not.toContain('todo el día');
+    // Con hora concreta (no "todo el día"), no con VALUE=DATE. La hora exacta
+    // en UTC depende de la zona horaria del servidor — eso no es parte de lo
+    // que este test verifica. Se decodifica sólo el href, no el HTML entero:
+    // el CSS de la tabla trae "%" sueltos (p. ej. "width:100%") que rompen
+    // decodeURIComponent si se le pasa el documento completo.
+    const href = html.match(/href="([^"]+)"/)?.[1] ?? '';
+    expect(decodeURIComponent(href)).toMatch(/dates=\d{8}T\d{6}Z\/\d{8}T\d{6}Z/);
+    expect(html).not.toContain('VALUE=DATE');
   });
 
   it('renders a table row per item and escapes fields', () => {

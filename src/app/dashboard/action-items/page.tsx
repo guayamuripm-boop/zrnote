@@ -40,6 +40,7 @@ export default async function ActionItemsPage() {
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <p className={`font-medium text-slate-900 dark:text-slate-100 ${item.status === 'completado' ? 'line-through' : ''}`}>
+                    {item.kind === 'evento' && <span title="Evento: ocurre en un momento concreto" aria-hidden="true">📅 </span>}
                     {item.description}
                   </p>
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">

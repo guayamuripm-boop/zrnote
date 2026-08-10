@@ -19,7 +19,7 @@ function compactDate(dateStr: string): string {
 }
 
 /**
- * Los compromisos se agendan a las 09:00 y duran media hora.
+ * Los EVENTOS se agendan a las 09:00 y duran media hora.
  *
  * El .ics reservaba de 09:00 a 10:00 mientras que el enlace de Google Calendar
  * del mismo compromiso proponía 09:00–09:30: la misma tarea ocupaba distinto
@@ -32,6 +32,13 @@ function formatDate(dateStr: string): string {
 
 function formatEnd(dateStr: string): string {
   return `${compactDate(dateStr)}T093000`;
+}
+
+/** Un día después, en `YYYYMMDD` — el fin de un VEVENT de todo el día es EXCLUSIVO. */
+function nextDay(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 function nowStamp(): string {
@@ -58,6 +65,8 @@ export interface CalendarEvent {
   dueDate: string;
   priority: string;
   assigneeName: string;
+  /** 'evento' reserva un bloque de tiempo; 'tarea' (por defecto) marca el día entero. */
+  kind?: 'evento' | 'tarea';
 }
 
 export function generateICS(events: CalendarEvent[]): string {
@@ -74,15 +83,28 @@ export function generateICS(events: CalendarEvent[]): string {
   ];
 
   for (const event of events) {
-    const dtstart = event.dueDate ? formatDate(event.dueDate) : nowStamp();
-    const dtend = event.dueDate ? formatEnd(event.dueDate) : nowStamp();
+    // Una tarea con fecha marca el día entero (VALUE=DATE, sin hora); un
+    // evento reserva su bloque de 09:00 a 09:30. Sin fecha, no hay diferencia
+    // posible: se usa el instante actual como antes.
+    const isAllDay = event.kind !== 'evento' && !!event.dueDate;
+
+    const dtstartLine = !event.dueDate
+      ? `DTSTART:${nowStamp()}`
+      : isAllDay
+        ? `DTSTART;VALUE=DATE:${compactDate(event.dueDate)}`
+        : `DTSTART:${formatDate(event.dueDate)}`;
+    const dtendLine = !event.dueDate
+      ? `DTEND:${nowStamp()}`
+      : isAllDay
+        ? `DTEND;VALUE=DATE:${nextDay(event.dueDate)}`
+        : `DTEND:${formatEnd(event.dueDate)}`;
 
     lines.push(
       'BEGIN:VEVENT',
       `UID:${event.uid}`,
       `DTSTAMP:${nowStamp()}`,
-      `DTSTART:${dtstart}`,
-      `DTEND:${dtend}`,
+      dtstartLine,
+      dtendLine,
       `SUMMARY:${escapeICS(`[ZRNote] ${event.summary}`)}`,
       `DESCRIPTION:${escapeICS(event.description)}`,
       `PRIORITY:${priorityNumber(event.priority)}`,

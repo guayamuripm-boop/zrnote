@@ -52,4 +52,31 @@ describe('generateGoogleCalendarUrl', () => {
     expect(url).not.toContain('dates=');
     expect(url).toContain('action=TEMPLATE');
   });
+
+  describe('allDay (tareas con fecha, sin hora concreta)', () => {
+    it('marca el día entero, sin hora', () => {
+      const url = generateGoogleCalendarUrl({
+        title: 'Enviar la cotización',
+        description: '',
+        startTime: new Date('2026-08-15T09:00:00.000Z'),
+        endTime: new Date('2026-08-15T09:30:00.000Z'), // se ignora en modo allDay
+        allDay: true,
+      });
+      // El final es EXCLUSIVO en la API de Google: un evento de un solo día
+      // lleva start=ese día, end=día siguiente.
+      expect(decodeURIComponent(url)).toContain('dates=20260815/20260816');
+      expect(url).not.toContain('T090000Z');
+    });
+
+    it('no revienta con una fecha inválida', () => {
+      const url = generateGoogleCalendarUrl({
+        title: 'Sin fecha',
+        description: '',
+        startTime: new Date('no es una fecha'),
+        endTime: new Date('no es una fecha'),
+        allDay: true,
+      });
+      expect(url).not.toContain('dates=');
+    });
+  });
 });

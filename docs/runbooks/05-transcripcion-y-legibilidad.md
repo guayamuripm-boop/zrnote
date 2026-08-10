@@ -82,6 +82,44 @@ MINUTE_PROMPT        → instrucción explícita: si esto no da para un acta,
 deliberado: es preferible que el usuario sepa que su grabación no sirvió a que
 reciba un acta inventada.
 
+### 1.5. Corrección (v1.16): el filtro tenía falsos positivos reales
+
+Reportado en producción: reuniones **perfectamente audibles** se marcaban como
+silencio. Tres causas concretas, todas en el filtro de patrones de texto —
+las métricas reales de Whisper (`no_speech_prob`/`avg_logprob`) nunca fueron
+el problema:
+
+1. **`/hasta la proxima/` no estaba anclado.** Coincidía con esa frase en
+   CUALQUIER parte de un fragmento, y "hasta la próxima" es una despedida
+   real y normalísima para cerrar una reunión o una clase. Un fragmento real
+   de 20 palabras que terminara así se descartaba entero.
+2. **La segunda barrera (`analyzeMeeting`) aplicaba el mismo patrón sobre la
+   transcripción COMPLETA concatenada.** Una reunión entera y audible que
+   simplemente cerrara con esa frase podía perder toda su transcripción de un
+   plumazo — esto era lo que más probablemente causaba el bug reportado.
+3. **`isRepetitionLoop` se aplicaba también sobre texto real** con métricas de
+   Whisper sanas. El español hablado repite conectores constantemente
+   ("bueno", "entonces", "o sea"); el umbral de 25% de palabras únicas sobre
+   sólo 12 palabras confundía conversación normal con un bucle.
+
+**La corrección, con un principio distinto:** las alucinaciones de Whisper son
+SIEMPRE frases cortas y enlatadas — nunca aparecen incrustadas en una oración
+real y larga. `looksLikeHallucination()` ahora ignora cualquier texto de más
+de 80 caracteres (`MAX_HALLUCINATION_CANDIDATE_LEN`), sea lo que sea que
+contenga. Eso protege el contenido real sin tener que mantener una lista
+perfecta de frases prohibidas. Además:
+
+- Se quitaron del listado `hasta la proxima` y las URLs genéricas — ambas
+  cosas se dicen de verdad en reuniones reales.
+- `isRepetitionLoop` sólo se usa cuando Whisper **no** mandó
+  `compression_ratio` para ese fragmento — si la métrica real está disponible,
+  se usa ella y no la heurística de texto. El umbral también subió (20
+  palabras mínimo, 15% en vez de 25%) para el caso en que sí hace falta.
+
+Ver los tests de regresión en `whisper-quality.test.ts` — reproducen
+literalmente el caso reportado (una reunión real que cierra con "hasta la
+próxima").
+
 ---
 
 ## 2. Legibilidad del acta

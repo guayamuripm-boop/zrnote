@@ -113,6 +113,7 @@ function itemsToCalendarEvents(items: any[], contextTitle: string): CalendarEven
       dueDate: i.due_date,
       priority: i.priority || 'media',
       assigneeName: i.assignee_name || '',
+      kind: i.kind === 'evento' ? 'evento' : 'tarea',
     }));
 }
 

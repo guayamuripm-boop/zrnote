@@ -158,6 +158,7 @@ export default async function MeetingDetailPage({
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <p className={`font-medium text-slate-900 dark:text-slate-100 ${item.status === 'completado' ? 'line-through opacity-60' : ''}`}>
+                          {item.kind === 'evento' && <span title="Evento: ocurre en un momento concreto" aria-hidden="true">📅 </span>}
                           {item.description}
                         </p>
                         <div className="flex items-center gap-3 mt-2 flex-wrap">

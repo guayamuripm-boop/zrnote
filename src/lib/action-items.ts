@@ -6,6 +6,8 @@ export interface ScopedActionItem {
   priority: string | null;
   due_date: string | null;
   status: string;
+  /** 'evento' = ocurre en un momento concreto; 'tarea' (por defecto) = se completa antes de una fecha. */
+  kind?: string | null;
   assignee_name: string | null;
   assignee_email: string | null;
   created_at: string;
@@ -60,7 +62,7 @@ export async function getUserActionItems(
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
   );
 
-  const select = 'id, description, priority, due_date, status, assignee_name, assignee_email, assignee_user_id, created_at, meetings!inner(id, title, created_at)';
+  const select = 'id, description, priority, due_date, status, kind, assignee_name, assignee_email, assignee_user_id, created_at, meetings!inner(id, title, created_at)';
 
   const orFilter = [
     userId ? `assignee_user_id.eq.${userId}` : null,

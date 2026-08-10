@@ -36,11 +36,43 @@ describe('looksLikeHallucination', () => {
     // Una despedida DENTRO de una frase real no debe disparar el filtro.
     expect(looksLikeHallucination('Bueno, gracias a todos por venir, revisamos el lunes')).toBe(false);
   });
+
+  // --- Regresiones reales reportadas en producción (v1.14) ---
+
+  it('NO descarta "hasta la próxima": es una despedida real y normalísima', () => {
+    // Bug real: el patrón no estaba anclado, así que cualquier reunión o clase
+    // que cerrara con esta frase —carísimamente común— perdía el fragmento
+    // entero. Se quitó de la lista de patrones.
+    expect(looksLikeHallucination('Hasta la próxima.')).toBe(false);
+    expect(looksLikeHallucination('Bueno, entonces quedamos así, hasta la próxima reunión del comité')).toBe(false);
+  });
+
+  it('NO descarta que alguien mencione una URL real', () => {
+    // "revisen www.empresa.com" es perfectamente normal en una reunión de
+    // trabajo; el patrón de URL genérico se quitó por el mismo motivo.
+    expect(looksLikeHallucination('También revisen la propuesta en www.empresa.com antes del jueves')).toBe(false);
+  });
+
+  it('un texto LARGO nunca cuenta como alucinación, aunque contenga una frase de la lista', () => {
+    // Las alucinaciones de Whisper son frases cortas y enlatadas — nunca
+    // aparecen incrustadas en una oración real y larga. Esta es la protección
+    // de fondo, más importante que la lista de frases en sí.
+    const oracionLarga =
+      'Quiero agradecer a todos por venir hoy, sé que fue un esfuerzo llegar temprano, y antes de cerrar la reunión les recuerdo que el viernes es la fecha límite para la entrega del informe';
+    expect(looksLikeHallucination(oracionLarga)).toBe(false);
+  });
+
+  it('SÍ descarta la frase de alucinación cuando es corta y aislada', () => {
+    // El contraste con el caso anterior: la misma familia de frase, pero como
+    // TODO el contenido de un fragmento corto, sigue siendo el caso que
+    // este módulo existe para atrapar.
+    expect(looksLikeHallucination('Suscríbete al canal para más videos')).toBe(true);
+  });
 });
 
 describe('isRepetitionLoop', () => {
   it('detecta a Whisper atascado repitiendo', () => {
-    expect(isRepetitionLoop('sí sí sí sí sí sí sí sí sí sí sí sí sí sí')).toBe(true);
+    expect(isRepetitionLoop(Array(22).fill('sí').join(' '))).toBe(true);
   });
 
   it('no marca texto corto', () => {
@@ -54,6 +86,16 @@ describe('isRepetitionLoop', () => {
         'Revisamos el avance del proyecto, Ana envía la cotización el viernes y Luis contacta al proveedor la semana entrante',
       ),
     ).toBe(false);
+  });
+
+  it('NO marca español hablado real con muletillas repetidas', () => {
+    // Bug real: el umbral anterior (25% de palabras únicas sobre 12 palabras)
+    // confundía conversación normal con un bucle. El español hablado repite
+    // "bueno", "entonces", "o sea" constantemente sin que eso sea Whisper
+    // alucinando.
+    const hablaNatural =
+      'Bueno entonces yo creo que bueno lo que pasa es que bueno tenemos que revisar bueno el tema del presupuesto entonces bueno vamos a quedar en eso';
+    expect(isRepetitionLoop(hablaNatural)).toBe(false);
   });
 });
 
@@ -98,6 +140,21 @@ describe('cleanWhisperResult', () => {
     expect(r.isSilence).toBe(true);
   });
 
+  it('cuando compression_ratio viene y es normal, NO recurre a la heurística de texto', () => {
+    // Bug real: antes se aplicaban las dos comprobaciones a la vez, así que un
+    // segmento real con una métrica de Whisper perfectamente sana podía caer
+    // igual por el heurístico de texto sobre habla repetitiva normal.
+    const textoRepetitivoPeroReal =
+      'bueno bueno entonces bueno yo creo que bueno tenemos que bueno revisar esto bueno antes del jueves bueno';
+    const r = cleanWhisperResult({
+      segments: [
+        { text: textoRepetitivoPeroReal, no_speech_prob: 0.05, avg_logprob: -0.3, compression_ratio: 1.3 },
+      ],
+    });
+    expect(r.isSilence).toBe(false);
+    expect(r.text).toContain('revisar esto');
+  });
+
   it('descarta alucinaciones aunque las métricas parezcan buenas', () => {
     // Whisper a veces está MUY seguro de su alucinación.
     const r = cleanWhisperResult({
@@ -140,5 +197,26 @@ describe('cleanWhisperResult', () => {
   it('aguanta una respuesta vacía sin reventar', () => {
     expect(cleanWhisperResult({}).isSilence).toBe(true);
     expect(cleanWhisperResult({ segments: [] }).isSilence).toBe(true);
+  });
+
+  // --- El bug reportado: reunión audible marcada como silencio ---
+
+  it('NO marca como silencio una transcripción real completa que cierra con "hasta la próxima"', () => {
+    // Esto es exactamente lo que pasaba en producción: analyzeMeeting() llama
+    // a cleanWhisperResult({ text: transcripcionCompleta }) — sin `segments`,
+    // porque la transcripción ya viene concatenada de varios fragmentos — y
+    // esa es la rama de texto completo. Antes, "hasta la próxima" en
+    // cualquier parte de una reunión real y larga tiraba TODA la
+    // transcripción a la basura.
+    const transcripcionReal =
+      'Buenos días a todos, empezamos revisando el avance del proyecto de la semana pasada. ' +
+      'Ana comentó que la cotización de materiales ya está lista y la va a enviar el viernes. ' +
+      'Luis quedó en contactar al proveedor para coordinar la entrega la próxima semana. ' +
+      'También se habló del presupuesto general, que queda pendiente de aprobar en la próxima reunión. ' +
+      'Bueno, creo que eso es todo por hoy, gracias a todos por venir, hasta la próxima.';
+    const r = cleanWhisperResult({ text: transcripcionReal });
+    expect(r.isSilence).toBe(false);
+    expect(r.text).toContain('cotización de materiales');
+    expect(r.text).toContain('hasta la próxima');
   });
 });

@@ -19,23 +19,44 @@ function toGoogleUtc(date: Date): string {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 }
 
+/** `YYYYMMDD`, sin hora — lo que Google exige para un evento de "todo el día". */
+function toGoogleUtcDate(date: Date): string {
+  return toGoogleUtc(date).slice(0, 8);
+}
+
 export function generateGoogleCalendarUrl(event: {
   title: string;
   description: string;
   startTime: Date;
   endTime: Date;
   location?: string;
+  /**
+   * Para las TAREAS con fecha, no para los eventos: Google marca el día
+   * entero en vez de reservar un bloque de 30 minutos que no representa nada
+   * real ("enviar la cotización" no ocurre "de 9:00 a 9:30").
+   */
+  allDay?: boolean;
 }): string {
-  const start = toGoogleUtc(event.startTime);
-  const end = toGoogleUtc(event.endTime);
-
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: event.title,
     details: event.description,
     location: event.location || '',
   });
-  if (start && end) params.set('dates', `${start}/${end}`);
+
+  if (event.allDay) {
+    // Un evento de todo el día de un solo día lleva start=ese día,
+    // end=día siguiente — el final es EXCLUSIVO en la API de Google.
+    const startDay = toGoogleUtcDate(event.startTime);
+    const endExclusive = new Date(event.startTime);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    const endDay = toGoogleUtcDate(endExclusive);
+    if (startDay) params.set('dates', `${startDay}/${endDay}`);
+  } else {
+    const start = toGoogleUtc(event.startTime);
+    const end = toGoogleUtc(event.endTime);
+    if (start && end) params.set('dates', `${start}/${end}`);
+  }
 
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }

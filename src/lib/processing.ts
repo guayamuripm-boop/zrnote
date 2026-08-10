@@ -499,6 +499,7 @@ Es lo único que hace que alguien vuelva a abrir esta minuta. Trátalos con cuid
 - Redacta cada tarea empezando por un verbo, y que se entienda sola: "Enviar la cotización de tuberías al cliente", no "lo de la cotización".
 - Si una tarea la asumen dos personas, escribe un compromiso por cada una.
 - Si alguien asumió varias cosas distintas, sepáralas. Una tarea = una acción.
+- Clasifica cada compromiso en "kind": "evento" sólo si tiene hora y lugar propios —una reunión, una llamada, una visita— porque eso se agenda como un bloque de tiempo. Todo lo demás es "tarea": algo que se completa ANTES de una fecha, no que ocurre EN una fecha. La inmensa mayoría son tareas. Ante la duda, tarea.
 
 ${attributionRules}
 
@@ -524,7 +525,8 @@ ${needsTitle ? `ESTA REUNIÓN NO TIENE TÍTULO TODAVÍA (se grabó con "Grabar a
       "assignee_name": "Nombre del responsable, o null",
       "description": "Acción concreta que empieza por verbo y se entiende sin contexto",
       "due_date": "YYYY-MM-DD o null",
-      "priority": "alta | media | baja"
+      "priority": "alta | media | baja",
+      "kind": "tarea | evento — 'evento' SOLO si ocurre en un momento concreto (una reunión, una llamada, una visita, una presentación); 'tarea' para todo lo demás, que es casi siempre: enviar, revisar, preparar, contactar, corregir..."
     }
   ],
   "decisions": [ { "decision": "Qué se acordó, en concreto", "context": "Por qué, o bajo qué condición" } ],
@@ -630,6 +632,18 @@ export function normalizePriority(value: unknown): 'alta' | 'media' | 'baja' {
   if (['alta', 'high', 'urgente', 'crítica', 'critica', 'critical', 'p0', 'p1'].includes(v)) return 'alta';
   if (['baja', 'low', 'menor', 'p3'].includes(v)) return 'baja';
   return 'media';
+}
+
+/**
+ * 'evento' | 'tarea' — decide si un compromiso se agenda como un bloque de
+ * tiempo (una reunión, una llamada) o como algo que se completa antes de una
+ * fecha (enviar, revisar, preparar…). 'tarea' es el valor por defecto a
+ * propósito: es, de lejos, el caso más común, y es el que ya funcionaba antes
+ * de que existiera esta distinción — cualquier valor que el modelo no
+ * reconozca degrada al comportamiento de siempre, no a uno nuevo.
+ */
+export function normalizeItemKind(value: unknown): 'evento' | 'tarea' {
+  return String(value ?? '').toLowerCase().trim() === 'evento' ? 'evento' : 'tarea';
 }
 
 /** Accept only a real ISO date; anything else becomes null instead of failing the insert. */
@@ -1006,6 +1020,7 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
       description: item.description.trim(),
       due_date: normalizeDueDate(item.due_date),
       priority: normalizePriority(item.priority),
+      kind: normalizeItemKind(item.kind),
     }));
 
   if (actionItemsToInsert.length > 0) {

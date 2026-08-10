@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizePriority, normalizeDueDate } from './processing';
+import { normalizePriority, normalizeDueDate, normalizeItemKind } from './processing';
 
 // These two guard the action_items insert. `priority` has a CHECK constraint and
 // `due_date` is a DATE column, so a single off-shape value from the LLM used to
@@ -55,5 +55,25 @@ describe('normalizeDueDate', () => {
     expect(normalizeDueDate(null)).toBeNull();
     expect(normalizeDueDate(undefined)).toBeNull();
     expect(normalizeDueDate(20260815)).toBeNull();
+  });
+});
+
+// 'tarea' es el valor por defecto a propósito: es el comportamiento que ya
+// existía antes de que se pudiera distinguir evento de tarea. Cualquier valor
+// que el modelo no reconozca (o la ausencia total del campo, en filas viejas
+// de antes de esta columna) tiene que caer ahí, no a mitad de camino.
+describe('normalizeItemKind', () => {
+  it('reconoce "evento"', () => {
+    expect(normalizeItemKind('evento')).toBe('evento');
+    expect(normalizeItemKind('EVENTO')).toBe('evento');
+    expect(normalizeItemKind('  evento  ')).toBe('evento');
+  });
+
+  it('todo lo demás es "tarea"', () => {
+    expect(normalizeItemKind('tarea')).toBe('tarea');
+    expect(normalizeItemKind('reunion')).toBe('tarea');
+    expect(normalizeItemKind('')).toBe('tarea');
+    expect(normalizeItemKind(null)).toBe('tarea');
+    expect(normalizeItemKind(undefined)).toBe('tarea');
   });
 });

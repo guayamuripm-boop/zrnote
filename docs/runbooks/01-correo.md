@@ -290,7 +290,44 @@ idempotencia y los constructores de HTML **no cambian**.
 
 ---
 
-## 7. Invariantes que no hay que romper
+## 7. Compromisos: evento vs. tarea (v1.16)
+
+Cada compromiso se clasifica ahora en `kind`: `'evento'` (ocurre en un momento
+concreto — una reunión, una llamada, una visita) o `'tarea'` (se completa
+ANTES de una fecha — enviar, revisar, preparar; el valor por defecto, y el más
+común con diferencia). Lo decide el LLM al redactar el acta, en el mismo JSON
+que ya devuelve — sin llamada adicional.
+
+**Por qué importa para el correo y el calendario:** antes, TODO compromiso con
+fecha se ofrecía como un bloque de 30 minutos a las 9:00 en Google Calendar,
+tuviera sentido o no. "Enviar la cotización" no ocurre "de 9:00 a 9:30" — eso
+es forzar un molde de evento sobre algo que no lo es.
+
+| | Con fecha | Sin fecha |
+|---|---|---|
+| **Evento** | Bloque de tiempo, 09:00–09:30 (o la hora acordada) | Se propone mañana 9:00, editable — un evento sin ningún horario no es accionable |
+| **Tarea** | Google Calendar de **todo el día** (`allDay`), no un bloque | **Sin enlace a Calendar.** En su lugar, enlaza a `/dashboard/action-items`, donde de verdad se puede poner fecha o marcarla como hecha — no se inventa una fecha falsa |
+
+Se aplica en tres sitios en paralelo, y los tres deben decir lo mismo:
+`actionItemCalendarLink()` (el botón del correo), `generateGoogleCalendarUrl()`
+con `allDay: true` (mismo mecanismo, formato `dates=YYYYMMDD/YYYYMMDD` sin
+hora — el final es EXCLUSIVO en la API de Google), y `generateICS()` (el
+adjunto `.ics`, con `DTSTART;VALUE=DATE:` en vez de `DTSTART:...T090000`).
+
+**Por qué NO hay integración con Google Tasks.** Se investigó: a diferencia de
+Calendar, Google Tasks no tiene una URL de "añadir rápido" sin autenticación
+— cualquier creación programática exige la API de Tasks con OAuth. Eso
+implica que cada usuario autorizara a ZRNote a acceder a su cuenta de Google,
+una pieza de infraestructura y de consentimiento que no se monta sin decisión
+explícita. La distinción evento/tarea de arriba consigue casi el mismo
+resultado práctico —que una tarea no ocupe un hueco falso en el calendario—
+sin necesitar ninguna autenticación nueva.
+
+Migración: `024_action_item_kind.sql`, aditiva, `kind` con `DEFAULT 'tarea'`.
+
+---
+
+## 8. Invariantes que no hay que romper
 
 1. **Todo el correo sale por `sendMail()`.** Ya nos costó un fallo tener dos
    constructores de minutas, uno de los cuales no escapaba el HTML.
@@ -300,3 +337,6 @@ idempotencia y los constructores de HTML **no cambian**.
 4. **Las migraciones son aditivas.** Nunca `DROP COLUMN`.
 5. **Un fallo de registro no puede tumbar un envío correcto** — de ahí que
    `markEmailSent` sólo logee el error en vez de lanzarlo.
+6. **`kind` no reconocido degrada a `'tarea'`**, nunca a `'evento'` — es el
+   comportamiento que ya existía, y equivocarse hacia "evento" fabricaría
+   bloques de calendario falsos sobre algo que no lo es.
