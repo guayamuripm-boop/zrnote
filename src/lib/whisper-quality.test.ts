@@ -3,6 +3,7 @@ import {
   cleanWhisperResult,
   looksLikeHallucination,
   isRepetitionLoop,
+  hasWeakAggregateSignal,
 } from '@/lib/whisper-quality';
 
 /**
@@ -218,5 +219,91 @@ describe('cleanWhisperResult', () => {
     expect(r.isSilence).toBe(false);
     expect(r.text).toContain('cotización de materiales');
     expect(r.text).toContain('hasta la próxima');
+  });
+});
+
+/**
+ * CAPA 2 — el caso real que la motivó: audio dañado/con ruido que Whisper
+ * transcribe como texto fluido y con sentido gramatical (no las muletillas
+ * cortas de siempre), con confianza mediocre y pareja en todos los
+ * fragmentos. Ninguno cruza el umbral estricto de la capa 1 por sí solo.
+ */
+describe('hasWeakAggregateSignal (capa 2)', () => {
+  it('detecta confianza mediocre y sostenida en todo el conjunto', () => {
+    const fragmentosDudosos = [
+      { text: 'Esta lucha se ha realizado en el estudio de la serie de tráfico de fábricas.', no_speech_prob: 0.45, avg_logprob: -0.75, start: 0, end: 5 },
+      { text: 'La sección de tráfico se ha encargado de la distribución de fábricas.', no_speech_prob: 0.5, avg_logprob: -0.8, start: 5, end: 10 },
+      { text: 'Cuando no importa o no se sabe quién realizó la acción.', no_speech_prob: 0.42, avg_logprob: -0.7, start: 10, end: 15 },
+    ];
+    expect(hasWeakAggregateSignal(fragmentosDudosos)).toBe(true);
+  });
+
+  it('NO se dispara con una reunión real, aunque tenga algo de ruido de fondo', () => {
+    const fragmentosReales = [
+      { text: 'Ana enviará la cotización de materiales antes del viernes.', no_speech_prob: 0.1, avg_logprob: -0.3, start: 0, end: 4 },
+      { text: 'Luis va a contactar al proveedor la próxima semana.', no_speech_prob: 0.15, avg_logprob: -0.35, start: 4, end: 8 },
+      // Un fragmento algo ruidoso en medio de otros buenos no debe pesar tanto.
+      { text: 'También quedó pendiente revisar el presupuesto general.', no_speech_prob: 0.3, avg_logprob: -0.5, start: 8, end: 12 },
+    ];
+    expect(hasWeakAggregateSignal(fragmentosReales)).toBe(false);
+  });
+
+  it('pondera por duración cuando viene start/end, no por cantidad de fragmentos', () => {
+    // Un fragmento largo y bueno debe pesar más que dos cortos y dudosos.
+    const fragmentos = [
+      { text: 'eh', no_speech_prob: 0.5, avg_logprob: -0.9, start: 0, end: 1 },
+      { text: 'ajá', no_speech_prob: 0.5, avg_logprob: -0.9, start: 1, end: 2 },
+      {
+        text: 'Quedamos en que Ana revisa el contrato completo y lo envía firmado antes del jueves a primera hora.',
+        no_speech_prob: 0.05,
+        avg_logprob: -0.25,
+        start: 2,
+        end: 30,
+      },
+    ];
+    expect(hasWeakAggregateSignal(fragmentos)).toBe(false);
+  });
+
+  it('sin duración disponible, pondera por longitud de texto', () => {
+    const fragmentosDudosos = [
+      { text: 'Esta lucha se ha realizado en el estudio de la serie de tráfico de fábricas y contactos.', no_speech_prob: 0.45, avg_logprob: -0.75 },
+      { text: 'La sección de tráfico se ha encargado de la distribución completa de las fábricas locales.', no_speech_prob: 0.48, avg_logprob: -0.78 },
+    ];
+    expect(hasWeakAggregateSignal(fragmentosDudosos)).toBe(true);
+  });
+
+  it('ignora fragmentos vacíos y no revienta con una lista vacía', () => {
+    expect(hasWeakAggregateSignal([])).toBe(false);
+    expect(hasWeakAggregateSignal([{ text: '', no_speech_prob: 0.9, avg_logprob: -2 }])).toBe(false);
+  });
+});
+
+describe('cleanWhisperResult — capa 2 integrada', () => {
+  it('descarta una transcripción fluida pero de confianza mediocre y sostenida', () => {
+    // El bug real reportado: transcripción coherente gramaticalmente pero sin
+    // relación con una conversación real, producto de audio dañado/con
+    // ruido. Ningún fragmento individual es tan malo como para que la capa 1
+    // lo tumbe, pero el conjunto es sistemáticamente mediocre.
+    const r = cleanWhisperResult({
+      segments: [
+        { text: 'Esta lucha se ha realizado en el estudio de la serie de tráfico de fábricas.', no_speech_prob: 0.45, avg_logprob: -0.75, compression_ratio: 1.3, start: 0, end: 6 },
+        { text: 'La sección de tráfico se ha encargado de la distribución de fábricas.', no_speech_prob: 0.5, avg_logprob: -0.8, compression_ratio: 1.4, start: 6, end: 12 },
+        { text: 'Cuando no importa o no se sabe quién realizó la acción, coloquen nota.', no_speech_prob: 0.42, avg_logprob: -0.7, compression_ratio: 1.2, start: 12, end: 18 },
+      ],
+    });
+    expect(r.isSilence).toBe(true);
+    expect(r.text).toBe('');
+  });
+
+  it('NO descarta una reunión real por la capa 2, aunque tenga ruido de fondo disperso', () => {
+    const r = cleanWhisperResult({
+      segments: [
+        { text: 'Buenos días a todos, empezamos revisando el avance del proyecto.', no_speech_prob: 0.08, avg_logprob: -0.25, compression_ratio: 1.2, start: 0, end: 5 },
+        { text: 'Ana comentó que la cotización de materiales ya está lista.', no_speech_prob: 0.12, avg_logprob: -0.3, compression_ratio: 1.3, start: 5, end: 10 },
+        { text: 'Luis quedó en contactar al proveedor la próxima semana.', no_speech_prob: 0.28, avg_logprob: -0.55, compression_ratio: 1.2, start: 10, end: 15 },
+      ],
+    });
+    expect(r.isSilence).toBe(false);
+    expect(r.text).toContain('cotización de materiales');
   });
 });

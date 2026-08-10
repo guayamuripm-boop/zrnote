@@ -25,6 +25,26 @@ const LOGPROB_THRESHOLD = -1.0;
 const COMPRESSION_RATIO_THRESHOLD = 2.4;
 
 /**
+ * CAPA 2 — umbrales agregados, más laxos que los de arriba a propósito.
+ *
+ * La capa 1 exige que un fragmento sea MALO por sí solo (no_speech alto Y
+ * logprob bajo A LA VEZ) para tirarlo. Eso deja pasar el caso real que motivó
+ * esta capa: audio dañado o con ruido de fondo que produce texto FLUIDO y
+ * verosímil (frases completas, con sentido gramatical) pero con confianza
+ * mediocre y sostenida en todos los fragmentos — ninguno lo bastante malo
+ * para la capa 1, pero ninguno tampoco con la confianza alta y pareja de una
+ * conversación real bien captada.
+ *
+ * Por eso esta capa no mira un fragmento aislado: promedia la confianza de
+ * TODO lo que sobrevivió la capa 1, ponderado por duración (o longitud de
+ * texto si Groq no manda `start`/`end`). Un promedio sistemáticamente
+ * mediocre es la señal — un fragmento suelto flojo en medio de fragmentos
+ * excelentes no dispara esto, porque el promedio lo diluye.
+ */
+const AGGREGATE_NO_SPEECH_THRESHOLD = 0.35;
+const AGGREGATE_LOGPROB_THRESHOLD = -0.65;
+
+/**
  * Frases que Whisper inventa cuando no hay nada que transcribir.
  *
  * Vienen de subtítulos de YouTube presentes en su entrenamiento. Se comparan
@@ -69,6 +89,8 @@ export interface WhisperSegment {
   no_speech_prob?: number;
   avg_logprob?: number;
   compression_ratio?: number;
+  start?: number;
+  end?: number;
 }
 
 export interface CleanResult {
@@ -131,6 +153,42 @@ export function isRepetitionLoop(text: string): boolean {
 }
 
 /**
+ * CAPA 2 — ¿el conjunto que sobrevivió la capa 1 es, EN PROMEDIO, poco fiable?
+ *
+ * Pondera por duración (`end - start`) cuando Groq la manda; si no, por
+ * longitud de texto — ambas son proxies razonables de "cuánto pesa este
+ * fragmento en el resultado final". Exige las dos condiciones a la vez, igual
+ * que la capa 1, sólo que con umbrales más laxos: así una reunión real con
+ * algo de ruido de fondo (no_speech algo elevado, logprob normal) no cae aquí.
+ */
+export function hasWeakAggregateSignal(segments: WhisperSegment[]): boolean {
+  let weightedNoSpeech = 0;
+  let weightedLogprob = 0;
+  let totalWeight = 0;
+
+  for (const segment of segments) {
+    const text = (segment.text || '').trim();
+    if (!text) continue;
+
+    const weight =
+      typeof segment.start === 'number' && typeof segment.end === 'number' && segment.end > segment.start
+        ? segment.end - segment.start
+        : text.length;
+
+    weightedNoSpeech += (segment.no_speech_prob ?? 0) * weight;
+    weightedLogprob += (segment.avg_logprob ?? 0) * weight;
+    totalWeight += weight;
+  }
+
+  if (totalWeight === 0) return false;
+
+  const avgNoSpeech = weightedNoSpeech / totalWeight;
+  const avgLogprob = weightedLogprob / totalWeight;
+
+  return avgNoSpeech > AGGREGATE_NO_SPEECH_THRESHOLD && avgLogprob < AGGREGATE_LOGPROB_THRESHOLD;
+}
+
+/**
  * Limpia la respuesta de Whisper usando las métricas por fragmento.
  *
  * Se descarta un fragmento cuando:
@@ -139,6 +197,11 @@ export function isRepetitionLoop(text: string): boolean {
  *    audio con voz baja o lejana, que sí queremos conservar.
  *  - El texto se comprime demasiado (repetición en bucle).
  *  - El texto coincide con una alucinación conocida.
+ *
+ * Y se descarta el resultado COMPLETO (capa 2, `hasWeakAggregateSignal`)
+ * cuando ningún fragmento individual fue tan malo como para caer arriba, pero
+ * el conjunto entero tiene una confianza mediocre y sostenida — el patrón de
+ * audio dañado/con ruido que alucina texto fluido en vez de muletillas cortas.
  */
 export function cleanWhisperResult(result: {
   text?: string;
@@ -159,6 +222,7 @@ export function cleanWhisperResult(result: {
   }
 
   const kept: string[] = [];
+  const keptSegments: WhisperSegment[] = [];
   let dropped = 0;
 
   for (const segment of segments) {
@@ -190,13 +254,20 @@ export function cleanWhisperResult(result: {
     }
 
     kept.push(text);
+    keptSegments.push(segment);
   }
 
   const text = kept.join(' ').replace(/\s+/g, ' ').trim();
 
   // Un puñado de palabras sueltas tras filtrar no es una reunión: es ruido que
   // se coló. Mejor tratarlo como silencio que redactar un acta sobre ello.
-  const isSilence = text.length < 25;
+  const tooShort = text.length < 25;
 
-  return { text: isSilence ? '' : text, dropped, total: segments.length, isSilence };
+  // Capa 2: nada individual fue lo bastante malo, pero el conjunto entero
+  // tiene una confianza mediocre y sostenida — el patrón de audio dañado que
+  // alucina texto fluido en vez de muletillas cortas y aisladas.
+  const weakAggregate = !tooShort && hasWeakAggregateSignal(keptSegments);
+  const isSilence = tooShort || weakAggregate;
+
+  return { text: isSilence ? '' : text, dropped: weakAggregate ? segments.length : dropped, total: segments.length, isSilence };
 }
