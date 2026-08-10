@@ -19,6 +19,7 @@ Un runbook por subsistema. Cada uno responde a las mismas cuatro preguntas:
 | [04](04-extension-chrome.md) | Extensión de Chrome | Grabar en Meet/Zoom/Teams, service worker, «Error de conexión» |
 | [05](05-transcripcion-y-legibilidad.md) | Transcripción y legibilidad | Alucinaciones de Whisper sobre silencio, párrafos del acta, caché del logo PWA |
 | [06](06-instalacion-y-ayuda.md) | Instalación y ayuda | Botón «Instalar app» (iOS incluido), página `/dashboard/ayuda`, por qué no hay descarga de la extensión |
+| [07](07-estilo-del-acta.md) | Estilo del acta | Plantillas Ejecutiva/Educativa, notas del organizador, por qué no hay Google Tasks |
 
 ## Pendientes de escribir
 

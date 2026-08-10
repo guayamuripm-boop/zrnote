@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthedUser } from '@/lib/api-auth';
+import { normalizeMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
 
 const createMeetingSchema = z.object({
   title: z.string().min(1),
@@ -18,6 +19,11 @@ const createMeetingSchema = z.object({
   // que la IA redacte a partir del contenido — sin pisar nunca un título que
   // alguien haya escrito a propósito en el formulario normal.
   autoTitle: z.boolean().optional().default(false),
+  // Sin `.enum(...)`: la lista de estilos vive en minute-styles.ts, no aquí —
+  // normalizeMinuteStyle() valida y degrada a 'ejecutiva' ante cualquier valor
+  // que no reconozca, así que un estilo nuevo no exige tocar este schema.
+  minuteStyle: z.string().optional(),
+  styleNotes: z.string().max(MAX_STYLE_NOTES_LENGTH).optional(),
 });
 
 export async function GET() {
@@ -93,12 +99,25 @@ export async function POST(request: Request) {
       org_id: orgId,
       status: 'scheduled',
       title_is_auto: parsed.data.autoTitle,
+      minute_style: normalizeMinuteStyle(parsed.data.minuteStyle),
+      style_notes: parsed.data.styleNotes?.trim() || null,
     })
     .select()
     .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Recordar la elección para la próxima vez — así "Grabar ahora" no obliga a
+  // elegir estilo cada vez, sin que el usuario tenga que ir a configurarlo.
+  // Sólo si vino un valor explícito: si el cliente no mandó nada, no hay
+  // preferencia nueva que guardar.
+  if (parsed.data.minuteStyle) {
+    await supabase
+      .from('users')
+      .update({ default_minute_style: normalizeMinuteStyle(parsed.data.minuteStyle) })
+      .eq('id', user.id);
   }
 
   const { data: creatorProfile } = await supabase

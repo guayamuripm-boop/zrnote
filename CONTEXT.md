@@ -3,27 +3,31 @@
 
 ---
 
-## 🚦 ESTADO: falsos positivos de silencio corregidos, evento vs. tarea (v1.16.0 en curso, 2026-08-08)
+## 🚦 ESTADO: estilo del acta configurable (v1.17.0 en curso, 2026-08-08)
 
 **En producción: v1.14.0** (commit `6a325c0`). Build ✅ · TypeScript ✅ ·
 220 tests ✅ · Next 15 + React 19 · https://zrnote.vercel.app
 
-**En curso, sin desplegar todavía: v1.15.0 y v1.16.0** —
-botón «Instalar app» + página de ayuda (v1.15), corrección de falsos
-positivos del filtro de silencio + compromisos evento/tarea (v1.16).
-Ver [runbook 06](docs/runbooks/06-instalacion-y-ayuda.md),
-[runbook 05 §1.5](docs/runbooks/05-transcripcion-y-legibilidad.md) y
-[runbook 01 §7](docs/runbooks/01-correo.md).
+**En curso, sin desplegar todavía: v1.15.0 a v1.17.0** — botón «Instalar app»
++ página de ayuda (v1.15); corrección de falsos positivos del filtro de
+silencio + compromisos evento/tarea (v1.16); estilo del acta
+Ejecutiva/Educativa (v1.17). Ver
+[runbook 06](docs/runbooks/06-instalacion-y-ayuda.md),
+[runbook 05 §1.5](docs/runbooks/05-transcripcion-y-legibilidad.md),
+[runbook 01 §7](docs/runbooks/01-correo.md) y
+[runbook 07](docs/runbooks/07-estilo-del-acta.md).
 
 > 📘 **Los procedimientos operativos viven en [`docs/runbooks/`](docs/runbooks/README.md)**,
 > uno por subsistema, cada uno con su diagnóstico y su marcha atrás.
 > Empieza por [00 — Respaldo y restauración](docs/runbooks/00-respaldo-y-restauracion.md).
 
-### Migraciones — una pendiente de aplicar
+### Migraciones — dos pendientes de aplicar
 
-`021` a `023` aplicadas. **`024_action_item_kind.sql` (v1.16) todavía NO se
-ha aplicado** — añade `action_items.kind`. Aditiva y con degradación segura:
-sin ella, todo compromiso simplemente sigue tratándose como `'tarea'`.
+`021` a `023` aplicadas. **`024_action_item_kind.sql` y
+`025_minute_style.sql` todavía NO se han aplicado.** Ambas aditivas y con
+degradación segura: sin `024`, todo compromiso sigue tratándose como
+`'tarea'`; sin `025`, toda acta sigue redactándose en estilo `'ejecutiva'` —
+en los dos casos, exactamente el comportamiento de antes de estas versiones.
 
 Variables de entorno: **no hace falta ninguna nueva.** `MINUTE_LINK_SECRET` es
 opcional; sin ella la clave de firma se deriva de `SUPABASE_SERVICE_ROLE_KEY`.
@@ -42,6 +46,23 @@ una reunión en vivo, que sigue sin verificarse con audio real.
 rama `respaldo/v1.14.0-estable`, snapshot en `.backups/`. Ver
 [runbook 00](docs/runbooks/00-respaldo-y-restauracion.md) para el
 procedimiento completo de vuelta atrás si algo falla en producción.
+
+### Qué cambió (v1.16 → v1.17, sin desplegar)
+
+- **Estilo del acta: Ejecutiva o Educativa**, elegido por reunión (con la
+  última elección guardada como valor por defecto). Cambia qué cuenta como
+  compromiso y el tono de apertura del prompt — no la estructura del acta ni
+  el modelo de datos, que siguen siendo los mismos. Diseñado a propósito para
+  poder añadir un tercer estilo después sin migración: la lista vive en
+  código (`minute-styles.ts`), no en un `CHECK` de la base de datos.
+- **Notas cortas y opcionales del organizador** ("somos un colegio, usa
+  'estudiantes'..."), insertadas en el prompt explícitamente como contexto,
+  nunca como instrucción — investigado y descartado un cuadro de texto libre
+  sin acotar por el riesgo de inyección de prompt.
+- Selector compartido en `/dashboard/meetings/new`, aplica tanto a «Grabar
+  ahora» como al formulario programado. Ver
+  [runbook 07](docs/runbooks/07-estilo-del-acta.md). Migración
+  `025_minute_style.sql`.
 
 ### Qué cambió (v1.15 → v1.16, sin desplegar)
 
