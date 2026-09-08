@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MINUTE_STYLE_OPTIONS, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
+import { MINUTE_STYLE_OPTIONS, MAX_STYLE_NOTES_LENGTH, getMinuteStyle } from '@/lib/minute-styles';
 
 interface Participant {
   name: string;
@@ -156,13 +156,22 @@ export default function NewMeetingForm({ initialStyle }: { initialStyle: string 
             </button>
           ))}
         </div>
+        {/* Que el estilo "Clase" produce ademas apuntes de estudio no se
+            adivina del nombre, y es la razon principal para elegirlo. Se dice
+            aqui, en el momento de decidir, y no en una pagina de ayuda. */}
+        {getMinuteStyle(minuteStyle).producesStudyAids && (
+          <p className="text-xs text-violet-700 dark:text-violet-300 bg-violet-50/80 dark:bg-violet-900/20 rounded-lg px-3 py-2 leading-relaxed">
+            Ademas del acta, generara <strong>apuntes para estudiar</strong>: temario, glosario, ejemplos
+            resueltos, preguntas de repaso y tarjetas.
+          </p>
+        )}
         {showNotes && (
           <div>
             <textarea
               value={styleNotes}
               onChange={(e) => setStyleNotes(e.target.value.slice(0, MAX_STYLE_NOTES_LENGTH))}
               rows={2}
-              placeholder="Ej: Somos un colegio, usa «estudiantes» en vez de «participantes»"
+              placeholder="Ej: Es Fisica de 2º de bachillerato, el profesor se llama Ramírez"
               className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm resize-none"
             />
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 text-right">

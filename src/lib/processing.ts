@@ -5,6 +5,7 @@ import { buildMeetingEmailJobs, dispatchEmailJobs } from '@/lib/meeting-emails';
 import { isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
 import { cleanWhisperResult } from '@/lib/whisper-quality';
 import { getMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
+import { normalizeStudyAids, isStudyAidsEmpty, countStudyAids, readStudyAids } from '@/lib/study-aids';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
@@ -440,6 +441,12 @@ const MINUTE_PROMPT = (
   const needsTitle = Boolean(context?.titleIsAuto);
   const styleDef = getMinuteStyle(opts.style);
 
+  // El resumen es lo primero que se lee y lo unico que llega a WhatsApp, asi
+  // que cada estilo define que tiene que contar. Sin override, el de siempre.
+  const summaryInstruction =
+    styleDef.summaryInstruction ??
+    "3 a 5 frases repartidas en 2 o 3 párrafos CORTOS separados por un salto de línea doble (\\n\\n): primero para qué se reunieron y qué se resolvió, después qué queda pendiente. Máximo 2 frases por párrafo — se lee en el móvil y en WhatsApp, y un bloque largo no lo lee nadie. Cuenta resultados, no narres la conversación ni digas 'se habló de'. Si la reunión no llegó a nada concreto, dilo con esas palabras.";
+
   // Notas cortas del organizador para ESTA acta. Van como el último bloque de
   // contexto, antes del formato de respuesta, y explícitamente marcadas como
   // NO autoritativas: es información sobre la reunión, no una instrucción que
@@ -524,7 +531,9 @@ PRIORIDAD (úsala, no la pongas toda en media)
 - baja: es un "cuando se pueda", una mejora, algo sin impacto inmediato.
 - media: todo lo demás.
 
-${needsTitle ? `ESTA REUNIÓN NO TIENE TÍTULO TODAVÍA (se grabó con "Grabar ahora", sin pasar por un formulario). Redacta uno tú a partir de lo que de verdad se habló — no la fecha ni la hora, que es lo único que hay ahora mismo.
+${styleDef.extraRules ? `${styleDef.extraRules}
+
+` : ''}${needsTitle ? `ESTA REUNIÓN NO TIENE TÍTULO TODAVÍA (se grabó con "Grabar ahora", sin pasar por un formulario). Redacta uno tú a partir de lo que de verdad se habló — no la fecha ni la hora, que es lo único que hay ahora mismo.
 - 3 a 8 palabras. Un sustantivo o una frase corta que diga DE QUÉ trató, no "Reunión sobre..." ni "Grabación de...".
 - Ejemplos de tono: "Presupuesto de marketing Q3", "Seguimiento obra edificio B", "Onboarding cliente Acme".
 - Si la reunión no tiene un tema claro (charla suelta, prueba de grabación, audio muy corto), usa algo honesto como "Reunión sin tema definido" — no fuerces un título más interesante de lo que fue.
@@ -532,7 +541,7 @@ ${needsTitle ? `ESTA REUNIÓN NO TIENE TÍTULO TODAVÍA (se grabó con "Grabar a
 ` : ''}${styleNotesBlock}
 RESPONDE ÚNICAMENTE CON ESTE JSON (sin markdown, sin texto antes ni después):
 {${needsTitle ? '\n  "suggested_title": "El título que redactaste arriba",' : ''}
-  "summary": "3 a 5 frases repartidas en 2 o 3 párrafos CORTOS separados por un salto de línea doble (\\n\\n): primero para qué se reunieron y qué se resolvió, después qué queda pendiente. Máximo 2 frases por párrafo — se lee en el móvil y en WhatsApp, y un bloque largo no lo lee nadie. Cuenta resultados, no narres la conversación ni digas 'se habló de'. Si la reunión no llegó a nada concreto, dilo con esas palabras.",
+  "summary": "${summaryInstruction}",
   "action_items": [
     {
       "assignee_name": "Nombre del responsable, o null",
@@ -547,7 +556,7 @@ RESPONDE ÚNICAMENTE CON ESTE JSON (sin markdown, sin texto antes ni después):
   "project_statuses": [ { "project": "Nombre tal como lo llamaron ellos", "status": "en progreso | retrasado | completado | pendiente", "details": "Qué se avanzó y qué falta" } ],
   "discussion": [ { "topic": "Tema tratado", "details": "Lo esencial en 2-3 frases. Solo temas que aporten algo que no esté ya arriba." } ],
   "next_steps": [ { "step": "Siguiente paso que NO sea ya un compromiso de arriba", "owner": "Quién, o null" } ],
-  "ideas": ["Propuestas que nadie asumió y sobre las que no se decidió nada"]
+  "ideas": ["Propuestas que nadie asumió y sobre las que no se decidió nada"]${styleDef.extraSchema ?? ''}
 }
 
 ANTES DE RESPONDER, REVISA
@@ -556,7 +565,9 @@ ANTES DE RESPONDER, REVISA
 - ¿Repetiste en next_steps algo que ya está en action_items? Bórralo de next_steps.
 - ¿El resumen cuenta resultados, o narra la conversación? Reescríbelo si narra.
 - ¿Alguna tarea se entiende solo si estuviste en la reunión? Reescríbela.
-- Todo en español.
+${styleDef.producesStudyAids ? `- ¿Alguna definición, ejemplo o respuesta de study_aids la sabes TÚ pero no se dijo en clase? Bórrala. Es el error más grave que puedes cometer aquí.
+- ¿Hay conceptos en el glosario que solo se NOMBRARON, sin explicarse? Quítalos.
+` : ''}- Todo en español.
 
 TRANSCRIPCIÓN:
 ${transcript}
@@ -1000,9 +1011,14 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     await supabase.from('minutes').delete().eq('meeting_id', meetingId);
   }
 
-  const { data: minute, error: minuteError } = await supabase
-    .from('minutes')
-    .insert({
+  // Ayudas de estudio: solo las produce el estilo de clase, y lo que devuelve
+  // el modelo es texto libre, asi que se normaliza antes de tocar la base.
+  const studyAids = normalizeStudyAids(minuteJSON.study_aids);
+  if (!isStudyAidsEmpty(studyAids)) {
+    logger.info('Study aids generated', { meetingId, pieces: countStudyAids(studyAids) });
+  }
+
+  const minutePayload: Record<string, any> = {
       meeting_id: meetingId,
       summary: minuteJSON.summary,
       topics: (minuteJSON.discussion || []).map((d: any) => d.topic || d),
@@ -1014,9 +1030,33 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
       blockers: minuteJSON.blockers || [],
       ideas: minuteJSON.ideas || [],
       raw_llm_output: JSON.stringify(minuteJSON),
-    })
+      study_aids: studyAids,
+  };
+
+  let { data: minute, error: minuteError } = await supabase
+    .from('minutes')
+    .insert(minutePayload)
     .select()
     .single();
+
+  // La columna `study_aids` la anade la migracion 026. Si esa migracion aun no
+  // se ha aplicado en esta base, PostgREST rechaza el insert entero por una
+  // columna desconocida — y perder el acta completa por una seccion opcional
+  // seria absurdo. Se reintenta sin ella: `raw_llm_output` sigue guardando el
+  // JSON integro, y `readStudyAids()` lo lee de ahi, asi que la seccion de
+  // estudio funciona igual hasta que la migracion se aplique.
+  if (minuteError && /study_aids/.test(minuteError.message || '')) {
+    logger.warn('Columna study_aids ausente: guardando el acta sin ella (migracion 026 pendiente)', {
+      meetingId,
+      error: minuteError.message,
+    });
+    delete minutePayload.study_aids;
+    ({ data: minute, error: minuteError } = await supabase
+      .from('minutes')
+      .insert(minutePayload)
+      .select()
+      .single());
+  }
 
   if (minuteError) {
     return { success: false, error: `Minute save error: ${minuteError.message}` };
@@ -1171,6 +1211,42 @@ function createChunks(minute: any, transcript: string): Array<{ index: number; s
 
   for (const step of minute.next_steps || []) {
     chunks.push({ index: index++, section: 'next_steps', text: step, speaker: 'system' });
+  }
+
+  // Apuntes de clase. Sin esto, preguntarle al agente "que dijo el profesor
+  // sobre la ley de Ohm" solo alcanzaria la transcripcion en bruto — donde la
+  // respuesta esta enterrada entre muletillas. El glosario y las preguntas de
+  // repaso son justo el texto mas denso y mas buscable del acta.
+  const aids = readStudyAids(minute);
+
+  for (const section of aids.outline) {
+    const points = section.points.length > 0 ? `: ${section.points.join('. ')}` : '';
+    chunks.push({ index: index++, section: 'outline', text: `${section.section}${points}`, speaker: 'system' });
+  }
+
+  for (const c of aids.key_concepts) {
+    chunks.push({
+      index: index++,
+      section: 'key_concepts',
+      text: `${c.term}: ${c.definition}${c.why ? ` (${c.why})` : ''}`,
+      speaker: 'system',
+    });
+  }
+
+  for (const e of aids.worked_examples) {
+    chunks.push({ index: index++, section: 'worked_examples', text: `${e.problem} -> ${e.approach}`, speaker: 'system' });
+  }
+
+  for (const q of aids.study_questions) {
+    chunks.push({ index: index++, section: 'study_questions', text: `${q.question} ${q.answer}`, speaker: 'system' });
+  }
+
+  for (const m of aids.common_mistakes) {
+    chunks.push({ index: index++, section: 'common_mistakes', text: `Error frecuente: ${m.mistake}. Correcto: ${m.correction}`, speaker: 'system' });
+  }
+
+  for (const note of aids.exam_notes) {
+    chunks.push({ index: index++, section: 'exam_notes', text: note, speaker: 'system' });
   }
 
   // Transcript in ~500 char chunks
