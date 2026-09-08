@@ -3,15 +3,23 @@
 
 ---
 
-## 🚦 ESTADO: modo estudio para clases (v1.19.0 en curso, 2026-09-07)
+## 🚦 ESTADO: modo estudio para clases (v1.19.0 desplegado, 2026-09-08)
 
-**En producción: v1.14.0** (commit `6a325c0`). Build ✅ · TypeScript ✅ ·
-220 tests ✅ · Next 15 + React 19 · https://zrnote.vercel.app
+**En producción: v1.19.0** (commit `4cce44c`). Build ✅ · TypeScript ✅ ·
+284 tests ✅ · Next 15 + React 19 · https://zrnote.vercel.app
 
-**En curso, sin desplegar todavía: v1.15.0 a v1.19.0** — botón «Instalar app»
-+ página de ayuda (v1.15); corrección de falsos positivos del filtro de
-silencio + compromisos evento/tarea (v1.16); estilo del acta
-Ejecutiva/Educativa (v1.17). Ver
+**Humo tras el despliegue (2026-09-08):** `/` → 200, `/login` → 200,
+`/robots.txt` → 200, `/manifest.json` → 200, `/legal` → 200,
+`/dashboard/ayuda` → 307 a login (correcto), `/minuta/token-invalido` → 200
+con «enlace no válido» (falla cerrado), `/api/health` → ok,
+`/api/version` → 1.19.0. Los dos crones responden 401 sin autenticación, no
+503: `CRON_SECRET` **sí** está configurado en Vercel.
+
+**Se desplegó de una vez v1.15 a v1.19** (llevaban acumuladas desde el
+2026-08-08) — botón «Instalar app» + página de ayuda (v1.15); corrección de
+falsos positivos del filtro de silencio + compromisos evento/tarea (v1.16);
+estilo del acta (v1.17); segunda capa contra alucinaciones de Whisper (v1.18);
+modo estudio (v1.19). Ver
 [runbook 06](docs/runbooks/06-instalacion-y-ayuda.md),
 [runbook 05 §1.5](docs/runbooks/05-transcripcion-y-legibilidad.md),
 [runbook 01 §7](docs/runbooks/01-correo.md) y
@@ -29,6 +37,29 @@ prompt (`extraRules` / `extraSchema`), así que añadir el siguiente no toca
 > 📘 **Los procedimientos operativos viven en [`docs/runbooks/`](docs/runbooks/README.md)**,
 > uno por subsistema, cada uno con su diagnóstico y su marcha atrás.
 > Empieza por [00 — Respaldo y restauración](docs/runbooks/00-respaldo-y-restauracion.md).
+
+### ⚠️ Cuota de Supabase — SIN RESOLVER
+
+El panel avisa de que la organización `guayamuri studio` superó la cuota del
+ciclo anterior, y el proyecto lleva la etiqueta `EXCEEDING USAGE LIMITS`.
+**Los proyectos quedarán restringidos a partir del 27 de septiembre de 2026**
+si sigue por encima.
+
+Descartado ya: no es que el cron de retención esté deshabilitado —
+`/api/cron/retention` responde 401 sin autenticación, o sea que `CRON_SECRET`
+está puesto. Que el cron *corra* y *borre* de verdad está sin comprobar.
+
+Sospechosos por orden de probabilidad:
+1. **Audio sin borrar** en `meeting-audio` (límite: 1 GB). Basta con que el
+   cron falle a mitad para que se acumule.
+2. **`meeting_chunks`** (límite de base: 500 MB). Cada fragmento lleva un
+   embedding de 1536 dimensiones y la transcripción entera se trocea de 500 en
+   500 caracteres: decenas de filas gordas por reunión.
+3. **Transferencia** (límite: 5 GB/mes). No se ve desde SQL — hay que mirar
+   Project Settings → Usage.
+
+Para medirlo: [`supabase/migrations/DIAGNOSTICO_CUOTA.sql`](supabase/migrations/DIAGNOSTICO_CUOTA.sql),
+que sólo lee y dice cuál de los tres es.
 
 ### Migraciones — todas aplicadas (2026-09-08)
 
