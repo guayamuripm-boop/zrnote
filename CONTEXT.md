@@ -30,15 +30,22 @@ prompt (`extraRules` / `extraSchema`), así que añadir el siguiente no toca
 > uno por subsistema, cada uno con su diagnóstico y su marcha atrás.
 > Empieza por [00 — Respaldo y restauración](docs/runbooks/00-respaldo-y-restauracion.md).
 
-### Migraciones — dos pendientes de aplicar
+### Migraciones — todas aplicadas (2026-09-08)
 
-`021` a `023` aplicadas. **`024_action_item_kind.sql`,
-`025_minute_style.sql` y `026_study_aids.sql` todavía NO se han aplicado.**
-Las tres aditivas y con degradación segura: sin `024`, todo compromiso sigue
-tratándose como `'tarea'`; sin `025`, toda acta sigue redactándose en estilo
-`'ejecutiva'`; sin `026`, los apuntes de clase se guardan igual dentro de
-`raw_llm_output` y se leen desde ahí — la sección de estudio funciona sin la
-columna (ver runbook 08 §3).
+`001` a `026` **aplicadas en producción** (proyecto `qmdcpcwigzebqcoeiebi`,
+rama `main`). Las tres últimas se aplicaron juntas el 2026-09-08 y se verificó
+que existen las cinco columnas: `action_items.kind`, `meetings.minute_style`,
+`meetings.style_notes`, `users.default_minute_style`, `minutes.study_aids`.
+
+> ⚠️ **Ojo con el proyecto al que te conectas.** El repo tiene dos vecinos
+> fáciles de confundir en la misma cuenta: `zr-prod` y `zr-mecademy` son la
+> **academia** (`students`, `cohorts`, `exams`), no ZRNote. La base de ZRNote
+> es la de `NEXT_PUBLIC_SUPABASE_URL` en `.env.local`. Antes de aplicar nada,
+> comprueba que el proyecto tiene tabla `meetings`.
+
+Para volver a aplicarlas en otra base (una copia, un entorno nuevo) está
+[`supabase/migrations/APLICAR_024_025_026.sql`](supabase/migrations/APLICAR_024_025_026.sql):
+las tres en un bloque, idempotentes, con la consulta de comprobación al final.
 
 Variables de entorno: **no hace falta ninguna nueva.** `MINUTE_LINK_SECRET` es
 opcional; sin ella la clave de firma se deriva de `SUPABASE_SERVICE_ROLE_KEY`.
