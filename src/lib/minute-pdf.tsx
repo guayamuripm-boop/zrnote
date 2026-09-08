@@ -1,6 +1,8 @@
 import { Document, Page, Text, View, StyleSheet, Font, pdf } from '@react-pdf/renderer';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import type { StudyAids } from '@/lib/study-aids';
+import { isStudyAidsEmpty } from '@/lib/study-aids';
 
 Font.register({
   family: 'Helvetica',
@@ -28,6 +30,8 @@ interface MinuteData {
     status?: string;
   }>;
   created_at?: string;
+  /** Apuntes de clase. Solo los trae el estilo "Clase". */
+  study_aids?: StudyAids;
 }
 
 interface MeetingData {
@@ -151,6 +155,42 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: '#e5e7eb',
   },
+  studyTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#5b21b6',
+    marginBottom: 8,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ede9fe',
+  },
+  term: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  callout: {
+    backgroundColor: '#fffbeb',
+    borderLeftWidth: 3,
+    borderLeftColor: '#f59e0b',
+    padding: 8,
+    marginBottom: 10,
+  },
+  // Las tarjetas se imprimen para recortarse: por eso van en rejilla y con
+  // borde, no como una lista. En papel una flashcard sin borde no se recorta.
+  cardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  card: {
+    width: '48%',
+    borderWidth: 0.5,
+    borderColor: '#c4b5fd',
+    borderRadius: 4,
+    padding: 8,
+    margin: '1%',
+    minHeight: 54,
+  },
 });
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -219,6 +259,136 @@ function ActionItemRow({ item }: { item: { assignee_name: string; description: s
         <Text style={styles.actionItemValue}>{STATUS_LABEL[item.status || 'pendiente'] || item.status}</Text>
       </View>
     </View>
+  );
+}
+
+/**
+ * La guia de estudio, en su propia pagina.
+ *
+ * Va en un <Page> aparte y no al final del acta a proposito: es un documento
+ * distinto con un uso distinto —el acta se archiva, esto se imprime y se lleva
+ * encima— y empezar en pagina limpia es lo que permite imprimir solo estas
+ * hojas. Con las tarjetas ademas importa: en rejilla y con borde para poder
+ * recortarlas.
+ */
+function StudyGuidePage({ aids, meeting }: { aids: StudyAids; meeting: MeetingData }) {
+  return (
+    <Page size="A4" style={styles.page}>
+      <View style={styles.header}>
+        <Text style={{ ...styles.title, fontSize: 20, color: '#5b21b6' }}>Guia de estudio</Text>
+        <MetaRow label="Clase" value={meeting.title} />
+        <MetaRow label="Fecha" value={format(new Date(meeting.created_at), 'dd/MM/yyyy')} />
+      </View>
+
+      {aids.exam_notes.length > 0 && (
+        <View style={styles.callout}>
+          <Text style={{ ...styles.subsectionTitle, marginTop: 0, color: '#92400e' }}>Sobre la evaluacion</Text>
+          {aids.exam_notes.map((n, i) => (
+            <Text key={i} style={styles.text}>{'• '}{n}</Text>
+          ))}
+        </View>
+      )}
+
+      {aids.outline.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.studyTitle}>Temario de la clase</Text>
+          {aids.outline.map((sec, i) => (
+            <View key={i} style={{ marginBottom: 6 }} wrap={false}>
+              <Text style={styles.subsectionTitle}>{i + 1}. {sec.section}</Text>
+              {sec.points.map((pt, j) => (
+                <Text key={j} style={{ ...styles.text, marginLeft: 12 }}>{'• '}{pt}</Text>
+              ))}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {aids.key_concepts.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.studyTitle}>Glosario</Text>
+          {aids.key_concepts.map((c, i) => (
+            <View key={i} style={{ marginBottom: 6 }} wrap={false}>
+              <Text style={styles.term}>{c.term}</Text>
+              <Text style={styles.text}>{c.definition}</Text>
+              {c.why ? <Text style={{ ...styles.text, fontStyle: 'italic', color: '#6b7280' }}>{c.why}</Text> : null}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {aids.worked_examples.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.studyTitle}>Ejemplos resueltos</Text>
+          {aids.worked_examples.map((e, i) => (
+            <View key={i} style={{ marginBottom: 8 }} wrap={false}>
+              <Text style={styles.term}>{e.problem}</Text>
+              <Text style={styles.text}>{e.approach}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {aids.common_mistakes.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.studyTitle}>Errores frecuentes</Text>
+          {aids.common_mistakes.map((m, i) => (
+            <View key={i} style={{ marginBottom: 6 }} wrap={false}>
+              <Text style={{ ...styles.text, color: '#dc2626' }}>Error: {m.mistake}</Text>
+              <Text style={{ ...styles.text, color: '#15803d' }}>Correcto: {m.correction}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {aids.study_questions.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.studyTitle}>Preguntas de repaso</Text>
+          {aids.study_questions.map((q, i) => (
+            <View key={i} style={{ marginBottom: 6 }} wrap={false}>
+              <Text style={styles.term}>{i + 1}. {q.question}</Text>
+              <Text style={{ ...styles.text, color: '#4b5563' }}>{q.answer}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {aids.flashcards.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.studyTitle}>Tarjetas de repaso (para recortar)</Text>
+          <View style={styles.cardGrid}>
+            {aids.flashcards.map((c, i) => (
+              <View key={i} style={styles.card} wrap={false}>
+                <Text style={{ ...styles.term, fontSize: 10 }}>{c.front}</Text>
+                <Text style={{ ...styles.text, fontSize: 9, color: '#4b5563' }}>{c.back}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {aids.open_questions.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.studyTitle}>Quedo sin resolver</Text>
+          {aids.open_questions.map((q, i) => (
+            <Text key={i} style={styles.text}>{'• '}{q}</Text>
+          ))}
+        </View>
+      )}
+
+      {aids.resources.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.studyTitle}>Material mencionado</Text>
+          {aids.resources.map((r, i) => (
+            <Text key={i} style={styles.text}>{'• '}{r}</Text>
+          ))}
+        </View>
+      )}
+
+      <View style={styles.footer}>
+        <Text>Apuntes generados por ZRNote a partir del audio de la clase, usando unicamente lo que se dijo en ella.</Text>
+        <Text>Pueden contener errores u omisiones: contrastalos con el material del docente.</Text>
+      </View>
+    </Page>
   );
 }
 
@@ -349,6 +519,11 @@ export function MinutePDFDocument({
           <Text>ID Reunión: {meeting.id} • Confidencial - Uso interno</Text>
         </View>
       </Page>
+
+      {/* Solo cuando hay apuntes de clase: un acta ejecutiva no lleva esta pagina. */}
+      {minute.study_aids && !isStudyAidsEmpty(minute.study_aids) && (
+        <StudyGuidePage aids={minute.study_aids} meeting={meeting} />
+      )}
     </Document>
   );
 }

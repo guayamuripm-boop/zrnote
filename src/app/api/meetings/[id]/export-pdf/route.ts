@@ -1,7 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
-import React from 'react';
-import { MinutePDFDocument, generateMinutePDFBlob } from '@/lib/minute-pdf';
+import { generateMinutePDFBlob } from '@/lib/minute-pdf';
+import { readStudyAids } from '@/lib/study-aids';
 
 export async function GET(
   request: Request,
@@ -67,6 +67,9 @@ export async function GET(
       status: i.status || 'pendiente',
     })),
     created_at: minute.created_at,
+    // readStudyAids, no `minute.study_aids` a secas: cae a raw_llm_output si la
+    // migracion 026 aun no esta aplicada en esta base.
+    study_aids: readStudyAids(minute),
   };
 
   const blob = await generateMinutePDFBlob(meetingData, minuteData);

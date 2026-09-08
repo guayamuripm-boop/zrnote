@@ -1,0 +1,43 @@
+-- 026 — Apuntes de clase: el bloque de ayudas de estudio
+--
+-- QUÉ RESUELVE
+-- El estilo "Clase" (valor 'educativa', migración 025) cambiaba el tono del
+-- acta pero no lo que se extraía: seguía produciendo decisiones, bloqueos y
+-- estados de proyecto. Para una clase eso es el envoltorio. Lo que hace falta
+-- para estudiarla es otra cosa —temario, glosario, ejemplos resueltos,
+-- preguntas de repaso, tarjetas, lo que entra en el examen— y no cabía en
+-- ninguna de las columnas existentes.
+--
+-- POR QUÉ UNA SOLA COLUMNA jsonb Y NO NUEVE
+-- Son nueve listas que SIEMPRE se leen juntas: se pintan de una vez en la
+-- página, se exportan de una vez al PDF y jamás se consultan por separado.
+-- Nueve columnas serían nueve migraciones futuras cada vez que se añada una
+-- sección más; una columna es cero. El precio —no poder indexar por dentro—
+-- no cuesta nada aquí, porque la búsqueda semántica no pasa por esta columna
+-- sino por `meeting_chunks` (ver `createChunks` en processing.ts, que ya
+-- vectoriza el glosario y las preguntas de repaso).
+--
+-- POR QUÉ NO HAY CHECK NI ESQUEMA
+-- Lo llena un LLM, que devuelve texto libre. La validación vive en
+-- `normalizeStudyAids()` (src/lib/study-aids.ts), que acepta cualquier cosa y
+-- devuelve siempre una forma válida con topes de tamaño. Un CHECK aquí sólo
+-- conseguiría que un modelo creativo tumbara el insert del acta entera.
+--
+-- SI ESTA MIGRACIÓN NO SE APLICA
+-- No pasa nada. `analyzeMeeting` detecta el error de columna desconocida y
+-- reintenta el insert sin ella, y `readStudyAids()` cae a `raw_llm_output`
+-- —donde el JSON completo del modelo siempre se guarda— así que la sección de
+-- estudio se ve igual. La columna sólo hace la lectura directa y barata.
+--
+-- ADITIVA: sólo ADD COLUMN IF NOT EXISTS.
+
+ALTER TABLE minutes ADD COLUMN IF NOT EXISTS study_aids jsonb DEFAULT '{}'::jsonb;
+
+
+-- ========================================================================
+-- CÓMO REVERTIR ESTA MIGRACIÓN
+-- ========================================================================
+--   ALTER TABLE minutes DROP COLUMN IF EXISTS study_aids;
+--
+-- Sin riesgo ni pérdida: el contenido sigue estando en `minutes.raw_llm_output`
+-- y `readStudyAids()` lo recupera de ahí automáticamente.

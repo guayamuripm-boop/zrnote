@@ -12,6 +12,8 @@ import MeetingParticipants from '@/components/MeetingParticipants';
 import ResendEmailsButton from '@/components/ResendEmailsButton';
 import { sortActionItems } from '@/lib/action-items';
 import { toParagraphs } from '@/lib/readable-text';
+import { readStudyAids, isStudyAidsEmpty } from '@/lib/study-aids';
+import StudySection from '@/components/study/StudySection';
 
 export default async function MeetingDetailPage({
   params,
@@ -40,6 +42,9 @@ export default async function MeetingDetailPage({
   ]);
 
   const minute = minuteResult.data;
+  // Apuntes de clase. Solo los produce el estilo "Clase", asi que en un acta
+  // ejecutiva vienen vacios y la seccion entera no se pinta.
+  const studyAids = readStudyAids(minute);
   // Ordering by the `priority` column alphabetically put "baja" above "media".
   const actionItems = sortActionItems(actionItemsResult.data || []);
   const participantsRaw = participantsResult.data;
@@ -137,6 +142,11 @@ export default async function MeetingDetailPage({
               </div>
             </div>
           </section>
+
+          {/* Estudiar esta clase — va inmediatamente despues del resumen y
+              ANTES de los compromisos porque, en una clase, esto es lo que la
+              persona vuelve a abrir: las tareas ya le llegaron por correo. */}
+          {!isStudyAidsEmpty(studyAids) && <StudySection aids={studyAids} minuteId={minute.id} />}
 
           {/* Action Items — the most important part of the minute, promoted right
               after the summary. Creator can toggle status here too (not just

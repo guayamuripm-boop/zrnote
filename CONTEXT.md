@@ -3,12 +3,12 @@
 
 ---
 
-## 🚦 ESTADO: estilo del acta configurable (v1.17.0 en curso, 2026-08-08)
+## 🚦 ESTADO: modo estudio para clases (v1.19.0 en curso, 2026-09-07)
 
 **En producción: v1.14.0** (commit `6a325c0`). Build ✅ · TypeScript ✅ ·
 220 tests ✅ · Next 15 + React 19 · https://zrnote.vercel.app
 
-**En curso, sin desplegar todavía: v1.15.0 a v1.17.0** — botón «Instalar app»
+**En curso, sin desplegar todavía: v1.15.0 a v1.19.0** — botón «Instalar app»
 + página de ayuda (v1.15); corrección de falsos positivos del filtro de
 silencio + compromisos evento/tarea (v1.16); estilo del acta
 Ejecutiva/Educativa (v1.17). Ver
@@ -17,17 +17,35 @@ Ejecutiva/Educativa (v1.17). Ver
 [runbook 01 §7](docs/runbooks/01-correo.md) y
 [runbook 07](docs/runbooks/07-estilo-del-acta.md).
 
+**v1.19 — modo estudio.** El estilo «Clase» (antes «Educativa») ya no cambia
+sólo el tono: produce ADEMÁS un bloque de apuntes —temario, glosario, ejemplos
+resueltos, errores frecuentes, notas de examen, preguntas de repaso y
+tarjetas— con su propia interfaz de estudio (tres pestañas, tarjetas con
+progreso) en la página de la reunión, en la minuta compartida y en el PDF.
+Un estilo puede ahora aportar sus propios campos al esquema de salida del
+prompt (`extraRules` / `extraSchema`), así que añadir el siguiente no toca
+`processing.ts`. Ver [runbook 08](docs/runbooks/08-modo-estudio.md).
+
 > 📘 **Los procedimientos operativos viven en [`docs/runbooks/`](docs/runbooks/README.md)**,
 > uno por subsistema, cada uno con su diagnóstico y su marcha atrás.
 > Empieza por [00 — Respaldo y restauración](docs/runbooks/00-respaldo-y-restauracion.md).
 
-### Migraciones — dos pendientes de aplicar
+### Migraciones — todas aplicadas (2026-09-08)
 
-`021` a `023` aplicadas. **`024_action_item_kind.sql` y
-`025_minute_style.sql` todavía NO se han aplicado.** Ambas aditivas y con
-degradación segura: sin `024`, todo compromiso sigue tratándose como
-`'tarea'`; sin `025`, toda acta sigue redactándose en estilo `'ejecutiva'` —
-en los dos casos, exactamente el comportamiento de antes de estas versiones.
+`001` a `026` **aplicadas en producción** (proyecto `qmdcpcwigzebqcoeiebi`,
+rama `main`). Las tres últimas se aplicaron juntas el 2026-09-08 y se verificó
+que existen las cinco columnas: `action_items.kind`, `meetings.minute_style`,
+`meetings.style_notes`, `users.default_minute_style`, `minutes.study_aids`.
+
+> ⚠️ **Ojo con el proyecto al que te conectas.** El repo tiene dos vecinos
+> fáciles de confundir en la misma cuenta: `zr-prod` y `zr-mecademy` son la
+> **academia** (`students`, `cohorts`, `exams`), no ZRNote. La base de ZRNote
+> es la de `NEXT_PUBLIC_SUPABASE_URL` en `.env.local`. Antes de aplicar nada,
+> comprueba que el proyecto tiene tabla `meetings`.
+
+Para volver a aplicarlas en otra base (una copia, un entorno nuevo) está
+[`supabase/migrations/APLICAR_024_025_026.sql`](supabase/migrations/APLICAR_024_025_026.sql):
+las tres en un bloque, idempotentes, con la consulta de comprobación al final.
 
 Variables de entorno: **no hace falta ninguna nueva.** `MINUTE_LINK_SECRET` es
 opcional; sin ella la clave de firma se deriva de `SUPABASE_SERVICE_ROLE_KEY`.
@@ -276,6 +294,9 @@ src/
 │   ├── processing.ts           # transcribe / analyze / vectorize (servidor)
 │   ├── meeting-emails.ts       # Constructor único de los correos
 │   ├── action-items.ts         # Consulta y orden de compromisos
+│   ├── minute-styles.ts        # Un registro: tono Y esquema de salida por estilo
+│   ├── study-aids.ts           # Apuntes de clase: tipos + normalizador defensivo
+│   ├── flashcard-deck.ts       # Aritmética del mazo de tarjetas (pura, probada)
 │   ├── cron-auth.ts            # Guardia de /api/cron/*
 │   ├── audio-split.ts          # ADTS AAC sin decodificar
 │   ├── audio-wav.ts            # Decodificación → WAV 16k mono
@@ -284,6 +305,7 @@ src/
 │   ├── recorder/RecordButton.tsx
 │   ├── legal/RecordingConsentGate.tsx   # ⬅ control legal principal
 │   ├── legal/TermsGate.tsx · TermsModal.tsx
+│   ├── study/StudySection.tsx                # ⬅ modo estudio (3 pestañas)
 │   ├── MeetingParticipants.tsx · ResendEmailsButton.tsx
 │   └── minutes/AssignActionItems.tsx
 └── app/api/meetings/[id]/

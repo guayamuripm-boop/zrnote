@@ -4,6 +4,8 @@ import { verifyMinuteToken } from '@/lib/minute-links';
 import { matchItemsToParticipant } from '@/lib/email-service';
 import { sortActionItems } from '@/lib/action-items';
 import { toParagraphs } from '@/lib/readable-text';
+import { readStudyAids, isStudyAidsEmpty } from '@/lib/study-aids';
+import StudySection from '@/components/study/StudySection';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import ZRLogo from '@/components/ZRLogo';
 
@@ -91,6 +93,7 @@ export default async function MinutaPublicaPage({
   }
 
   const minute = minuteResult.data;
+  const studyAids = readStudyAids(minute);
   const allItems = sortActionItems(itemsResult.data || []);
 
   // Nombre del destinatario según los participantes, para saludarle y para
@@ -178,6 +181,11 @@ export default async function MinutaPublicaPage({
             </div>
           </section>
         )}
+
+        {/* Apuntes de clase. Quien recibe el enlace por correo es justo el
+            estudiante que falto o que quiere repasar: es la parte de la
+            minuta compartida que mas se va a usar. */}
+        {!isStudyAidsEmpty(studyAids) && <StudySection aids={studyAids} minuteId={minute!.id} />}
 
         {Array.isArray(minute?.decisions) && minute.decisions.length > 0 && (
           <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">

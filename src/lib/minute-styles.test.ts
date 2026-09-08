@@ -26,8 +26,11 @@ describe('normalizeMinuteStyle', () => {
 describe('getMinuteStyle', () => {
   it('devuelve la definición completa', () => {
     const style = getMinuteStyle('educativa');
-    expect(style.label).toBe('Educativa');
-    expect(style.roleFraming).toContain('coordinador académico');
+    // La etiqueta es "Clase", no "Educativa": junto a "Ejecutiva" en el
+    // selector, las dos palabras se leían casi igual. El VALOR sigue siendo
+    // 'educativa' — cambiarlo obligaría a migrar las filas ya guardadas.
+    expect(style.label).toBe('Clase');
+    expect(style.value).toBe('educativa');
     expect(style.commitmentExamples).toContain('tarea');
   });
 
@@ -44,6 +47,20 @@ describe('MINUTE_STYLE_OPTIONS', () => {
       expect(style.label).toBeTruthy();
       expect(style.shortDescription).toBeTruthy();
       expect(style.emoji).toBeTruthy();
+      expect(style.roleFraming).toBeTruthy();
     }
+  });
+
+  it('sólo el estilo de clase pide ayudas de estudio, y trae el prompt para hacerlo', () => {
+    // El acoplamiento que importa: si un estilo dice que produce ayudas de
+    // estudio, la interfaz muestra la sección — y sin `extraSchema` el modelo
+    // nunca devolvería el bloque, así que la sección saldría siempre vacía.
+    const clase = getMinuteStyle('educativa');
+    expect(clase.producesStudyAids).toBe(true);
+    expect(clase.extraSchema).toContain('study_aids');
+    expect(clase.extraRules).toBeTruthy();
+
+    expect(getMinuteStyle('ejecutiva').producesStudyAids).toBeFalsy();
+    expect(getMinuteStyle('ejecutiva').extraSchema).toBeUndefined();
   });
 });
