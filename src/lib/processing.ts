@@ -114,25 +114,66 @@ function buildWhisperPrompt(ctx: MeetingContext): string {
   return parts.join(' ');
 }
 
+/**
+ * Outcome of one segment.
+ *
+ * `permanent` is the important field: it separates "these bytes will never
+ * transcribe" (silence, an unreadable container, a 400) from "the transcriber
+ * was busy" (429, 5xx, a network blip). The distinction did not exist before,
+ * and its absence was silently destroying audio — see `transcribeMeeting`.
+ */
+export interface SegmentOutcome {
+  text: string | null;
+  error?: string;
+  permanent?: boolean;
+}
+
+/**
+ * How many segments of this batch the offset may advance past.
+ *
+ * The rule is the whole point of `SegmentOutcome.permanent`, so it lives here
+ * as a pure function with its own tests: getting it wrong does not throw, does
+ * not log, and does not fail a build — it silently deletes minutes of a
+ * meeting from a document someone will sign as an accurate record.
+ *
+ *   • A success advances.
+ *   • A PERMANENT failure advances too: silence, an unreadable container or a
+ *     format Groq rejects will never transcribe, and retrying them forever
+ *     would strand the meeting.
+ *   • A RECOVERABLE failure stops the count dead, so the next call resumes at
+ *     exactly that segment. Everything after it waits its turn rather than
+ *     being skipped — which is what the old `offset + attempted` did.
+ */
+export function transcribeCutoff(outcomes: SegmentOutcome[]): number {
+  for (let i = 0; i < outcomes.length; i++) {
+    if (!outcomes[i].text && outcomes[i].permanent !== true) return i;
+  }
+  return outcomes.length;
+}
+
 async function transcribeSegment(
   supabase: any,
   segment: any,
   groqKey: string,
   meetingId: string,
   whisperPrompt: string = '',
-): Promise<{ text: string | null; error?: string }> {
+): Promise<SegmentOutcome> {
   const { data: audioData, error: downloadError } = await supabase.storage
     .from('meeting-audio')
     .download(segment.r2_key);
 
   if (downloadError) {
     logger.error('Error downloading segment', { meetingId, segmentIndex: segment.segment_index, error: downloadError.message });
-    return { text: null, error: `descarga fallida: ${downloadError.message}` };
+    // Storage hiccups are transient; the file is still there.
+    return { text: null, error: `descarga fallida: ${downloadError.message}`, permanent: false };
   }
 
-  if (audioData.size < 10000) {
+  // A 32 kbps Opus segment of a few seconds is legitimately small, so the old
+  // 10 KB floor discarded real audio. Below ~2 KB there is no speech in any
+  // codec we produce — that is a container with a header and nothing else.
+  if (audioData.size < 2000) {
     logger.warn('Skipping segment: too small', { meetingId, segmentIndex: segment.segment_index, size: audioData.size });
-    return { text: null, error: 'segmento demasiado pequeño (posible audio vacío)' };
+    return { text: null, error: 'segmento demasiado pequeño (posible audio vacío)', permanent: true };
   }
 
   const rawExt = (segment.r2_key.split('.').pop() || 'webm').toLowerCase();
@@ -178,12 +219,17 @@ async function transcribeSegment(
   if (isRawAdts && !GROQ_EXTS.has(rawExt)) {
     return {
       text: null,
+      permanent: true,
       error:
         'AUDIO_FORMATO_NO_SOPORTADO: este audio se guardó como AAC sin contenedor y el transcriptor no lo acepta. Vuelve a subir el archivo — la app ahora lo convierte automáticamente antes de subirlo.',
     };
   }
 
   let lastError = 'error desconocido';
+  // Every candidate extension answered 400 → the bytes themselves are the
+  // problem, and no amount of retrying changes that. Anything else (429, 5xx,
+  // a thrown fetch) leaves this false, and the segment gets another chance.
+  let allRejectedAsBadFormat = true;
   logger.debug('Segment ready to transcribe', {
     meetingId,
     segmentIndex: segment.segment_index,
@@ -233,7 +279,7 @@ async function transcribeSegment(
             total: cleaned.total,
             rawPreview: (result.text || '').slice(0, 120),
           });
-          return { text: null, error: 'SIN_VOZ: no se detectó voz audible en este fragmento' };
+          return { text: null, permanent: true, error: 'SIN_VOZ: no se detectó voz audible en este fragmento' };
         }
 
         if (cleaned.dropped > 0) {
@@ -253,20 +299,36 @@ async function transcribeSegment(
       lastError = `Groq HTTP ${response.status}: ${errText.slice(0, 180)}`;
       logger.error('Segment transcription failed', { meetingId, segmentIndex: segment.segment_index, tryExt, attempt, status: response.status, error: errText });
 
-      // 400 = this extension/format was rejected → try the next candidate.
+      // 400 = this extension/format was rejected -> try the next candidate.
       if (response.status === 400) break;
-      // 429 = rate limited → back off; other 5xx → short retry.
-      await new Promise((r) => setTimeout(r, (response.status === 429 ? 2000 : 1000) * attempt));
+      allRejectedAsBadFormat = false;
+
+      // Groq says exactly how long to wait on a 429. Guessing instead (the old
+      // fixed 2s) meant walking straight back into the limit.
+      const retryAfter = Number(response.headers.get('retry-after'));
+      const waitMs =
+        response.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000, 20_000)
+          : (response.status === 429 ? 3000 : 1000) * attempt;
+      await new Promise((r) => setTimeout(r, waitMs));
     }
   }
 
-  return { text: null, error: lastError };
+  return { text: null, error: lastError, permanent: allRejectedAsBadFormat };
 }
 
+/**
+ * Say "still alive" in a way the stale-detector can actually see.
+ *
+ * This only ever re-wrote `status: 'processing'` - which it already was. Both
+ * the `/finalize` lock and the `retry-stuck` cron judge staleness by
+ * `ended_at`, so a genuinely long transcription looked abandoned for the whole
+ * time it ran, and could be marked failed out from under itself.
+ */
 async function heartbeat(supabase: any, meetingId: string) {
   await supabase
     .from('meetings')
-    .update({ status: 'processing' })
+    .update({ status: 'processing', ended_at: new Date().toISOString() })
     .eq('id', meetingId);
 }
 
@@ -315,19 +377,39 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   const whisperPrompt = buildWhisperPrompt(meetingContext);
 
   const BATCH_SIZE = 3;
-  const newTranscriptions: string[] = [];
-  const segErrors: string[] = [];
-  let processed = 0;
-  let attempted = 0;
+  const outcomes: SegmentOutcome[] = [];
 
   const startedAt = Date.now();
   const TIME_BUDGET_MS = 40_000;
 
+  // Stay under Groq's free-tier ceiling of 20 requests/minute.
+  //
+  // Nothing here was paced at all: three segments went out at once, the next
+  // three followed the moment they returned, and the browser fired the next
+  // /process call 1.2s later. A 45-minute class is 45 Whisper requests, and
+  // they were all issued within about half a minute — more than double the
+  // allowance. So Groq answered 429 to most of them, and because a 429 used to
+  // advance the offset anyway, those minutes of the class were deleted, not
+  // delayed. The rate limit was not an inconvenience; it was the mechanism by
+  // which long meetings lost their content.
+  //
+  // Three requests every ten seconds is 18/minute: under the limit, and still
+  // nine segments (nine minutes of audio) inside the 40s budget of one call.
+  const MIN_MINIBATCH_SPACING_MS = 10_000;
+  let lastMiniBatchAt = 0;
+
   for (let i = 0; i < batch.length; i += BATCH_SIZE) {
     if (i > 0 && Date.now() - startedAt > TIME_BUDGET_MS) {
-      logger.warn('Transcription batch stopping early: time budget reached', { meetingId, processedSoFar: processed, remaining: batch.length - i });
+      logger.warn('Transcription batch stopping early: time budget reached', { meetingId, processedSoFar: outcomes.length, remaining: batch.length - i });
       break;
     }
+
+    // Space the mini-batches out rather than firing them back to back.
+    const sinceLast = Date.now() - lastMiniBatchAt;
+    if (lastMiniBatchAt && sinceLast < MIN_MINIBATCH_SPACING_MS) {
+      await new Promise((r) => setTimeout(r, MIN_MINIBATCH_SPACING_MS - sinceLast));
+    }
+    lastMiniBatchAt = Date.now();
 
     const miniBatch = batch.slice(i, i + BATCH_SIZE);
 
@@ -335,16 +417,14 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
       miniBatch.map((seg: any) => transcribeSegment(supabase, seg, groqKey, meetingId, whisperPrompt))
     );
 
-    attempted += miniBatch.length;
-
+    // Order matters: the transcript is the segments concatenated in order, so
+    // this array has to mirror `batch` exactly, failures included.
     for (const r of results) {
-      if (r.status === 'fulfilled' && r.value.text) {
-        newTranscriptions.push(r.value.text);
-        processed++;
-      } else if (r.status === 'fulfilled' && r.value.error) {
-        segErrors.push(r.value.error);
-      } else if (r.status === 'rejected') {
-        segErrors.push(String(r.reason));
+      if (r.status === 'fulfilled') {
+        outcomes.push(r.value);
+      } else {
+        // A thrown fetch is a network problem, not bad audio - recoverable.
+        outcomes.push({ text: null, error: String(r.reason), permanent: false });
       }
     }
 
@@ -353,15 +433,46 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     }
   }
 
-  // Advance offset by ALL attempted segments (not just successes). Failed
-  // segments are logged but skipping them prevents infinite retry loops on
-  // permanently undecodable audio.
-  const finalOffset = offset + attempted;
+  // How far the offset may advance.
+  //
+  // It used to advance past EVERY attempted segment, successes and failures
+  // alike. That quietly destroyed audio: one Groq rate-limit (429) or one 502
+  // and that minute of the meeting was skipped forever - it never reached the
+  // transcript, never reached the minute, and nothing anywhere said so. Long
+  // meetings are precisely when Groq rate-limits, so several minutes could
+  // vanish from a document the user then signed as an accurate record.
+  //
+  // Now the offset stops at the first RECOVERABLE failure and the next call
+  // resumes exactly there. Segments that can never succeed (silence, an
+  // unreadable container, a format Groq rejects outright) are still stepped
+  // over, because retrying those forever would strand the meeting instead.
+  const cut = transcribeCutoff(outcomes);
+
+  const kept = outcomes.slice(0, cut);
+  const newTranscriptions = kept.map((o) => o.text).filter((t): t is string => Boolean(t));
+  const segErrors = outcomes.map((o) => o.error).filter((e): e is string => Boolean(e));
+  const processed = newTranscriptions.length;
+  const finalOffset = offset + cut;
   const existingTranscript = meeting.transcript_raw || '';
   const fullTranscript = existingTranscript
     ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
     : newTranscriptions.join('\n\n');
   const more = finalOffset < segments.length;
+
+  // No progress at all, and the first pending segment failed recoverably.
+  // Returning `more:true` here would make the client spin on that same segment
+  // until it gave up with a meaningless timeout, so say what really happened.
+  if (cut === 0) {
+    const reason = segErrors[0] || 'el transcriptor no respondio';
+    logger.warn('Transcription made no progress', { meetingId, offset, reason });
+    return {
+      success: false,
+      error: `El transcriptor no pudo procesar el audio en este momento (${reason.slice(0, 120)}). El audio está guardado: vuelve a pulsar «Reintentar» en unos minutos.`,
+      segmentsProcessed: offset,
+      segmentsTotal: segments.length,
+      more: false,
+    };
+  }
 
   // If this batch transcribed NOTHING and there is still no transcript at all,
   // fail loudly with the real Groq error instead of silently "succeeding" with

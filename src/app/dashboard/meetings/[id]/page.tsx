@@ -26,7 +26,7 @@ export default async function MeetingDetailPage({
 
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('id, title, coordination, created_at, status, transcript_raw, error_message, audio_segments')
+    .select('id, title, coordination, created_at, status, transcript_raw, error_message, audio_segments, ended_at')
     .eq('id', resolvedParams.id)
     .eq('created_by', user?.id)
     .maybeSingle();
@@ -56,6 +56,26 @@ export default async function MeetingDetailPage({
 
   const hasAudio = (meeting.audio_segments || []).length > 0;
   const canAddAudio = ['scheduled', 'recording', 'failed'].includes(meeting.status);
+
+  // Is anything actually working on this meeting right now?
+  //
+  // The pipeline is driven by the user's browser, so "processing" only means
+  // "a tab said it was starting". A single /process call is capped at 60s and
+  // the transcription loop heartbeats between batches, so nothing legitimate
+  // goes two minutes without touching `ended_at`. Past that the tab is gone —
+  // the phone slept, the app was closed, the signal dropped — and the meeting
+  // is nobody's responsibility until someone reopens this page. Which they
+  // just did.
+  const STALE_AFTER_MS = 2 * 60 * 1000;
+  const lastTouched = new Date(meeting.ended_at || meeting.created_at).getTime();
+  const isStale = Number.isFinite(lastTouched) && Date.now() - lastTouched > STALE_AFTER_MS;
+
+  // Audio was uploaded but the pipeline never ran at all: the recording tab
+  // died before "Finalizar" completed. This used to render NOTHING — no
+  // spinner, no error, no button — and the meeting was a dead end even though
+  // every second of audio was safely on the server.
+  const abandonedRecording =
+    hasAudio && !minute && ['scheduled', 'recording'].includes(meeting.status);
 
   return (
     <div className="space-y-6">
@@ -363,12 +383,29 @@ export default async function MeetingDetailPage({
       {meeting.status === 'processing' && (
         <section className="glass-strong rounded-2xl p-6 text-center space-y-3">
           <div className="w-10 h-10 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-slate-600 dark:text-slate-300 font-medium">Procesando audio y generando minuta…</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500">
-            Si esto no avanza después de varios minutos, puedes reintentarlo. No se pierde nada:
-            continúa desde donde quedó.
+          <p className="text-slate-600 dark:text-slate-300 font-medium">
+            {isStale ? 'Retomando el procesamiento…' : 'Procesando audio y generando minuta…'}
           </p>
-          <RetryButton meetingId={meeting.id} />
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            {isStale
+              ? 'El procesamiento se había interrumpido y lo estamos continuando desde donde quedó. No se pierde nada.'
+              : 'Puede tardar unos minutos. Si cierras la app, al volver aquí continuará solo.'}
+          </p>
+          <RetryButton meetingId={meeting.id} autoStart={isStale} />
+        </section>
+      )}
+
+      {/* Recording interrupted before it was ever sent for processing. */}
+      {abandonedRecording && (
+        <section className="glass-strong rounded-2xl p-6 text-center space-y-3">
+          <div className="w-10 h-10 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-slate-600 dark:text-slate-300 font-medium">
+            Retomando una grabación que quedó a medias…
+          </p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            El audio se subió pero la minuta nunca llegó a generarse. Lo estamos haciendo ahora.
+          </p>
+          <RetryButton meetingId={meeting.id} autoStart />
         </section>
       )}
 
@@ -399,7 +436,7 @@ export default async function MeetingDetailPage({
       )}
 
       {/* Nothing recorded yet */}
-      {!minute && !hasAudio && meeting.status === 'scheduled' && (
+      {!minute && !hasAudio && ['scheduled', 'recording'].includes(meeting.status) && (
         <div className="glass-strong rounded-2xl p-8 text-center space-y-2">
           <p className="text-slate-600 dark:text-slate-300 font-medium">Esta reunión aún no tiene audio</p>
           <p className="text-slate-400 dark:text-slate-500 text-sm">

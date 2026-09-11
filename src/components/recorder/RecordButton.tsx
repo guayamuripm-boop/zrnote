@@ -1,15 +1,30 @@
-﻿'use client';
+'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { maybeCompressAudio } from '@/lib/audio-compression';
 import { runMeetingPipeline, PipelineStep, STEP_LABELS } from '@/lib/pipeline-client';
 import {
   backgroundRecordingSupport,
   startBackgroundKeepAlive,
   type BackgroundCapability,
 } from '@/lib/background-audio';
+import {
+  saveSegment,
+  markSession,
+  pendingSegments,
+  dropMeeting,
+  requestPersistentStorage,
+} from '@/lib/recording-store';
+import { SegmentUploader, type QueueStatus } from '@/lib/upload-queue';
+import { watchMicHealth, MIC_ISSUE_MESSAGES, type MicIssue, type MicWatchdog } from '@/lib/mic-health';
 
-type RecordingState = 'idle' | 'recording' | 'paused' | 'uploading' | 'finalizing' | 'processing';
+type RecordingState =
+  | 'idle'
+  | 'recording'
+  | 'paused'
+  /** The capture died and is being rebuilt. Audio already captured is safe. */
+  | 'recovering'
+  | 'uploading'
+  | 'processing';
 type ProcessingStep = PipelineStep;
 
 interface RecordButtonProps {
@@ -19,31 +34,48 @@ interface RecordButtonProps {
 }
 
 // One segment = one full MediaRecorder session (start→stop), so every uploaded
-// file is independently decodable. 60s instead of 30s halves the number of
-// Whisper calls and gives the model more context per call, while staying far
-// under the 4MB upload cap (60s @128kbps ≈ 1MB).
+// file is independently decodable. 60s keeps the number of Whisper calls sane
+// while bounding what a catastrophic failure can cost to a single minute.
 const SEGMENT_DURATION_MS = 60 * 1000;
 
+// 32 kbps mono Opus is transparent for speech — Opus was designed for voice at
+// this rate, and Whisper hears no difference. The previous 128 kbps produced
+// files FOUR TIMES larger for no transcription benefit, which mattered in the
+// only place it could hurt: a 60s segment sat near 1MB against Vercel's 4.5MB
+// body cap, so a single missed rotation lost the audio outright, and every
+// upload took four times longer to survive on a weak connection.
+const AUDIO_BITS_PER_SECOND = 32_000;
+
+/** No chunk for this long means the recorder has stalled, whatever it claims. */
+const CHUNK_STALL_MS = 25_000;
+/** How often the stall check runs. Throttled in the background — that is fine:
+ *  the check is against wall-clock timestamps, so a late tick still detects it. */
+const STALL_CHECK_MS = 10_000;
+/** Attempts to re-acquire the microphone before admitting defeat. */
+const MAX_RECOVERY_ATTEMPTS = 5;
+
 export default function RecordButton({ meetingId, meetingTitle, onFinalized }: RecordButtonProps) {
-  // Force fresh deploy: 2026-07-18
   const [state, setState] = useState<RecordingState>('idle');
   const [elapsed, setElapsed] = useState(0);
   const [segmentCount, setSegmentCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [processingStep, setProcessingStep] = useState<ProcessingStep | null>(null);
   const [processingMessage, setProcessingMessage] = useState('');
-  const [failedSegments, setFailedSegments] = useState(0);
   const [warning, setWarning] = useState<string | null>(null);
   const [background, setBackground] = useState<BackgroundCapability | null>(null);
-  // Uploads keep failing (or not) AFTER finalizeRecording() captured its render
-  // closure, so the count has to be read from a ref, not from state.
-  const failedSegmentsRef = useRef(0);
+  const [micIssue, setMicIssue] = useState<MicIssue | null>(null);
+  const [queue, setQueue] = useState<QueueStatus>({ pending: 0, failed: 0, uploading: false, offline: false });
+  /** Audio found on the device from a recording that never finished. */
+  const [orphanSegments, setOrphanSegments] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const stallTimerRef = useRef<NodeJS.Timeout | null>(null);
   const stopKeepAliveRef = useRef<(() => void) | null>(null);
+  const uploaderRef = useRef<SegmentUploader | null>(null);
+  const watchdogRef = useRef<MicWatchdog | null>(null);
   // Wall-clock anchors. Counting `setInterval` ticks loses time whenever the
   // browser throttles timers (which is exactly what happens with the screen
   // off), so both the elapsed display and the pause bookkeeping are derived
@@ -51,10 +83,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const recordingStartedAtRef = useRef<number>(0);
   const pausedTotalMsRef = useRef(0);
   const pausedAtRef = useRef<number>(0);
-  const pendingUploadsRef = useRef<Promise<void>[]>([]);
-  // Serializes segment uploads so the server-side read-modify-write of
-  // meetings.audio_segments never races (concurrent uploads = lost segments).
-  const uploadChainRef = useRef<Promise<void>>(Promise.resolve());
   // When a recorder stops, decide whether it's a segment rotation (restart)
   // or the final stop (resolve finalize). See startNewRecorder().
   const shouldRestartRef = useRef(false);
@@ -67,11 +95,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const isRecordingRef = useRef(false);
   const rotateSegmentRef = useRef<(() => void) | null>(null);
+  const recoverRef = useRef<(() => void) | null>(null);
+  const recoveringRef = useRef(false);
+
   const meetingIdRef = useRef(meetingId);
   const segmentStartTimeRef = useRef<number>(Date.now());
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const lastChunkAtRef = useRef<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const mimeTypeRef = useRef<string>('audio/webm');
@@ -85,45 +114,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const getExt = useCallback(() => {
-    const mt = mimeTypeRef.current;
-    return mt.includes('mp4') ? 'mp4' : mt.includes('ogg') ? 'ogg' : 'webm';
+  const uploader = useCallback(() => {
+    if (!uploaderRef.current) {
+      uploaderRef.current = new SegmentUploader(meetingIdRef.current);
+      uploaderRef.current.subscribe(setQueue);
+    }
+    return uploaderRef.current;
   }, []);
-
-  const uploadSegmentOnce = async (blob: Blob, index: number, durationSec?: number) => {
-    const blobToUpload = await maybeCompressAudio(blob, 2);
-    
-    const ext = getExt();
-    
-    const formData = new FormData();
-    formData.append('audio', blobToUpload, `segment_${index}.${ext}`);
-    formData.append('segmentIndex', index.toString());
-    if (durationSec !== undefined) {
-      formData.append('durationSec', durationSec.toString());
-    }
-
-    const response = await fetch(`/api/meetings/${meetingIdRef.current}/upload-segment`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || 'Upload failed');
-    }
-  };
-
-  const uploadSegment = async (blob: Blob, index: number, durationSec?: number, maxAttempts = 3) => {
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await uploadSegmentOnce(blob, index, durationSec);
-        return;
-      } catch (err) {
-        if (attempt === maxAttempts) throw err;
-        await new Promise((r) => setTimeout(r, 1500 * attempt));
-      }
-    }
-  };
 
   // `ondataavailable` is driven by the MEDIA pipeline, not by a JS timer, so it
   // keeps firing on schedule even when the page is hidden and timers are being
@@ -132,6 +129,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   // simply stopped happening, and the "segment" grew until it blew past the
   // 4MB upload cap and was lost.
   const handleDataAvailable = useCallback((event: BlobEvent) => {
+    lastChunkAtRef.current = Date.now();
     if (event.data.size > 0) {
       chunksRef.current.push(event.data);
     }
@@ -143,23 +141,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   }, []);
 
-  // Enqueue an upload on the serial chain. Uploads run one at a time so the
-  // server's read-modify-write of audio_segments cannot drop entries.
-  const enqueueUpload = useCallback((blob: Blob, index: number, durationSec: number) => {
-    const run = () =>
-      uploadSegment(blob, index, durationSec).catch((err) => {
-        console.error(`Segment ${index} upload failed after retries:`, err);
-        failedSegmentsRef.current += 1;
-        setFailedSegments(failedSegmentsRef.current);
-      });
-    uploadChainRef.current = uploadChainRef.current.then(run);
-    pendingUploadsRef.current.push(uploadChainRef.current);
-  }, []);
-
   // Assemble ALL chunks of the current recorder session into ONE complete,
-  // self-contained media file (header + data) and queue it for upload.
-  // This is only ever called from a recorder's `onstop`, guaranteeing the
-  // container is properly finalized and therefore decodable by Whisper.
+  // self-contained media file (header + data), WRITE IT TO DISK, and let the
+  // durable queue take it from there.
+  //
+  // The write comes first and the upload second, deliberately: from this point
+  // on the audio survives the tab being killed, the browser crashing, or the
+  // phone running out of battery. Nothing downstream can lose it any more.
   const collectSegment = useCallback(() => {
     if (chunksRef.current.length === 0) return;
     const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current });
@@ -172,31 +160,60 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     segmentCountRef.current++;
     setSegmentCount(segmentCountRef.current);
 
-    enqueueUpload(blob, index, durationSec);
-  }, [enqueueUpload]);
+    const id = meetingIdRef.current;
+    void saveSegment({ meetingId: id, index, blob, mime: mimeTypeRef.current, durationSec })
+      .then(() => {
+        void markSession(id, { title: meetingTitle || '', state: 'recording' });
+        void uploader().drain();
+      });
+  }, [meetingTitle, uploader]);
 
   // Create and start a fresh MediaRecorder on the live stream. Each session
   // begins a new container, so every produced segment carries its own header.
-  const startNewRecorder = useCallback(() => {
+  const startNewRecorder = useCallback((): boolean => {
     const stream = streamRef.current;
-    if (!stream) return;
+    // Without this guard the caller went on to call `.start()` on the OLD,
+    // already-stopped recorder, which either throws or silently records from a
+    // dead stream. Recovery is the correct response, not pretending it worked.
+    if (!stream || stream.getAudioTracks().every((t) => t.readyState === 'ended')) {
+      return false;
+    }
 
-    const mr = new MediaRecorder(stream, {
-      mimeType: mimeTypeRef.current,
-      audioBitsPerSecond: 128000,
-    });
+    let mr: MediaRecorder;
+    try {
+      mr = new MediaRecorder(stream, {
+        mimeType: mimeTypeRef.current,
+        audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
+      });
+    } catch {
+      return false;
+    }
+
     chunksRef.current = [];
     segmentStartTimeRef.current = Date.now();
+    lastChunkAtRef.current = Date.now();
 
     mr.ondataavailable = handleDataAvailable;
+    // A recorder error used to be invisible: the capture stopped, the clock
+    // kept running, and the user recorded nothing for the rest of the meeting.
+    mr.onerror = () => {
+      if (isRecordingRef.current) recoverRef.current?.();
+    };
     mr.onstop = () => {
       // A stop finalizes the container → chunks form ONE valid file.
       collectSegment();
       if (shouldRestartRef.current) {
         // Segment rotation: immediately begin the next segment.
         shouldRestartRef.current = false;
-        startNewRecorder();
-        mediaRecorderRef.current?.start(1000);
+        if (startNewRecorder()) {
+          try {
+            mediaRecorderRef.current?.start(1000);
+          } catch {
+            recoverRef.current?.();
+          }
+        } else {
+          recoverRef.current?.();
+        }
       } else if (finalizeResolveRef.current) {
         // Final stop requested by finalizeRecording().
         const resolve = finalizeResolveRef.current;
@@ -206,6 +223,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     };
 
     mediaRecorderRef.current = mr;
+    return true;
   }, [handleDataAvailable, collectSegment]);
 
   // Close the current segment and open the next one. Stopping the recorder
@@ -215,7 +233,11 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     const mr = mediaRecorderRef.current;
     if (mr && mr.state !== 'inactive') {
       shouldRestartRef.current = true;
-      mr.stop();
+      try {
+        mr.stop();
+      } catch {
+        recoverRef.current?.();
+      }
     }
   }, []);
 
@@ -226,34 +248,108 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const requestWakeLock = async () => {
     try {
       if ('wakeLock' in navigator) {
-        const wakeLock = await navigator.wakeLock.request('screen');
-        wakeLockRef.current = wakeLock;
-        /* wake lock state is tracked via wakeLockRef */
-
-        wakeLock.addEventListener('release', () => {
-          /* wake lock state is tracked via wakeLockRef */
-        });
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
       }
-    } catch (err) {
-      console.log('Wake Lock not supported or denied:', err);
-      /* wake lock state is tracked via wakeLockRef */
+    } catch {
+      /* Wake Lock is unsupported or denied; the keep-alive audio carries on. */
     }
   };
 
   const releaseWakeLock = async () => {
     if (wakeLockRef.current) {
-      await wakeLockRef.current.release();
+      await wakeLockRef.current.release().catch(() => {});
       wakeLockRef.current = null;
-      /* wake lock state is tracked via wakeLockRef */
     }
+  };
+
+  const buildStream = async () =>
+    navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      },
+    });
+
+  /**
+   * Rebuild the capture after it died, without losing the meeting.
+   *
+   * Previously ANY of the causes below ended the recording silently and the
+   * user kept staring at a running clock: another app taking the microphone,
+   * a Bluetooth headset dropping, the recorder erroring out, or the media
+   * pipeline stalling. Now every one of them lands here, the already-captured
+   * audio is already on disk, and the recording simply continues in a new
+   * segment once the hardware comes back.
+   */
+  const recoverCapture = useCallback(async () => {
+    if (recoveringRef.current || !isRecordingRef.current) return;
+    recoveringRef.current = true;
+    setState('recovering');
+
+    try {
+      // Salvage whatever the dead recorder already produced. `onstop` may not
+      // fire on a broken recorder, so the chunks are collected by hand.
+      const mr = mediaRecorderRef.current;
+      shouldRestartRef.current = false;
+      finalizeResolveRef.current = null;
+      if (mr && mr.state !== 'inactive') {
+        try {
+          mr.onstop = null;
+          mr.stop();
+        } catch {
+          /* it is already broken; the chunks below are what matter */
+        }
+      }
+      collectSegment();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+
+      for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
+        if (!isRecordingRef.current) return;
+        try {
+          const stream = await buildStream();
+          streamRef.current = stream;
+          watchdogRef.current?.attach(stream);
+          if (startNewRecorder()) {
+            mediaRecorderRef.current?.start(1000);
+
+            setMicIssue(null);
+            setState('recording');
+            setWarning(
+              'Se perdió el micrófono un momento y se reconectó solo. El audio grabado hasta ahora está a salvo.',
+            );
+            return;
+          }
+        } catch {
+          /* the mic is still held by whatever took it; wait and try again */
+        }
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+      }
+
+      // Out of attempts. The audio is safe on disk, so the honest move is to
+      // close the recording cleanly and process what we have — not to keep a
+      // dead recorder on screen pretending to record.
+      isRecordingRef.current = false;
+      setError(
+        'No se pudo recuperar el micrófono (puede que otra app lo esté usando). Se guardó todo lo grabado hasta ahora: pulsa «Finalizar» para generar la minuta con ese audio.',
+      );
+      setState('paused');
+    } finally {
+      recoveringRef.current = false;
+    }
+  }, [collectSegment, startNewRecorder]);
+
+  recoverRef.current = () => {
+    void recoverCapture();
   };
 
   const handleVisibilityChange = useCallback(async () => {
     if (document.visibilityState === 'hidden' && isRecordingRef.current) {
       // Close the current segment so whatever has been captured so far is
-      // already safe on the server — but only if it holds enough audio to be
-      // worth a file. Rotating on a segment that just started would produce a
-      // sub-second clip that the server discards as "too small".
+      // already safe — but only if it holds enough audio to be worth a file.
+      // Rotating on a segment that just started would produce a sub-second
+      // clip the server discards as "too small".
       if (Date.now() - segmentStartTimeRef.current > 5000) {
         rotateSegment();
       }
@@ -263,23 +359,19 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       if (!wakeLockRef.current) {
         await requestWakeLock();
       }
+      // Coming back is also the moment to check the capture survived being
+      // backgrounded — on some devices it does not.
+      if (Date.now() - lastChunkAtRef.current > CHUNK_STALL_MS) {
+        void recoverCapture();
+      }
     }
-  }, [rotateSegment]);
+  }, [rotateSegment, recoverCapture]);
 
   const stopVisualizer = useCallback(() => {
     if (animFrameRef.current !== null) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
-    if (sourceRef.current) {
-      sourceRef.current.disconnect();
-      sourceRef.current = null;
-    }
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
-    analyserRef.current = null;
   }, []);
 
   const initCanvasSize = useCallback(() => {
@@ -295,15 +387,14 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
   const drawVisualizer = useCallback(() => {
     const canvas = canvasRef.current;
-    const analyser = analyserRef.current;
-    if (!canvas || !analyser) return;
+    const watchdog = watchdogRef.current;
+    if (!canvas || !watchdog) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    analyser.getByteFrequencyData(dataArray);
+    const dataArray = watchdog.frequencies();
+    const bufferLength = dataArray?.length ?? 0;
 
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.width / dpr;
@@ -314,12 +405,14 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     const gap = 2;
     const barWidth = (w - (barCount - 1) * gap) / barCount;
 
-    const avg = dataArray.reduce((a, b) => a + b, 0) / bufferLength;
+    // No analyser (an old WebView, a blocked AudioContext): draw the idle
+    // shimmer rather than nothing, so the screen never looks broken.
+    const avg = dataArray ? dataArray.reduce((a, b) => a + b, 0) / bufferLength : 0;
     const isSilent = avg < 12;
 
     for (let i = 0; i < barCount; i++) {
       const idx = Math.floor((i / barCount) * bufferLength);
-      const raw = dataArray[idx] / 255;
+      const raw = dataArray ? dataArray[idx] / 255 : 0;
       const value = isSilent ? 0.02 + Math.sin(Date.now() / 800 + i * 0.5) * 0.01 : raw;
 
       const barH = Math.max(value * h * 0.9, 1.5);
@@ -348,29 +441,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     animFrameRef.current = requestAnimationFrame(drawVisualizer);
   }, []);
 
-  const setupVisualizer = useCallback(async (stream: MediaStream) => {
-    stopVisualizer();
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-      }
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
-      audioContextRef.current = audioCtx;
-      analyserRef.current = analyser;
-      sourceRef.current = source;
-      initCanvasSize();
-      drawVisualizer();
-    } catch (e) {
-      console.warn('Audio visualizer not supported:', e);
-    }
-  }, [stopVisualizer, drawVisualizer, initCanvasSize]);
-
   const startRecording = async () => {
     try {
+      // Ask the browser to stop treating our buffered audio as disposable
+      // cache. Without it Android may evict IndexedDB mid-meeting — precisely
+      // when a long recording is what filled it.
+      void requestPersistentStorage();
+
       // Ask the server where our numbering starts before capturing anything.
       // Failing this is not fatal — worst case we start at 0 on a meeting that
       // has no audio, which is the normal case anyway.
@@ -386,14 +463,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         baseSegmentIndexRef.current = 0;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
+      const stream = await buildStream();
       streamRef.current = stream;
 
       const mimeTypes = [
@@ -409,34 +479,46 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           break;
         }
       }
-      console.log('[RecordButton] Using mimeType:', mimeType);
       mimeTypeRef.current = mimeType;
 
       chunksRef.current = [];
       segmentCountRef.current = 0;
-      pendingUploadsRef.current = [];
-      uploadChainRef.current = Promise.resolve();
       shouldRestartRef.current = false;
       finalizeResolveRef.current = null;
-      failedSegmentsRef.current = 0;
+
       setSegmentCount(0);
-      setFailedSegments(0);
       setElapsed(0);
       setError(null);
       setWarning(null);
+      setMicIssue(null);
+      setOrphanSegments(0);
       isRecordingRef.current = true;
 
-      // Start the first segment recorder. Each segment is a full recorder
-      // session (stop/restart), so every uploaded file is independently decodable.
       recordingStartedAtRef.current = Date.now();
       pausedTotalMsRef.current = 0;
       pausedAtRef.current = 0;
 
+      // Watch the hardware for the whole session. Track events fire from the
+      // media pipeline, so they keep working with the screen off.
+      watchdogRef.current = watchMicHealth(stream, {
+        onIssue: (issue) => {
+          setMicIssue(issue);
+          if (issue === 'track-ended') void recoverCapture();
+        },
+        onRecovered: (issue) => {
+          setMicIssue((cur) => (cur === issue ? null : cur));
+        },
+      });
+
       // The recorder emits a chunk every second; that event is what closes a
       // segment (see handleDataAvailable) — no JS timer is involved, so the
       // rotation keeps working with the screen off.
-      startNewRecorder();
+      if (!startNewRecorder()) {
+        throw new Error('MediaRecorder no pudo iniciarse');
+      }
       mediaRecorderRef.current?.start(1000);
+      await markSession(meetingIdRef.current, { title: meetingTitle || '', state: 'recording' });
+      void uploader().drain();
 
       // Purely cosmetic: the displayed time is RECOMPUTED from timestamps, so
       // even if this tick is throttled to once a minute the clock stays right.
@@ -447,6 +529,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           ),
         );
       }, 1000);
+
+      // The last line of defence: if chunks simply stop arriving, the capture
+      // is dead no matter what `mediaRecorder.state` says.
+      stallTimerRef.current = setInterval(() => {
+        if (!isRecordingRef.current || recoveringRef.current) return;
+        if (Date.now() - lastChunkAtRef.current > CHUNK_STALL_MS) void recoverCapture();
+      }, STALL_CHECK_MS);
 
       setState('recording');
 
@@ -460,9 +549,8 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       });
 
       document.addEventListener('visibilitychange', handleVisibilityChange);
-
     } catch (err) {
-      console.error('Error starting recording:', err);
+      isRecordingRef.current = false;
       setError(
         err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'No diste permiso para usar el micrófono. Actívalo en los ajustes del navegador y vuelve a intentarlo.'
@@ -489,6 +577,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
       mediaRecorderRef.current.resume();
       isRecordingRef.current = true;
+      lastChunkAtRef.current = Date.now();
 
       // Discount the paused stretch so the elapsed clock stays honest, and
       // push the segment deadline forward so the pause does not instantly
@@ -516,48 +605,8 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   };
 
-  const finalizeRecording = async () => {
-    isRecordingRef.current = false;
-    if (timerRef.current) clearInterval(timerRef.current);
-    stopKeepAliveRef.current?.();
-    stopKeepAliveRef.current = null;
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-
-    // Final stop: do NOT restart. The recorder's onstop collects the last
-    // (complete) segment and resolves this promise via finalizeResolveRef.
-    const stopped = new Promise<void>((resolve) => {
-      const mr = mediaRecorderRef.current;
-      if (!mr || mr.state === 'inactive') {
-        collectSegment();
-        resolve();
-        return;
-      }
-      shouldRestartRef.current = false;
-      finalizeResolveRef.current = resolve;
-      mr.stop();
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-    });
-
-    await stopped;
-    stopVisualizer();
-    await releaseWakeLock();
-    setState('uploading');
-    // Drain the serial upload chain, then make sure every queued upload settled.
-    await uploadChainRef.current.catch(() => {});
-    await Promise.allSettled(pendingUploadsRef.current);
-
-    if (segmentCountRef.current === 0) {
-      setError('No se capturó audio. Revisa que el micrófono tenga permiso y vuelve a grabar.');
-      setState('idle');
-      return;
-    }
-
-    if (failedSegmentsRef.current > 0) {
-      setWarning(
-        `${failedSegmentsRef.current} fragmento(s) de audio no se pudieron subir. La minuta puede quedar incompleta.`,
-      );
-    }
-
+  /** Shared by "Finalizar" and by the recovery of an interrupted session. */
+  const runPipeline = useCallback(async () => {
     setState('processing');
     setProcessingStep('transcribe');
     setProcessingMessage('Transcribiendo el audio…');
@@ -569,6 +618,15 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       );
     });
 
+    // Only NOW is the keep-alive no longer needed. It used to be released
+    // before this loop ran, which left the longest and most fragile phase of
+    // the whole product — transcribing forty segments over a mobile network —
+    // running in a tab the browser was free to freeze. Locking the screen
+    // during processing was enough to strand the meeting on "procesando".
+    stopKeepAliveRef.current?.();
+    stopKeepAliveRef.current = null;
+    await releaseWakeLock();
+
     if (!result.ok) {
       setError(result.error || 'No se pudo procesar la grabación.');
       setState('idle');
@@ -576,10 +634,95 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       return;
     }
 
+    // The pipeline finished, so the audio buffered on the device has done its
+    // job and the session no longer counts as interrupted.
+    await markSession(meetingIdRef.current, { state: 'done' });
+    void dropMeeting(meetingIdRef.current);
+
     if (result.warning) setWarning(result.warning);
     setProcessingStep(null);
     setProcessingMessage('¡Listo!');
     onFinalized?.();
+  }, [onFinalized]);
+
+  const finalizeRecording = async () => {
+    isRecordingRef.current = false;
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    await markSession(meetingIdRef.current, { state: 'finalizing' });
+
+    // Final stop: do NOT restart. The recorder's onstop collects the last
+    // (complete) segment and resolves this promise via finalizeResolveRef.
+    await new Promise<void>((resolve) => {
+      const mr = mediaRecorderRef.current;
+      if (!mr || mr.state === 'inactive') {
+        collectSegment();
+        resolve();
+        return;
+      }
+      shouldRestartRef.current = false;
+      finalizeResolveRef.current = resolve;
+      // A recorder that never fires `onstop` (it is already broken) must not
+      // hang the finalize forever — take what we have and move on.
+      const bail = setTimeout(() => {
+        if (finalizeResolveRef.current) {
+          finalizeResolveRef.current = null;
+          collectSegment();
+          resolve();
+        }
+      }, 5000);
+      const done = () => clearTimeout(bail);
+      try {
+        mr.stop();
+      } catch {
+        done();
+        collectSegment();
+        finalizeResolveRef.current = null;
+        resolve();
+        return;
+      }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      void Promise.resolve().then(done);
+    });
+
+    stopVisualizer();
+    watchdogRef.current?.stop();
+    watchdogRef.current = null;
+
+    setState('uploading');
+    // Everything captured is on disk; this drains it to the server. It is safe
+    // to take as long as it needs — nothing is lost by waiting.
+    const drained = await uploader().waitUntilDrained();
+
+    if (segmentCountRef.current === 0 && drained.pending === 0 && drained.failed === 0) {
+      setError('No se capturó audio. Revisa que el micrófono tenga permiso y vuelve a grabar.');
+      setState('idle');
+      stopKeepAliveRef.current?.();
+      stopKeepAliveRef.current = null;
+      await releaseWakeLock();
+      return;
+    }
+
+    if (drained.failed > 0) {
+      setWarning(
+        `${drained.failed} fragmento(s) siguen sin subirse (guardados en este dispositivo). La minuta puede quedar incompleta; vuelve a esta pantalla con conexión para completarla.`,
+      );
+    }
+
+    await runPipeline();
+  };
+
+  /** Finish a recording whose tab died before the pipeline ever ran. */
+  const recoverInterrupted = async () => {
+    setError(null);
+    setState('uploading');
+    const drained = await uploader().waitUntilDrained();
+    setOrphanSegments(drained.pending + drained.failed);
+    if (drained.failed > 0 && drained.pending === 0) {
+      setWarning(`${drained.failed} fragmento(s) no se pudieron subir. Se procesará el resto.`);
+    }
+    await runPipeline();
   };
 
   // Device capabilities depend on the user agent, so this can only run in the
@@ -588,25 +731,44 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     setBackground(backgroundRecordingSupport());
   }, []);
 
+  // Audio left on the device by a recording that never finished. Finding it and
+  // saying so is the difference between "se me borró la clase" and "pulsa aquí".
   useEffect(() => {
-    if (state === 'recording' && streamRef.current && canvasRef.current) {
-      setupVisualizer(streamRef.current);
-    } else if (state === 'recording' && streamRef.current) {
-      const raf = requestAnimationFrame(() => {
-        if (streamRef.current && canvasRef.current) {
-          setupVisualizer(streamRef.current);
-        }
-      });
-      return () => cancelAnimationFrame(raf);
-    }
-  }, [state, setupVisualizer]);
+    let cancelled = false;
+    void pendingSegments(meetingId).then((segs) => {
+      if (!cancelled) setOrphanSegments(segs.length);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [meetingId]);
+
+  useEffect(() => {
+    if (state !== 'recording') return;
+    initCanvasSize();
+    drawVisualizer();
+    return stopVisualizer;
+  }, [state, drawVisualizer, initCanvasSize, stopVisualizer]);
+
+  // Leaving mid-recording is the one irreversible mistake left, so ask first.
+  // (Browsers ignore custom text, but the prompt itself is what matters.)
+  useEffect(() => {
+    if (state !== 'recording' && state !== 'paused' && state !== 'recovering') return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [state]);
 
   useEffect(() => {
     return () => {
       if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
-      if (sourceRef.current) sourceRef.current.disconnect();
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') audioContextRef.current.close();
       if (timerRef.current) clearInterval(timerRef.current);
+      if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+      watchdogRef.current?.stop();
+      uploaderRef.current?.dispose();
       stopKeepAliveRef.current?.();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       releaseWakeLock();
@@ -618,13 +780,15 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     };
   }, [handleVisibilityChange]);
 
+  const isLive = state === 'recording' || state === 'paused' || state === 'recovering';
+
   return (
     <div className="flex flex-col items-center gap-8">
       {error && (
         <div className="w-full max-w-md bg-rose-100 dark:bg-rose-900/30 rounded-xl p-4 flex items-start gap-3">
           <div className="w-8 h-8 gradient-error rounded-lg flex items-center justify-center shrink-0">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77-.833.192 2.5 1.732 2.5z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
             </svg>
           </div>
           <div className="flex-1">
@@ -646,6 +810,48 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
+          </button>
+        </div>
+      )}
+
+      {/* The microphone stopped hearing. Said WHILE the meeting is still
+          happening, which is the only moment it is worth anything. */}
+      {micIssue && isLive && (
+        <div
+          className={`w-full max-w-md rounded-xl p-4 flex items-start gap-3 border ${
+            micIssue === 'silence'
+              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40'
+              : 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800/40'
+          }`}
+        >
+          <span className="text-lg leading-none">{micIssue === 'silence' ? '🔇' : '🎙️'}</span>
+          <p
+            className={`flex-1 text-sm ${
+              micIssue === 'silence'
+                ? 'text-amber-700 dark:text-amber-400'
+                : 'text-rose-700 dark:text-rose-400'
+            }`}
+          >
+            {MIC_ISSUE_MESSAGES[micIssue]}
+          </p>
+        </div>
+      )}
+
+      {/* Audio recovered from a recording that never finished. */}
+      {state === 'idle' && orphanSegments > 0 && (
+        <div className="w-full max-w-md rounded-xl p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/40 space-y-3">
+          <div className="flex items-start gap-3">
+            <span className="text-lg leading-none">💾</span>
+            <p className="flex-1 text-sm text-blue-800 dark:text-blue-300">
+              Encontramos {orphanSegments} fragmento{orphanSegments !== 1 ? 's' : ''} de una
+              grabación anterior guardados en este dispositivo. No se perdieron.
+            </p>
+          </div>
+          <button
+            onClick={recoverInterrupted}
+            className="w-full gradient-primary text-white rounded-xl py-2.5 text-sm font-medium"
+          >
+            Recuperar y generar la minuta
           </button>
         </div>
       )}
@@ -681,7 +887,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
             {(state === 'recording' || state === 'paused') && (
               <span className={`w-3 h-3 rounded-full ${state === 'recording' ? 'bg-rose-500 animate-pulse dark:bg-rose-400' : 'bg-amber-400 dark:bg-amber-500'}`} />
             )}
-            {(state === 'uploading' || state === 'finalizing' || state === 'processing') && (
+            {(state === 'uploading' || state === 'recovering' || state === 'processing') && (
               <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
             )}
             <span className="text-4xl sm:text-5xl font-light text-slate-900 dark:text-slate-100 tracking-wider tabular-nums">
@@ -692,10 +898,29 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
             <p className="text-sm text-slate-500 dark:text-slate-400">
               {state === 'recording' && `${segmentCount} segmento${segmentCount !== 1 ? 's' : ''}`}
               {state === 'paused' && 'En pausa'}
-              {state === 'uploading' && 'Guardando...'}
-              {state === 'finalizing' && 'Procesando...'}
+              {state === 'recovering' && 'Reconectando el micrófono…'}
+              {state === 'uploading' && 'Guardando el audio…'}
               {state === 'processing' && processingStep && STEP_LABELS[processingStep]}
             </p>
+
+            {/* What the upload queue is doing. Silence here used to hide a
+                meeting that was quietly failing to reach the server. */}
+            {isLive && (queue.pending > 0 || queue.failed > 0 || queue.offline) && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {queue.offline
+                  ? `Sin conexión — ${queue.pending} fragmento(s) esperando en el teléfono. Se subirán solos.`
+                  : queue.failed > 0
+                    ? `${queue.failed} fragmento(s) con problemas, guardados en el teléfono.`
+                    : `Subiendo… ${queue.pending} fragmento(s) en cola.`}
+              </p>
+            )}
+
+            {state === 'uploading' && queue.pending > 0 && (
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                Quedan {queue.pending} fragmento(s) por subir.
+              </p>
+            )}
+
             {state === 'recording' && background && (
               <p
                 className={`text-xs flex items-center justify-center gap-1 ${
@@ -722,11 +947,6 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
               className="w-full h-16 sm:h-20 rounded-xl"
               style={{ display: 'block' }}
             />
-            {!analyserRef.current && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-              </div>
-            )}
           </div>
           <div className="flex items-center justify-between mt-2 px-1">
             <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-wider uppercase">Audio en vivo</span>
@@ -798,10 +1018,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           </div>
         )}
 
-        {(state === 'uploading' || state === 'finalizing') && (
-          <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full gradient-primary text-white font-semibold flex flex-col items-center justify-center gap-3 shadow-xl">
+        {(state === 'uploading' || state === 'recovering') && (
+          <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full gradient-primary text-white font-semibold flex flex-col items-center justify-center gap-3 shadow-xl text-center px-6">
             <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin" />
-            <span>{state === 'uploading' ? 'Guardando...' : 'Procesando...'}</span>
+            <span className="text-sm">
+              {state === 'uploading' ? 'Guardando…' : 'Reconectando…'}
+            </span>
           </div>
         )}
 
@@ -831,20 +1053,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
                 })}
               </div>
               <p className="text-xs text-slate-400 dark:text-slate-500">
-                Puede tardar unos minutos. No cierres esta pantalla.
+                Puede tardar unos minutos. Si se corta, el audio está guardado y puedes
+                retomarlo desde la reunión.
               </p>
-            </div>
-          </div>
-        )}
-
-        {state === 'finalizing' && (
-          <div className="w-full max-w-sm space-y-2">
-            <div className="flex justify-between text-xs text-slate-400 dark:text-slate-500">
-              <span>Transcribiendo audio...</span>
-              <span>~30s</span>
-            </div>
-            <div className="w-full glass rounded-full h-1.5 overflow-hidden">
-              <div className="gradient-primary h-1.5 rounded-full animate-pulse" style={{ width: '60%' }} />
             </div>
           </div>
         )}

@@ -1,14 +1,35 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { runMeetingPipeline } from '@/lib/pipeline-client';
 
-export default function RetryButton({ meetingId }: { meetingId: string }) {
+interface RetryButtonProps {
+  meetingId: string;
+  /**
+   * Continue the pipeline as soon as this renders, without waiting for a click.
+   *
+   * The pipeline is driven by the BROWSER: each /process call is fired by the
+   * page, because a 60s serverless function cannot transcribe a 45-minute
+   * class in one go. That design is sound, but it had no owner once the tab
+   * died — and the tab dies all the time on a phone. A meeting recorded at
+   * 10:00 then sat on "procesando" until the 02:00 cron finally marked it
+   * failed, sixteen hours later.
+   *
+   * So opening the meeting resumes it. The work is idempotent (the server
+   * tracks how many segments are already transcribed), nothing is done twice,
+   * and the common case - user records, phone sleeps, user reopens the app -
+   * now repairs itself with no click and no explanation needed.
+   */
+  autoStart?: boolean;
+}
+
+export default function RetryButton({ meetingId, autoStart = false }: RetryButtonProps) {
   const [loading, setLoading] = useState(false);
   const [stepMsg, setStepMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const startedRef = useRef(false);
   const router = useRouter();
 
   const handleRetry = async (attempt = 1): Promise<void> => {
@@ -39,6 +60,15 @@ export default function RetryButton({ meetingId }: { meetingId: string }) {
     else if (result.warning) setWarning(result.warning);
     router.refresh();
   };
+
+  // StrictMode double-mounts in development, and a second concurrent pipeline
+  // would fight the first over the same meeting; the ref makes it run once.
+  useEffect(() => {
+    if (!autoStart || startedRef.current) return;
+    startedRef.current = true;
+    void handleRetry();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart]);
 
   return (
     <div className="space-y-3">

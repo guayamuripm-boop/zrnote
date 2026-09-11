@@ -131,6 +131,15 @@ export async function POST(
   }
 
   if (step === 'analyze') {
+    // Mark the meeting as touched before a step that can run for the best part
+    // of a minute. Staleness is judged by `ended_at`, and both the retry lock
+    // and the page's auto-resume would otherwise treat a healthy analyze as an
+    // abandoned pipeline and start a second one on top of it.
+    await supabase
+      .from('meetings')
+      .update({ ended_at: new Date().toISOString() })
+      .eq('id', meetingId);
+
     if (!meeting.transcript_raw) {
       return NextResponse.json({ ok: false, error: 'No hay transcripción todavía. Ejecuta primero la transcripción.' }, { status: 400 });
     }
@@ -147,6 +156,11 @@ export async function POST(
   }
 
   if (step === 'emails') {
+    await supabase
+      .from('meetings')
+      .update({ ended_at: new Date().toISOString() })
+      .eq('id', meetingId);
+
     const { sendMeetingEmails, markMeetingCompleted } = await import('@/lib/processing');
 
     // Guard: never mark a meeting "completed" if no minute was ever generated.

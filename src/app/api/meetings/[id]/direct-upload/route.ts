@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { registerAudioSegment } from '@/lib/audio-segments';
 
 // For audio formats the browser cannot decode/split client-side (e.g. raw .aac
 // from voice recorders) we let the browser upload the whole file straight to
@@ -87,26 +88,21 @@ export async function POST(
       return NextResponse.json({ error: 'segmentIndex y path requeridos' }, { status: 400 });
     }
 
-    const filtered = existingSegments.filter((s: any) => s.segment_index !== segmentIndex);
-    filtered.push({
-      r2_key: path,
-      segment_index: segmentIndex,
-      duration_s: durationSec,
-      status: 'uploaded',
-      speaker_hint: null,
-    });
-    // The transcript is assembled in array order, so the array must stay sorted
-    // by segment_index — re-uploading a chunk used to push it to the end and
-    // scramble the transcript.
-    filtered.sort((a: any, b: any) => (a.segment_index ?? 0) - (b.segment_index ?? 0));
-
-    const { error } = await supabase
-      .from('meetings')
-      .update({ audio_segments: filtered })
-      .eq('id', resolvedParams.id);
+    const { error } = await registerAudioSegment(
+      supabase,
+      resolvedParams.id,
+      {
+        r2_key: path,
+        segment_index: segmentIndex,
+        duration_s: durationSec,
+        status: 'uploaded',
+        speaker_hint: null,
+      },
+      existingSegments,
+    );
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error }, { status: 500 });
     }
     return NextResponse.json({ ok: true });
   }

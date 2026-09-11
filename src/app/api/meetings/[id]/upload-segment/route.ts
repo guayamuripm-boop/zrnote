@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getAuthedUser } from '@/lib/api-auth';
+import { registerAudioSegment } from '@/lib/audio-segments';
 
 const ALLOWED_TYPES: Record<string, string> = {
   'audio/webm': 'webm',
@@ -80,27 +81,24 @@ export async function POST(
     return NextResponse.json({ error: uploadError.message }, { status: 500 });
   }
 
-  const segments = meeting.audio_segments || [];
-  const filtered = segments.filter((s: any) => s.segment_index !== segmentIndex);
-  filtered.push({
-    r2_key: r2Key,
-    segment_index: segmentIndex,
-    duration_s: durationSec || 0,
-    status: 'uploaded',
-    speaker_hint: speakerHint || null,
-  });
-  // Keep the array ordered: the transcript is concatenated in array order.
-  filtered.sort((a: any, b: any) => (a.segment_index ?? 0) - (b.segment_index ?? 0));
-
-  const { error: saveError } = await supabase
-    .from('meetings')
-    .update({ audio_segments: filtered })
-    .eq('id', resolvedParams.id);
+  // Atomic where migration 027 is applied, read-modify-write where it is not.
+  const { error: saveError } = await registerAudioSegment(
+    supabase,
+    resolvedParams.id,
+    {
+      r2_key: r2Key,
+      segment_index: segmentIndex,
+      duration_s: durationSec || 0,
+      status: 'uploaded',
+      speaker_hint: speakerHint || null,
+    },
+    meeting.audio_segments || [],
+  );
 
   // The client retries on a non-2xx, so a lost write must NOT report success —
   // otherwise the segment file exists in Storage but nothing points to it.
   if (saveError) {
-    return NextResponse.json({ error: saveError.message }, { status: 500 });
+    return NextResponse.json({ error: saveError }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true, r2Key });
