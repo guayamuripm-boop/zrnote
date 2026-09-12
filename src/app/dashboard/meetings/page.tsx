@@ -13,6 +13,15 @@ export default async function MeetingsPage() {
     .order('created_at', { ascending: false })
     .limit(200);
 
+  // `kept` fetched separately, defensively: this is the main navigation page,
+  // and folding an unapplied migration 029 into the primary select above would
+  // blank the entire list rather than just hide one small badge.
+  const meetingIds = (meetings || []).map((m) => m.id);
+  const { data: keptRows } = meetingIds.length
+    ? await supabase.from('meetings').select('id, kept').in('id', meetingIds)
+    : { data: [] as { id: string; kept: boolean }[] };
+  const keptById = new Map((keptRows || []).map((r) => [r.id, r.kept]));
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -52,6 +61,18 @@ export default async function MeetingsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {/* `kept` is undefined before migration 029, treated as
+                      saved so an older deployment never shows a countdown it
+                      cannot act on. */}
+                  {keptById.get(meeting.id) === false &&
+                    30 - (Date.now() - new Date(meeting.created_at).getTime()) / 86_400_000 <= 3 && (
+                      <span
+                        title="Se eliminará pronto si no la guardas"
+                        className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full"
+                      >
+                        ⏳ sin guardar
+                      </span>
+                    )}
                   <span className="text-xs text-slate-400 dark:text-slate-500 hidden sm:inline">{meeting.type}</span>
                   <StatusBadge status={meeting.status} />
                 </div>

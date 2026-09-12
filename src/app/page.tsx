@@ -43,7 +43,7 @@ const DIFFERENTIATORS = [
   {
     emoji: '🔒',
     title: 'Tú controlas los datos',
-    text: 'El audio se borra automáticamente a los 30 días. Puedes exportar o borrar toda tu información cuando quieras.',
+    text: 'El audio se borra automáticamente a los 7 días. Puedes exportar o borrar toda tu información cuando quieras.',
   },
 ];
 
@@ -154,7 +154,7 @@ const FAQS: FaqItem[] = [
   {
     question: '¿Qué pasa con la privacidad del audio y la transcripción?',
     answer:
-      'El audio se borra automáticamente a los 30 días. El acta y los compromisos se conservan para que puedas consultarlos, y puedes exportar o borrar toda tu información cuando quieras desde tu perfil.',
+      'El audio se borra automáticamente a los 7 días. El acta y los compromisos se conservan hasta 30 días — pasado ese plazo se eliminan si no marcas la reunión como guardada — y puedes exportar o borrar toda tu información cuando quieras desde tu perfil.',
   },
   {
     question: '¿Cuánto cuesta?',

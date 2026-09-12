@@ -15,7 +15,7 @@ import { createHash } from 'crypto';
 import { logger } from '@/lib/logger';
 import { dailyEmailLimit } from '@/lib/smtp';
 
-export type EmailKind = 'personal' | 'coordinator_summary' | 'reminder';
+export type EmailKind = 'personal' | 'coordinator_summary' | 'reminder' | 'deletion_warning';
 
 export interface ClaimableJob {
   to: string;

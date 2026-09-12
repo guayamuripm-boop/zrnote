@@ -68,7 +68,8 @@ export default async function ProfilePage() {
           </a>
           <p className="text-xs text-slate-400 dark:text-slate-500">
             Archivo JSON con tus reuniones, minutas y compromisos. El audio se borra
-            automáticamente a los 30 días.
+            automáticamente a los 7 días. Una reunión sin guardar se elimina por completo
+            a los 30 días de creada — pulsa «Guardar» en la reunión para conservarla.
           </p>
         </div>
 

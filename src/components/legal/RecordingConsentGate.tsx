@@ -89,7 +89,7 @@ export default function RecordingConsentGate({ meetingId, mode, onConsent }: Pro
         <p className="text-sm text-slate-700 dark:text-slate-200 italic leading-relaxed">
           «Antes de empezar: voy a grabar esta reunión para generar la minuta automáticamente con una
           herramienta de inteligencia artificial. El audio se procesa en servidores externos y se
-          borra a los 30 días. ¿Están todos de acuerdo?»
+          borra a los 7 días. ¿Están todos de acuerdo?»
         </p>
       </div>
 

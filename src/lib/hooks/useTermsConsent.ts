@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-export const LEGAL_VERSION = '2.0';
+export const LEGAL_VERSION = '2.1';
 /** Documents everyone must accept before using the dashboard. */
 export const REQUIRED_DOCS = ['terms_of_service', 'privacy_policy'] as const;
 

@@ -162,7 +162,11 @@ const TOPICS: Topic[] = [
     items: [
       {
         q: 'El audio',
-        a: 'Se borra automáticamente a los 30 días. El acta y los compromisos se conservan para que puedas consultarlos.',
+        a: 'Se borra automáticamente a los 7 días — es lo más sensible y lo que menos falta hace una vez que la minuta está lista.',
+      },
+      {
+        q: 'La reunión, la minuta y los compromisos',
+        a: 'Se conservan 30 días. Si en ese tiempo no pulsas «Guardar» en la reunión, se elimina por completo (transcripción, minuta y compromisos incluidos) para no acumular reuniones que nadie va a volver a mirar. Guardarla la conserva para siempre. Te avisamos por correo unos días antes de borrarla.',
       },
       {
         q: 'Descargar tus datos',

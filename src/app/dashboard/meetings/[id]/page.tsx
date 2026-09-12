@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import AssignActionItems from '@/components/minutes/AssignActionItems';
 import DeleteMeetingButton from '@/components/DeleteMeetingButton';
+import KeepMeetingButton from '@/components/KeepMeetingButton';
 import RetryButton from '@/components/RetryButton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
@@ -77,6 +78,27 @@ export default async function MeetingDetailPage({
   const abandonedRecording =
     hasAudio && !minute && ['scheduled', 'recording'].includes(meeting.status);
 
+  // `kept` is queried SEPARATELY from the meeting above, on purpose: this page
+  // is the one every user hits constantly, and the column does not exist until
+  // migration 029 is applied. Folding it into the main select would 404 every
+  // meeting the moment this code deploys, for however long the migration lags
+  // behind — exactly the kind of self-inflicted outage this whole audit exists
+  // to prevent. A failed or missing read defaults to "kept", the safe reading:
+  // no countdown shown, nothing to act on, nothing at risk.
+  const { data: retentionRow } = await supabase
+    .from('meetings')
+    .select('kept')
+    .eq('id', resolvedParams.id)
+    .maybeSingle();
+  const isKept = retentionRow?.kept ?? true;
+
+  const MEETING_RETENTION_DAYS = 30;
+  const ageDays = (Date.now() - new Date(meeting.created_at).getTime()) / 86_400_000;
+  const daysUntilDeletion = Math.max(0, Math.ceil(MEETING_RETENTION_DAYS - ageDays));
+  // Matches the cron's own warning threshold (30 - 3 days) so the banner and
+  // the e-mail agree on when this becomes worth mentioning.
+  const showDeletionCountdown = !isKept && daysUntilDeletion <= 3;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -113,9 +135,23 @@ export default async function MeetingDetailPage({
                 </Link>
               </div>
             )}
+            <KeepMeetingButton meetingId={meeting.id} kept={isKept} />
             <DeleteMeetingButton meetingId={meeting.id} />
           </div>
         </div>
+
+        {showDeletionCountdown && (
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-900/20 p-3">
+            <span className="text-base leading-none">⏳</span>
+            <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+              {daysUntilDeletion === 0
+                ? 'Esta reunión se eliminará hoy'
+                : `Esta reunión se eliminará en ${daysUntilDeletion} día${daysUntilDeletion === 1 ? '' : 's'}`}
+              {' '}porque nadie la marcó como guardada — junto con su transcripción, minuta y compromisos.
+              Pulsa «Guardar» arriba para conservarla indefinidamente.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Minute */}

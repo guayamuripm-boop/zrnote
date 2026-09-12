@@ -6,9 +6,13 @@ import { logger } from '@/lib/logger';
 export const dynamic = 'force-dynamic';
 
 // Audio is the most sensitive thing we hold and the least useful once the
-// minute exists. It is deleted after 30 days — this is stated in the privacy
-// notice, so the two must stay in sync if you change the number.
-const AUDIO_RETENTION_DAYS = 30;
+// minute exists — and it is the single heaviest thing in Storage. Lowered from
+// 30 to 7 days on 12 Sep 2026: Supabase's free-tier 1 GB storage allowance was
+// already exceeded (1.19 GB), and audio was almost the entire total. This
+// number is stated in the privacy notice (migration 029/030) and in the
+// recording-consent text: change it in exactly one place and it drifts out of
+// sync with what the user was told before they hit record.
+const AUDIO_RETENTION_DAYS = 7;
 const MEETING_ARCHIVE_DAYS = 365;
 
 export async function GET(request: Request) {
@@ -161,7 +165,27 @@ export async function GET(request: Request) {
     reminders = { sent: 0, failed: 0, skipped: err?.message || 'reminders crashed' };
   }
 
-  logger.info('Retention run finished', { deletedFiles, clearedMeetings, orphansDeleted, archived: archivedMeetings?.length || 0 });
+  // 5. Meetings nobody kept: warn the ones approaching 30 days, then delete
+  // the ones past it. See src/lib/meeting-lifecycle.ts for why this exists —
+  // in short, an unbounded meeting count was the other half of the storage
+  // problem the audio-retention change above addresses.
+  let deletionWarnings = { sent: 0, failed: 0 } as { sent: number; failed: number; skipped?: string };
+  let unkeptMeetings = { deleted: 0, audioFilesRemoved: 0 };
+  try {
+    const { sendDeletionWarnings, deleteUnkeptMeetings } = await import('@/lib/meeting-lifecycle');
+    deletionWarnings = await sendDeletionWarnings(supabase);
+    unkeptMeetings = await deleteUnkeptMeetings(supabase);
+  } catch (err: any) {
+    logger.error('Retention: meeting lifecycle step crashed', { error: err?.message });
+  }
+
+  logger.info('Retention run finished', {
+    deletedFiles,
+    clearedMeetings,
+    orphansDeleted,
+    archived: archivedMeetings?.length || 0,
+    meetingsDeleted: unkeptMeetings.deleted,
+  });
 
   return NextResponse.json({
     ok: true,
@@ -170,6 +194,8 @@ export async function GET(request: Request) {
     orphanBytesFreed: orphanBytes,
     clearedMeetings,
     archivedMeetings: archivedMeetings?.length || 0,
+    deletionWarningsSent: deletionWarnings.sent,
+    unkeptMeetingsDeleted: unkeptMeetings.deleted,
     reminders,
     errors: archiveError ? [archiveError.message] : [],
   });
