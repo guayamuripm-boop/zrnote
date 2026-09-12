@@ -227,10 +227,21 @@ async function stopRecording() {
   await chrome.storage.session.remove('session');
   chrome.action.setBadgeText({ text: '' });
 
-  // The offscreen document finishes the last segment and uploads it.
-  // Si esto falla, el último minuto de audio se pierde pero la reunión sigue
-  // siendo procesable con lo ya subido — por eso no aborta el resto.
-  await sendToOffscreen({ target: 'offscreen', type: 'STOP' }, 3).catch(() => {});
+  // The offscreen document finishes the last segment and drains its upload
+  // queue. Si esto falla, el último minuto de audio se pierde pero la reunión
+  // sigue siendo procesable con lo ya subido — por eso no aborta el resto.
+  const left = await sendToOffscreen({ target: 'offscreen', type: 'STOP' }, 3).catch(() => ({}));
+
+  // The queue lives inside the offscreen document, so closing it stops every
+  // retry. Saying what was left behind beats closing quietly and letting the
+  // minute come out short with no explanation.
+  if (left?.failed > 0) {
+    notify(
+      'Faltan fragmentos por subir',
+      `${left.failed} trozo(s) de audio no llegaron al servidor. La minuta puede quedar incompleta.`,
+    );
+  }
+
   await closeOffscreen();
 
   notify('Procesando la reunión', 'Transcribiendo y generando la minuta…');
@@ -311,6 +322,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // Sirve para comprobar desde la consola si el service worker está vivo,
         // sin depender de cookies ni de la red:
         //   chrome.runtime.sendMessage({type:'PING'}, console.log)
+        // El grabador avisa de que perdió el micrófono, el audio de la pestaña
+        // o una subida. Antes esto iba a `console.error` dentro de un documento
+        // invisible: nadie se enteraba hasta ver la minuta a medias.
+        case 'RECORDER_STATUS':
+          notify(
+            msg.level === 'error' ? 'Problema con la grabación' : 'Aviso de la grabación',
+            msg.message || '',
+          );
+          sendResponse({ ok: true });
+          break;
+
         case 'PING':
           sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
           break;

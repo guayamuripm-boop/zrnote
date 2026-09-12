@@ -14,6 +14,8 @@
 //   • A Bluetooth headset drops or switches profile → the track goes `muted`
 //     and delivers digital silence until it comes back.
 //   • The user walks away, covers the mic, or the phone is face-down on a desk.
+//   • On a video call, the user stops sharing the meeting audio — the recording
+//     silently loses every remote participant from that second on.
 //
 // In every case the old recorder kept "recording" happily and produced a file
 // full of nothing. The user discovered it forty minutes later, when the server
@@ -48,6 +50,25 @@ const SILENCE_RMS = 0.008;
 /** How long silence must last before it is worth interrupting the user. */
 const SILENCE_GRACE_MS = 20_000;
 
+export interface WatchTargets {
+  /**
+   * The tracks whose life or death matters: the microphone, and the shared
+   * meeting audio when there is one.
+   *
+   * These are the SOURCE tracks, never the mixed output. A mixed stream comes
+   * out of a Web Audio destination node, and that track never ends, never
+   * mutes and never reports a problem no matter what happens upstream — so
+   * watching it would be watching nothing.
+   */
+  tracks: MediaStreamTrack[];
+  /**
+   * The stream to measure loudness on — the MIXED one, i.e. exactly what is
+   * being recorded. "Is anything reaching the recording?" is the question
+   * worth asking; whether an individual source is quiet is not.
+   */
+  analyse: MediaStream;
+}
+
 export interface MicWatchdog {
   /** Issues currently active. */
   active: () => Set<MicIssue>;
@@ -60,8 +81,8 @@ export interface MicWatchdog {
    * so the caller must read it immediately and not hold on to it.
    */
   frequencies: () => Uint8Array | null;
-  /** Point the watchdog at a replacement stream after a recovery. */
-  attach: (stream: MediaStream) => void;
+  /** Point the watchdog at the rebuilt capture after a recovery. */
+  attach: (targets: WatchTargets) => void;
   stop: () => void;
 }
 
@@ -71,7 +92,7 @@ export interface MicWatchdog {
  * Never throws: on a browser without AudioContext the loudness half simply
  * does not run, and the (far more important) track-lifecycle half still does.
  */
-export function watchMicHealth(stream: MediaStream, events: MicHealthEvents): MicWatchdog {
+export function watchMicHealth(targets: WatchTargets, events: MicHealthEvents): MicWatchdog {
   const issues = new Set<MicIssue>();
   let stopped = false;
   let raf: number | null = null;
@@ -79,7 +100,6 @@ export function watchMicHealth(stream: MediaStream, events: MicHealthEvents): Mi
   let analyser: AnalyserNode | null = null;
   let source: MediaStreamAudioSourceNode | null = null;
   let quietSince = 0;
-  let current: MediaStream = stream;
   const trackCleanups: Array<() => void> = [];
 
   const raise = (issue: MicIssue) => {
@@ -93,10 +113,10 @@ export function watchMicHealth(stream: MediaStream, events: MicHealthEvents): Mi
     if (!stopped) events.onRecovered(issue);
   };
 
-  const bindTracks = (s: MediaStream) => {
+  const bindTracks = (tracks: MediaStreamTrack[]) => {
     for (const cleanup of trackCleanups.splice(0)) cleanup();
 
-    for (const track of s.getAudioTracks()) {
+    for (const track of tracks) {
       const onEnded = () => raise('track-ended');
       const onMute = () => raise('track-muted');
       const onUnmute = () => clear('track-muted');
@@ -172,8 +192,8 @@ export function watchMicHealth(stream: MediaStream, events: MicHealthEvents): Mi
     }
   };
 
-  bindTracks(current);
-  buildAnalyser(current);
+  bindTracks(targets.tracks);
+  buildAnalyser(targets.analyse);
   sample();
 
   return {
@@ -183,13 +203,12 @@ export function watchMicHealth(stream: MediaStream, events: MicHealthEvents): Mi
       analyser.getByteFrequencyData(spectrum);
       return spectrum;
     },
-    attach(next: MediaStream) {
-      current = next;
+    attach(next: WatchTargets) {
       issues.delete('track-ended');
       issues.delete('track-muted');
       quietSince = 0;
-      bindTracks(next);
-      buildAnalyser(next);
+      bindTracks(next.tracks);
+      buildAnalyser(next.analyse);
     },
     stop() {
       stopped = true;

@@ -16,6 +16,16 @@ import {
 } from '@/lib/recording-store';
 import { SegmentUploader, type QueueStatus } from '@/lib/upload-queue';
 import { watchMicHealth, MIC_ISSUE_MESSAGES, type MicIssue, type MicWatchdog } from '@/lib/mic-health';
+import {
+  systemAudioSupported,
+  requestSystemAudio,
+  mixCapture,
+  SystemAudioDeclined,
+  SystemAudioWithoutSound,
+  SYSTEM_AUDIO_MESSAGES,
+  type CaptureMode,
+  type MixedCapture,
+} from '@/lib/audio-mixer';
 
 type RecordingState =
   | 'idle'
@@ -67,9 +77,14 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const [queue, setQueue] = useState<QueueStatus>({ pending: 0, failed: 0, uploading: false, offline: false });
   /** Audio found on the device from a recording that never finished. */
   const [orphanSegments, setOrphanSegments] = useState(0);
+  /** Microphone only, or microphone + the audio of the call. */
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('mic');
+  const [canShareSystem, setCanShareSystem] = useState(false);
+  const [sharingSystem, setSharingSystem] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  /** The mixed capture being recorded, plus the sources that feed it. */
+  const captureRef = useRef<MixedCapture | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const stallTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -171,13 +186,17 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   // Create and start a fresh MediaRecorder on the live stream. Each session
   // begins a new container, so every produced segment carries its own header.
   const startNewRecorder = useCallback((): boolean => {
-    const stream = streamRef.current;
+    const capture = captureRef.current;
     // Without this guard the caller went on to call `.start()` on the OLD,
     // already-stopped recorder, which either throws or silently records from a
     // dead stream. Recovery is the correct response, not pretending it worked.
-    if (!stream || stream.getAudioTracks().every((t) => t.readyState === 'ended')) {
+    //
+    // The liveness check looks at the SOURCE tracks: a mixed stream's own
+    // track stays alive forever regardless of what died upstream.
+    if (!capture || capture.sourceTracks.every((t) => t.readyState === 'ended')) {
       return false;
     }
+    const stream = capture.stream;
 
     let mr: MediaRecorder;
     try {
@@ -262,15 +281,25 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   };
 
-  const buildStream = async () =>
+  const buildMicStream = async () =>
     navigator.mediaDevices.getUserMedia({
       audio: {
+        // Echo cancellation matters more than usual here: on a video call the
+        // remote voices come out of the speakers and straight back into this
+        // microphone. Without it they are recorded twice, slightly apart,
+        // which is exactly what makes a call recording sound hollow.
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
         channelCount: 1,
       },
     });
+
+  /** Re-mix whatever sources are currently alive and point the watchdog at it. */
+  const applyCapture = useCallback((capture: MixedCapture) => {
+    captureRef.current = capture;
+    watchdogRef.current?.attach({ tracks: capture.sourceTracks, analyse: capture.stream });
+  }, []);
 
   /**
    * Rebuild the capture after it died, without losing the meeting.
@@ -302,15 +331,25 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         }
       }
       collectSegment();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+
+      // The shared meeting audio is kept if it is still alive. Re-asking for it
+      // is impossible anyway — `getDisplayMedia` needs a fresh click, and there
+      // is nobody clicking in the middle of a recovery.
+      const previous = captureRef.current;
+      const survivingSystem =
+        previous?.systemStream && previous.systemStream.getAudioTracks().some((t) => t.readyState === 'live')
+          ? previous.systemStream
+          : null;
+
+      previous?.micStream?.getTracks().forEach((t) => t.stop());
+      if (!survivingSystem) previous?.systemStream?.getTracks().forEach((t) => t.stop());
+      captureRef.current = null;
 
       for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
         if (!isRecordingRef.current) return;
         try {
-          const stream = await buildStream();
-          streamRef.current = stream;
-          watchdogRef.current?.attach(stream);
+          const micStream = await buildMicStream();
+          applyCapture(mixCapture(micStream, survivingSystem));
           if (startNewRecorder()) {
             mediaRecorderRef.current?.start(1000);
 
@@ -338,7 +377,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     } finally {
       recoveringRef.current = false;
     }
-  }, [collectSegment, startNewRecorder]);
+  }, [collectSegment, startNewRecorder, applyCapture]);
 
   recoverRef.current = () => {
     void recoverCapture();
@@ -442,6 +481,29 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   }, []);
 
   const startRecording = async () => {
+    // Sharing the meeting audio has to be asked for FIRST, before anything is
+    // awaited. `getDisplayMedia` demands a fresh user gesture, and a single
+    // `await` in front of it is enough to spend the one this click carries —
+    // the picker then never appears and the call is recorded without the
+    // people on the other side.
+    let systemStream: MediaStream | null = null;
+    let systemNotice: string | null = null;
+
+    if (captureMode === 'mic+system') {
+      try {
+        systemStream = await requestSystemAudio();
+      } catch (err) {
+        // Neither case is fatal: recording with the microphone alone is worse
+        // than the full mix but far better than not recording the meeting.
+        systemNotice =
+          err instanceof SystemAudioWithoutSound
+            ? SYSTEM_AUDIO_MESSAGES.withoutSound
+            : err instanceof SystemAudioDeclined
+              ? SYSTEM_AUDIO_MESSAGES.declined
+              : SYSTEM_AUDIO_MESSAGES.declined;
+      }
+    }
+
     try {
       // Ask the browser to stop treating our buffered audio as disposable
       // cache. Without it Android may evict IndexedDB mid-meeting — precisely
@@ -478,8 +540,21 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       const localNext = localPending.reduce((max, seg) => Math.max(max, seg.index + 1), 0);
       baseSegmentIndexRef.current = Math.max(serverNext, localNext);
 
-      const stream = await buildStream();
-      streamRef.current = stream;
+      const micStream = await buildMicStream();
+      const capture = mixCapture(micStream, systemStream);
+      captureRef.current = capture;
+      setSharingSystem(capture.hasSystemAudio);
+
+      // The shared audio can be stopped from Chrome's own "Dejar de compartir"
+      // bar, which is outside this UI entirely. Recording carries on with the
+      // microphone — but the user has to be told, or they will believe the
+      // remote voices are still being captured.
+      for (const track of systemStream?.getAudioTracks() ?? []) {
+        track.addEventListener('ended', () => {
+          setSharingSystem(false);
+          if (isRecordingRef.current) setWarning(SYSTEM_AUDIO_MESSAGES.ended);
+        });
+      }
 
       const mimeTypes = [
         'audio/webm',
@@ -504,7 +579,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       setSegmentCount(0);
       setElapsed(0);
       setError(null);
-      setWarning(null);
+      setWarning(systemNotice);
       setMicIssue(null);
       setOrphanSegments(0);
       isRecordingRef.current = true;
@@ -515,7 +590,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
       // Watch the hardware for the whole session. Track events fire from the
       // media pipeline, so they keep working with the screen off.
-      watchdogRef.current = watchMicHealth(stream, {
+      watchdogRef.current = watchMicHealth({ tracks: capture.sourceTracks, analyse: capture.stream }, {
         onIssue: (issue) => {
           setMicIssue(issue);
           if (issue === 'track-ended') void recoverCapture();
@@ -566,6 +641,9 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       document.addEventListener('visibilitychange', handleVisibilityChange);
     } catch (err) {
       isRecordingRef.current = false;
+      // The share was granted but the microphone was not: do not leave the
+      // user's screen being captured by a recording that never started.
+      systemStream?.getTracks().forEach((t) => t.stop());
       setError(
         err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'No diste permiso para usar el micrófono. Actívalo en los ajustes del navegador y vuelve a intentarlo.'
@@ -708,7 +786,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         resolve();
         return;
       }
-      streamRef.current?.getTracks().forEach((track) => track.stop());
+      captureRef.current?.stop();
       void Promise.resolve().then(done);
     });
 
@@ -755,6 +833,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   // browser (never during SSR).
   useEffect(() => {
     setBackground(backgroundRecordingSupport());
+    setCanShareSystem(systemAudioSupported());
   }, []);
 
   // Audio left on the device by a recording that never finished. Finding it and
@@ -801,8 +880,14 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
       }
+      // Stopping the recorder's own stream is NOT enough: that stream is the
+      // mixer's output, and its track has no connection to the hardware.
+      // Releasing the capture is what turns off the microphone light and takes
+      // down Chrome's "estás compartiendo tu pantalla" bar — leaving either of
+      // those on after the user walked away would be its own small betrayal.
+      captureRef.current?.stop();
+      captureRef.current = null;
     };
   }, [handleVisibilityChange]);
 
@@ -882,6 +967,61 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         </div>
       )}
 
+      {/* Videollamada o reunión presencial. Preguntado ANTES de grabar, porque
+          después ya no se puede arreglar: el micrófono de un portátil capta a
+          los participantes remotos como un rebote lejano del altavoz, si es que
+          los capta. */}
+      {state === 'idle' && canShareSystem && (
+        <div className="w-full max-w-md glass rounded-2xl p-4 space-y-2">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            Qué vas a grabar
+          </p>
+          <div className="grid grid-cols-1 gap-2">
+            <button
+              type="button"
+              onClick={() => setCaptureMode('mic')}
+              className={`text-left rounded-xl p-3 border transition ${
+                captureMode === 'mic'
+                  ? 'border-blue-400 bg-blue-50/60 dark:bg-blue-900/20 dark:border-blue-500'
+                  : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+              }`}
+            >
+              <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
+                🎙️ Una reunión presencial
+              </span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Solo el micrófono. Para gente hablando en la misma sala.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCaptureMode('mic+system')}
+              className={`text-left rounded-xl p-3 border transition ${
+                captureMode === 'mic+system'
+                  ? 'border-blue-400 bg-blue-50/60 dark:bg-blue-900/20 dark:border-blue-500'
+                  : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+              }`}
+            >
+              <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
+                💻 Una videollamada (Meet, Zoom, Teams…)
+              </span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Tu micrófono y además el audio de la llamada, para que se oiga a
+                todos con claridad.
+              </span>
+            </button>
+          </div>
+          {captureMode === 'mic+system' && (
+            <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-2.5 leading-relaxed">
+              Al pulsar «Grabar», Chrome te pedirá qué compartir. Elige{' '}
+              <strong>la pestaña de la reunión</strong> (o la pantalla entera si usas
+              la app de Zoom) y <strong>marca la casilla de compartir el audio</strong> —
+              sin esa casilla no se graba a los demás.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Say up front what this device can do, instead of letting the user find
           out by losing a meeting. */}
       {state === 'idle' && background && background.message && (
@@ -944,6 +1084,21 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
             {state === 'uploading' && queue.pending > 0 && (
               <p className="text-xs text-slate-400 dark:text-slate-500">
                 Quedan {queue.pending} fragmento(s) por subir.
+              </p>
+            )}
+
+            {state === 'recording' && captureMode === 'mic+system' && (
+              <p
+                className={`text-xs flex items-center justify-center gap-1 ${
+                  sharingSystem
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                }`}
+              >
+                <span>{sharingSystem ? '💻' : '⚠️'}</span>
+                {sharingSystem
+                  ? 'Grabando también el audio de la llamada'
+                  : 'Solo micrófono — no se está captando la llamada'}
               </p>
             )}
 
