@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { MINUTE_STYLE_OPTIONS, MAX_STYLE_NOTES_LENGTH, getMinuteStyle } from '@/lib/minute-styles';
+import { savePendingMeeting } from '@/lib/meeting-queue';
 
 interface Participant {
   name: string;
@@ -36,30 +37,52 @@ export default function NewMeetingForm({ initialStyle }: { initialStyle: string 
     setError(null);
     const now = new Date();
     const autoTitle = `Grabación ${now.toLocaleDateString('es', { day: 'numeric', month: 'short' })} ${now.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}`;
-    const response = await fetch('/api/meetings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // autoTitle: true marca este título de fecha/hora como provisional. En
-      // cuanto haya transcripción, analyzeMeeting lo sustituye por uno que la
-      // IA redacta a partir de lo que realmente se habló.
-      body: JSON.stringify({
-        title: autoTitle,
-        coordination: '',
-        type: 'presencial',
-        participants: [],
-        autoTitle: true,
-        minuteStyle,
-        styleNotes: styleNotes.trim() || undefined,
-      }),
-    });
-    if (response.ok) {
-      const { id } = await response.json();
-      router.push(`/dashboard/meetings/${id}/record`);
-    } else {
+    const payload = {
+      title: autoTitle,
+      coordination: '',
+      type: 'presencial' as const,
+      participants: [] as { name: string; email: string }[],
+      autoTitle: true,
+      minuteStyle,
+      styleNotes: styleNotes.trim() || undefined,
+    };
+
+    // The common, online case: unchanged from before — a normal request, a
+    // server-generated id, straight into the recorder.
+    try {
+      const response = await fetch('/api/meetings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        const { id } = await response.json();
+        router.push(`/dashboard/meetings/${id}/record`);
+        return;
+      }
       const err = await response.json().catch(() => ({}));
       setQuickLoading(false);
       setError('Error al iniciar grabación: ' + (err.error || 'desconocido'));
+      return;
+    } catch {
+      // A THROWN fetch (not an error response — the server was simply
+      // unreachable) is what genuinely offline looks like. Falling back here,
+      // never on an HTTP error, keeps this a network-outage safeguard rather
+      // than a second, divergent way to create every meeting.
     }
+
+    // Offline: generate the id here instead of waiting for one, save the
+    // meeting's own creation as a durable local record, and go straight to
+    // recording. The server row is created later, the first time there is a
+    // connection — see meeting-queue.ts.
+    const id = crypto.randomUUID();
+    const saved = await savePendingMeeting({ id, consentAt: null, ...payload });
+    if (!saved) {
+      setQuickLoading(false);
+      setError('No hay conexión y no se pudo guardar la reunión en este dispositivo.');
+      return;
+    }
+    router.push(`/dashboard/meetings/${id}/record`);
   };
 
   const addParticipant = () => {

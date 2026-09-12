@@ -6,6 +6,12 @@ import { getAuthedUser } from '@/lib/api-auth';
 import { normalizeMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
 
 const createMeetingSchema = z.object({
+  // Present only when the meeting was created OFFLINE (see meeting-queue.ts):
+  // the id was generated on the device and used everywhere — the record page,
+  // the segment store, the upload queue — before the server ever knew this
+  // meeting existed. Absent, this is a normal online creation and Postgres
+  // assigns the id as always.
+  id: z.string().uuid().optional(),
   title: z.string().min(1),
   coordination: z.string().optional().default(''),
   type: z.enum(['presencial', 'virtual', 'llamada']).default('presencial'),
@@ -24,6 +30,15 @@ const createMeetingSchema = z.object({
   // que no reconozca, así que un estilo nuevo no exige tocar este schema.
   minuteStyle: z.string().optional(),
   styleNotes: z.string().max(MAX_STYLE_NOTES_LENGTH).optional(),
+  // Cuándo se confirmó el aviso de consentimiento — para una reunión creada
+  // sin conexión, esto ocurrió en el DISPOSITIVO, potencialmente horas antes
+  // de que este POST llegara a suceder. Lo que importa legalmente es que se
+  // avisó ANTES de grabar, no cuándo el teléfono recuperó señal, así que se
+  // acepta la marca de tiempo del cliente en vez de imponer la del servidor.
+  // Es una extensión del mismo modelo de confianza que ya tiene el resto de
+  // esta funcionalidad: el usuario declara, y la declaración queda con su
+  // usuario y una fecha — aquí, simplemente, la fecha real del momento.
+  recordingConsentAt: z.string().min(10).optional(),
 });
 
 export async function GET() {
@@ -89,24 +104,53 @@ export async function POST(request: Request) {
     orgId = upserted?.org_id || null;
   }
 
-  const { data: meeting, error } = await supabase
-    .from('meetings')
-    .insert({
-      title: parsed.data.title,
-      coordination: parsed.data.coordination,
-      type: parsed.data.type,
-      created_by: user.id,
-      org_id: orgId,
-      status: 'scheduled',
-      title_is_auto: parsed.data.autoTitle,
-      minute_style: normalizeMinuteStyle(parsed.data.minuteStyle),
-      style_notes: parsed.data.styleNotes?.trim() || null,
-    })
-    .select()
-    .single();
+  const insertPayload: Record<string, unknown> = {
+    title: parsed.data.title,
+    coordination: parsed.data.coordination,
+    type: parsed.data.type,
+    created_by: user.id,
+    org_id: orgId,
+    status: 'scheduled',
+    title_is_auto: parsed.data.autoTitle,
+    minute_style: normalizeMinuteStyle(parsed.data.minuteStyle),
+    style_notes: parsed.data.styleNotes?.trim() || null,
+  };
+  if (parsed.data.id) insertPayload.id = parsed.data.id;
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // A client-supplied timestamp, validated as a real date but otherwise
+  // trusted — see the schema comment on `recordingConsentAt` for why that is
+  // the right call here, not a shortcut.
+  if (parsed.data.recordingConsentAt) {
+    const parsedDate = new Date(parsed.data.recordingConsentAt);
+    if (!Number.isNaN(parsedDate.getTime()) && parsedDate.getTime() <= Date.now()) {
+      insertPayload.recording_consent_at = parsedDate.toISOString();
+      insertPayload.recording_consent_by = user.id;
+    }
+  }
+
+  let { data: meeting, error } = await supabase.from('meetings').insert(insertPayload).select().single();
+
+  // A client-generated id lets the offline-creation flow retry the exact same
+  // POST after a flaky connection without knowing whether the first attempt
+  // actually landed. `23505` (unique_violation) on a retry of THIS user's own
+  // meeting is success, not failure — return the row that is already there
+  // instead of erroring out on a request that, from the device's point of
+  // view, never got an answer the first time.
+  if (error?.code === '23505' && parsed.data.id) {
+    const { data: existing } = await supabase
+      .from('meetings')
+      .select()
+      .eq('id', parsed.data.id)
+      .eq('created_by', user.id)
+      .maybeSingle();
+    if (existing) {
+      meeting = existing;
+      error = null;
+    }
+  }
+
+  if (error || !meeting) {
+    return NextResponse.json({ error: error?.message || 'No se pudo crear la reunión' }, { status: 500 });
   }
 
   // Recordar la elección para la próxima vez — así "Grabar ahora" no obliga a

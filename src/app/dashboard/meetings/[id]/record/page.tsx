@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import RecordButton from '@/components/recorder/RecordButton';
 import RecordingConsentGate from '@/components/legal/RecordingConsentGate';
+import OfflineDraftPanel from '@/components/OfflineDraftPanel';
 
 export default function RecordPage() {
   const params = useParams();
@@ -60,6 +61,13 @@ export default function RecordPage() {
             onFinalized={() => router.push(`/dashboard/meetings/${params.id}`)}
           />
         )}
+
+        {/* Only ever shows itself when there is audio genuinely stuck on this
+            device — reads the same durable store as RecordButton, writes to
+            nothing it depends on. */}
+        <div className="mt-6 flex justify-center">
+          <OfflineDraftPanel meetingId={params.id as string} />
+        </div>
       </div>
 
       {/* Tips */}

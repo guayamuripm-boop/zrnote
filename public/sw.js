@@ -20,12 +20,26 @@
 // en `v3` desde la v1.5.0. Como `/icon-512.png` se servía en cache-first sin
 // revalidar, las PWA instaladas conservaban el icono ANTERIOR a la marca para
 // siempre. De ahí que la app instalada "no tuviera logo".
-const VERSION = 'zrnote-v4';
+// v5: se añade /notas-sin-conexion al precache y a las reglas de fetch. Es la
+// primera navegación (no un icono suelto) que este service worker sirve desde
+// caché — hace falta subir VERSION para que la instalación vuelva a correr y
+// la incluya, no basta con que el fetch handler la reconozca.
+const VERSION = 'zrnote-v5';
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = '/offline.html';
+// La única navegación de /dashboard que este SW puede cachear con seguridad.
+// Es segura PORQUE su HTML es idéntico para cualquier visitante — no vive
+// bajo dashboard/layout.tsx, así que no lleva nada específico de una cuenta
+// horneado en el marcado — y todo lo personal (las actas) lo lee del
+// IndexedDB del propio navegador después de cargar el script, nunca del HTML
+// sin ella. Ver el comentario en notas-sin-conexion/page.tsx. Ninguna otra
+// navegación de /dashboard cumple esa condición, así que ninguna otra entra
+// aquí: siguen siendo network-only con offline.html como único fallback, tal
+// como ya razona el resto de este fichero.
+const OFFLINE_SHELL_URL = '/notas-sin-conexion';
 
 // Only things that are byte-identical for every user.
-const PRECACHE = [OFFLINE_URL, '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const PRECACHE = [OFFLINE_URL, OFFLINE_SHELL_URL, '/manifest.json', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -122,8 +136,32 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Pages: always network. If the network is down show the offline page rather
-  // than a browser error — but never a cached copy of somebody's dashboard.
+  // The one navigable exception: /notas-sin-conexion, precached and served
+  // stale-while-revalidate exactly like the mutable assets above. Every other
+  // page keeps the strict rule below it — network-only, offline.html as the
+  // only fallback — because every other page DOES carry someone's account in
+  // its HTML, and a cached copy of it is a cached copy of their meetings.
+  if (request.mode === 'navigate' && url.pathname === OFFLINE_SHELL_URL) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        const fresh = fetch(request)
+          .then((response) => {
+            if (response.ok) {
+              const clone = response.clone();
+              caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
+            }
+            return response;
+          })
+          .catch(() => cached);
+        return cached || fresh;
+      }),
+    );
+    return;
+  }
+
+  // Every other page: always network. If the network is down show the offline
+  // page rather than a browser error — but never a cached copy of somebody's
+  // dashboard.
   if (request.mode === 'navigate') {
     event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_URL)));
   }

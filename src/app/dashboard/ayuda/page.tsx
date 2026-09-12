@@ -152,6 +152,10 @@ const TOPICS: Topic[] = [
         q: 'En iPhone',
         a: 'Safari no deja instalar con un botón: hay que usar Compartir → «Añadir a pantalla de inicio». El botón de instalar te muestra estos pasos.',
       },
+      {
+        q: 'Leer actas sin conexión',
+        a: 'Cada acta que abras con internet queda guardada en el dispositivo. En /notas-sin-conexion puedes volver a leerlas sin señal — útil en un sótano, un avión o donde no llegue la cobertura.',
+      },
     ],
   },
   {

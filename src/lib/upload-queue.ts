@@ -27,6 +27,7 @@ import {
   type StoredSegment,
 } from '@/lib/recording-store';
 import { maybeCompressAudio } from '@/lib/audio-compression';
+import { ensureMeetingSynced } from '@/lib/meeting-queue';
 
 export interface QueueStatus {
   /** Segments captured but not yet confirmed by the server. */
@@ -162,6 +163,13 @@ export class SegmentUploader {
       }
 
       try {
+        // A meeting created offline does not exist on the server yet (see
+        // meeting-queue.ts) — uploading a segment for it would 404. This is a
+        // no-op, no-network call for the overwhelmingly common case of a
+        // meeting that was already created normally.
+        const synced = await ensureMeetingSynced(this.meetingId);
+        if (!synced) throw Object.assign(new Error('La reunión todavía no se ha podido crear en el servidor'), { permanent: false });
+
         await updateSegment(seg.id, { state: 'uploading', attempts: attempt });
         await this.postSegment(seg);
         // Confirmed by the server — and only now is it safe to free the bytes.

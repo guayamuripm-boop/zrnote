@@ -4,6 +4,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import MeetingSearch from '@/components/MeetingSearch';
 import { getOwnMeetingIds, getUserActionItems } from '@/lib/action-items';
+import PendingMeetingsBanner from '@/components/PendingMeetingsBanner';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +43,7 @@ export default async function DashboardHome() {
 
   return (
     <div className="space-y-8">
+      <PendingMeetingsBanner />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -1,6 +1,6 @@
 {
   "name": "zrnote",
-  "version": "1.22.0",
+  "version": "1.23.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -17,12 +17,13 @@
     "@ffmpeg/core": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "@huggingface/transformers": "^4.2.0",
     "@react-pdf/renderer": "^4.5.1",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",
     "@types/nodemailer": "^8.0.1",
     "date-fns": "^4.4.0",
-    "next": "^15.5.22",
+    "next": "^15.5.25",
     "nodemailer": "^9.0.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

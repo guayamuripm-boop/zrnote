@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { getPendingMeeting, confirmPendingConsent } from '@/lib/meeting-queue';
 import Link from 'next/link';
 
 interface Props {
@@ -29,17 +30,37 @@ export default function RecordingConsentGate({ meetingId, mode, onConsent }: Pro
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/meetings/${meetingId}/consent`)
-      .then((r) => (r.ok ? r.json() : { consented: false }))
-      .then((data) => {
-        if (cancelled) return;
-        if (data.consented) {
+
+    (async () => {
+      // A meeting created offline (see meeting-queue.ts) does not exist on the
+      // server yet, so the network check below would either fail outright (no
+      // connection) or 404 (connection came back, but this id is still purely
+      // local). Its local record is the source of truth until it syncs.
+      const pending = await getPendingMeeting(meetingId);
+      if (cancelled) return;
+
+      if (pending) {
+        if (pending.consentAt) {
           setDone(true);
           onConsent();
         }
-      })
-      .catch(() => {})
-      .finally(() => !cancelled && setLoading(false));
+        setLoading(false);
+        return;
+      }
+
+      fetch(`/api/meetings/${meetingId}/consent`)
+        .then((r) => (r.ok ? r.json() : { consented: false }))
+        .then((data) => {
+          if (cancelled) return;
+          if (data.consented) {
+            setDone(true);
+            onConsent();
+          }
+        })
+        .catch(() => {})
+        .finally(() => !cancelled && setLoading(false));
+    })();
+
     return () => { cancelled = true; };
     // onConsent is a stable setter in practice; re-running on identity changes
     // would re-fire the gate on every parent render.
@@ -50,6 +71,19 @@ export default function RecordingConsentGate({ meetingId, mode, onConsent }: Pro
     setSaving(true);
     setError(null);
     try {
+      // Still a locally-pending meeting: record the declaration on the device,
+      // with THIS moment's timestamp — the one that actually matters legally,
+      // since it is before a single word gets recorded. It travels to the
+      // server as `recording_consent_at` once meeting-queue.ts syncs the
+      // meeting, not whenever that sync happens to succeed.
+      const pending = await getPendingMeeting(meetingId);
+      if (pending) {
+        await confirmPendingConsent(meetingId);
+        setDone(true);
+        onConsent();
+        return;
+      }
+
       const res = await fetch(`/api/meetings/${meetingId}/consent`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

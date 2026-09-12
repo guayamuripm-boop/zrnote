@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/StatusBadge';
+import PendingMeetingsBanner from '@/components/PendingMeetingsBanner';
 
 export default async function MeetingsPage() {
   const supabase = await createServerSupabase();
@@ -24,10 +25,17 @@ export default async function MeetingsPage() {
 
   return (
     <div className="space-y-6">
+      <PendingMeetingsBanner />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Reuniones</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">{meetings?.length || 0} reuniones</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">
+            {meetings?.length || 0} reuniones ·{' '}
+            <Link href="/notas-sin-conexion" className="text-blue-600 dark:text-blue-400 hover:underline">
+              leer sin conexión
+            </Link>
+          </p>
         </div>
         <Link
           href="/dashboard/meetings/new"

@@ -45,7 +45,14 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' data: https://fonts.gstatic.com",
               "img-src 'self' data: blob: https:",
-              "connect-src 'self' blob: https://api.groq.com https://*.supabase.co wss://*.supabase.co",
+              // huggingface.co (+ its LFS storage subdomains) and jsdelivr are
+              // for the on-device offline-transcription model only (see
+              // offline-transcribe.ts): the model weights and the ONNX runtime
+              // WASM binary it runs on both come from there. Only ever fetched
+              // while the user has a connection and explicitly asked to
+              // download it — the offline USE of an already-cached model makes
+              // no further network request at all.
+              "connect-src 'self' blob: https://api.groq.com https://*.supabase.co wss://*.supabase.co https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net",
               // data: is required by the silent keep-alive clip that holds the
               // tab in a "playing media" state while recording with the screen
               // off (src/lib/background-audio.ts). blob: is the recorder itself.

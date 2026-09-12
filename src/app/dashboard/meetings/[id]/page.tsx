@@ -15,6 +15,7 @@ import { sortActionItems } from '@/lib/action-items';
 import { toParagraphs } from '@/lib/readable-text';
 import { readStudyAids, isStudyAidsEmpty } from '@/lib/study-aids';
 import StudySection from '@/components/study/StudySection';
+import CacheMinuteForOffline from '@/components/CacheMinuteForOffline';
 
 export default async function MeetingDetailPage({
   params,
@@ -157,6 +158,30 @@ export default async function MeetingDetailPage({
       {/* Minute */}
       {minute && (
         <>
+          {/* Invisible: saves this minute to the device so it can be read
+              later with no connection at all — see minute-cache.ts. */}
+          {user && (
+            <CacheMinuteForOffline
+              userId={user.id}
+              meetingId={meeting.id}
+              title={meeting.title}
+              coordination={meeting.coordination}
+              createdAt={meeting.created_at}
+              summary={minute.summary}
+              topics={minute.topics}
+              decisions={minute.decisions}
+              changes={minute.changes}
+              nextSteps={minute.next_steps}
+              actionItems={actionItems.map((a) => ({
+                description: a.description,
+                priority: a.priority,
+                status: a.status,
+                due_date: a.due_date,
+                assignee_name: a.assignee_name,
+              }))}
+              participants={participants}
+            />
+          )}
           <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
               <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">

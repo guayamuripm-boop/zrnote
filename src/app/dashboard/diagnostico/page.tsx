@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import OfflineModelCard from '@/components/OfflineModelCard';
 
 interface Check {
   id: string;
@@ -138,6 +139,8 @@ export default function DiagnosticoPage() {
           </div>
         </>
       )}
+
+      <OfflineModelCard />
     </div>
   );
 }

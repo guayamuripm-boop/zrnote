@@ -6,6 +6,7 @@ import InstallAppButton from '@/components/InstallAppButton';
 import { VersionLogger } from '@/components/VersionLogger';
 import { VERSION, COMMIT_SHA } from '@/lib/version';
 import TermsGate from '@/components/legal/TermsGate';
+import SignOutButton from '@/components/SignOutButton';
 
 export default async function DashboardLayout({
   children,
@@ -55,11 +56,7 @@ export default async function DashboardLayout({
                     {user?.email?.charAt(0).toUpperCase() || '?'}
                   </span>
                 </Link>
-                <form action="/api/auth/signout" method="post">
-                  <button type="submit" className="text-xs text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 transition">
-                    Salir
-                  </button>
-                </form>
+                <SignOutButton className="text-xs text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 transition" />
               </div>
             </div>
           </div>
