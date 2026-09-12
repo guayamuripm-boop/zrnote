@@ -84,18 +84,26 @@ export function backgroundRecordingSupport(): BackgroundCapability {
     };
   }
 
+  // "Bloquear la pantalla" and "cambiar de app" are the SAME event as far as
+  // the page is concerned — both fire the identical `visibilitychange` to
+  // 'hidden' that the recorder already reacts to (see RecordButton's
+  // `handleVisibilityChange`). So whatever keeps the recording alive through
+  // one keeps it alive through the other; the two are named separately here
+  // only because people ask about them as if they were different things, and
+  // a message that only reassures about one leaves the other sounding
+  // unsupported when it is not.
   const isAndroid = /Android/.test(ua);
   if (isAndroid) {
     return {
       level: 'good',
       message:
-        'Puedes bloquear la pantalla: la grabación sigue y verás una notificación de ZRNote. No cierres la pestaña ni el navegador.',
+        'Puedes bloquear la pantalla o cambiar a otra app: la grabación sigue y verás una notificación de ZRNote. No cierres la pestaña ni el navegador — eso sí la corta.',
     };
   }
 
   return {
     level: 'good',
-    message: 'Puedes minimizar la ventana; la grabación continúa mientras la pestaña siga abierta.',
+    message: 'Puedes minimizar la ventana o cambiar de pestaña; la grabación continúa mientras no cierres esta pestaña.',
   };
 }
 

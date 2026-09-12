@@ -6,7 +6,7 @@ import Link from 'next/link';
 
 interface Props {
   meetingId: string;
-  mode: 'record' | 'upload';
+  mode: 'record' | 'upload' | 'transcript';
   /** Called once the user has confirmed (or had already confirmed) consent. */
   onConsent: () => void;
 }
@@ -100,7 +100,15 @@ export default function RecordingConsentGate({ meetingId, mode, onConsent }: Pro
 
   if (loading || done) return null;
 
-  const verb = mode === 'record' ? 'grabar' : 'subir este audio';
+  // A pasted transcript is a fundamentally different situation from the other
+  // two: ZRNote is not capturing anyone's voice, whatever recording produced
+  // this text already happened, elsewhere, under whatever consent that tool
+  // required. What ZRNote IS doing is sending this text to an outside AI
+  // provider to read and structure — which is exactly the same
+  // "you vouch for the data you bring" declaration the other two modes make,
+  // just worded for text instead of audio, not a lighter version of it.
+  const isTranscript = mode === 'transcript';
+  const verb = mode === 'record' ? 'grabar' : mode === 'upload' ? 'subir este audio' : 'usar esta transcripción';
 
   return (
     <div className="w-full max-w-lg mx-auto bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700/50 rounded-2xl p-5 space-y-4">
@@ -108,24 +116,37 @@ export default function RecordingConsentGate({ meetingId, mode, onConsent }: Pro
         <span className="text-xl leading-none">⚠️</span>
         <div className="min-w-0">
           <h2 className="font-semibold text-amber-900 dark:text-amber-200">
-            Antes de {verb}: consentimiento de los participantes
+            Antes de {verb}: {isTranscript ? 'de quién son estas palabras' : 'consentimiento de los participantes'}
           </h2>
           <p className="text-sm text-amber-800 dark:text-amber-300/90 mt-1 leading-relaxed">
-            Avisa en voz alta que la reunión se va a grabar y espera a que <strong>todos</strong> estén
-            de acuerdo. En Venezuela y en la mayoría de los países, grabar sin el consentimiento de
-            todos los presentes es un <strong>delito</strong>, no un descuido.
+            {isTranscript ? (
+              <>
+                Esta transcripción sigue siendo lo que dijeron personas reales. ZRNote va a mandarla a un
+                proveedor externo de inteligencia artificial para redactar la minuta, igual que con el audio
+                — y quien tenga derecho a compartirla, y a haber avisado a esas personas de que se iba a
+                usar así, eres tú.
+              </>
+            ) : (
+              <>
+                Avisa en voz alta que la reunión se va a grabar y espera a que <strong>todos</strong> estén
+                de acuerdo. En Venezuela y en la mayoría de los países, grabar sin el consentimiento de
+                todos los presentes es un <strong>delito</strong>, no un descuido.
+              </>
+            )}
           </p>
         </div>
       </div>
 
-      <div className="bg-white/70 dark:bg-slate-900/40 rounded-xl p-3.5">
-        <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Puedes decir literalmente esto:</p>
-        <p className="text-sm text-slate-700 dark:text-slate-200 italic leading-relaxed">
-          «Antes de empezar: voy a grabar esta reunión para generar la minuta automáticamente con una
-          herramienta de inteligencia artificial. El audio se procesa en servidores externos y se
-          borra a los 7 días. ¿Están todos de acuerdo?»
-        </p>
-      </div>
+      {!isTranscript && (
+        <div className="bg-white/70 dark:bg-slate-900/40 rounded-xl p-3.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Puedes decir literalmente esto:</p>
+          <p className="text-sm text-slate-700 dark:text-slate-200 italic leading-relaxed">
+            «Antes de empezar: voy a grabar esta reunión para generar la minuta automáticamente con una
+            herramienta de inteligencia artificial. El audio se procesa en servidores externos y se
+            borra a los 7 días. ¿Están todos de acuerdo?»
+          </p>
+        </div>
+      )}
 
       <label className="flex items-start gap-3 cursor-pointer">
         <input
@@ -135,8 +156,9 @@ export default function RecordingConsentGate({ meetingId, mode, onConsent }: Pro
           className="mt-0.5 w-4 h-4 rounded border-amber-400 text-blue-600 shrink-0"
         />
         <span className="text-sm text-amber-900 dark:text-amber-200">
-          Confirmo que informé a todos los participantes y que dieron su consentimiento para ser
-          grabados y para que el audio se procese con inteligencia artificial.
+          {isTranscript
+            ? 'Confirmo que tengo derecho a usar este texto, que informé a las personas mencionadas de que se procesaría con inteligencia artificial, y que no contiene datos sensibles de terceros sin base legal para tratarlos.'
+            : 'Confirmo que informé a todos los participantes y que dieron su consentimiento para ser grabados y para que el audio se procese con inteligencia artificial.'}
         </span>
       </label>
 

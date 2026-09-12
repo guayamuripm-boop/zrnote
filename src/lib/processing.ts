@@ -354,6 +354,15 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
 
   const segments = meeting.audio_segments || [];
   if (segments.length === 0) {
+    // Not necessarily missing: a transcript can arrive with no audio at all —
+    // see /api/meetings/[id]/transcript, for someone who already has one
+    // (Zoom's own export, Meet's captions, notes taken by hand) and just
+    // wants ZRNote to read and structure it. There is nothing to transcribe;
+    // the "transcribe" step of the pipeline is simply already done.
+    const existingTranscript = (meeting.transcript_raw || '').trim();
+    if (existingTranscript) {
+      return { success: true, transcript: existingTranscript, segmentsProcessed: 0, segmentsTotal: 0, more: false };
+    }
     return { success: false, error: 'No audio segments found in meeting', segmentsProcessed: 0, segmentsTotal: 0, more: false };
   }
 

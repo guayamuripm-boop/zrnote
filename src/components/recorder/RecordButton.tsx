@@ -1112,8 +1112,8 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
               >
                 <span>{background.level === 'unsupported' ? '⚠️' : '🔒'}</span>
                 {background.level === 'unsupported'
-                  ? 'No bloquees la pantalla'
-                  : 'Puedes bloquear la pantalla'}
+                  ? 'No bloquees la pantalla ni cambies de app'
+                  : 'Puedes bloquear la pantalla o cambiar de app'}
               </p>
             )}
           </div>
