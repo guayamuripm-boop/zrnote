@@ -211,41 +211,6 @@ export async function markSession(
   }
 }
 
-export async function getSession(meetingId: string): Promise<StoredSession | null> {
-  if (!available()) return null;
-  try {
-    return (await run<StoredSession | undefined>(SESSIONS, 'readonly', (s) => s.get(meetingId))) || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Recordings that were interrupted: the tab died before the pipeline ran.
- * Lets the UI offer one-tap recovery instead of silently losing a meeting the
- * user believes they recorded.
- */
-export async function interruptedSessions(): Promise<StoredSession[]> {
-  if (!available()) return [];
-  try {
-    const all = await run<StoredSession[]>(SESSIONS, 'readonly', (s) => s.getAll());
-    return (all || []).filter((s) => s.state !== 'done').sort((a, b) => b.updatedAt - a.updatedAt);
-  } catch {
-    return [];
-  }
-}
-
-/** Bytes currently held on the device, so the UI can be honest about quota. */
-export async function storageEstimate(): Promise<{ usage: number; quota: number } | null> {
-  try {
-    if (typeof navigator === 'undefined' || !navigator.storage?.estimate) return null;
-    const e = await navigator.storage.estimate();
-    return { usage: e.usage || 0, quota: e.quota || 0 };
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Ask the browser to make this origin's storage persistent.
  *

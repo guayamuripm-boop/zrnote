@@ -448,9 +448,18 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       // when a long recording is what filled it.
       void requestPersistentStorage();
 
-      // Ask the server where our numbering starts before capturing anything.
-      // Failing this is not fatal — worst case we start at 0 on a meeting that
-      // has no audio, which is the normal case anyway.
+      // Where this session's segment numbering starts.
+      //
+      // The server knows about every segment it has REGISTERED, and that used
+      // to be the whole answer. It is not: segments can be sitting on this
+      // device having never reached the server (an interrupted recording, a
+      // dead zone), and the server cannot see those. Starting a new take at
+      // the server's count therefore reuses their numbers — and since a
+      // segment is keyed `meetingId:index` on disk, the new recording would
+      // OVERWRITE the audio of the unfinished one. That is precisely the loss
+      // the durable store exists to prevent, so both sources are consulted and
+      // the higher one wins.
+      let serverNext = 0;
       try {
         const res = await fetch(`/api/meetings/${meetingIdRef.current}/direct-upload`, {
           method: 'POST',
@@ -458,10 +467,16 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           body: JSON.stringify({ phase: 'begin' }),
         });
         const data = await res.json().catch(() => ({}));
-        baseSegmentIndexRef.current = res.ok ? Number(data.nextIndex) || 0 : 0;
+        // Failing this is not fatal — worst case we fall back to what is on the
+        // device, which on a fresh meeting is nothing, i.e. 0.
+        serverNext = res.ok ? Number(data.nextIndex) || 0 : 0;
       } catch {
-        baseSegmentIndexRef.current = 0;
+        serverNext = 0;
       }
+
+      const localPending = await pendingSegments(meetingIdRef.current);
+      const localNext = localPending.reduce((max, seg) => Math.max(max, seg.index + 1), 0);
+      baseSegmentIndexRef.current = Math.max(serverNext, localNext);
 
       const stream = await buildStream();
       streamRef.current = stream;
@@ -574,7 +589,18 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   };
 
   const resumeRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+    // The recorder is gone, not paused: this is the state left behind when
+    // recovery ran out of attempts. The button used to be a no-op here — the
+    // user pressed "Reanudar", nothing happened, and nothing explained why.
+    // Trying again is the only sensible meaning of that press.
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
+      setError(null);
+      isRecordingRef.current = true;
+      void recoverCapture();
+      return;
+    }
+
+    if (mediaRecorderRef.current.state === 'paused') {
       mediaRecorderRef.current.resume();
       isRecordingRef.current = true;
       lastChunkAtRef.current = Date.now();

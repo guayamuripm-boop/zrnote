@@ -37,8 +37,6 @@ export type MicIssue =
 export interface MicHealthEvents {
   onIssue: (issue: MicIssue) => void;
   onRecovered: (issue: MicIssue) => void;
-  /** 0..1 loudness, for the waveform. Only fires while the page is visible. */
-  onLevel?: (level: number) => void;
 }
 
 /**
@@ -51,8 +49,6 @@ const SILENCE_RMS = 0.008;
 const SILENCE_GRACE_MS = 20_000;
 
 export interface MicWatchdog {
-  /** Latest loudness sample, 0..1. */
-  level: () => number;
   /** Issues currently active. */
   active: () => Set<MicIssue>;
   /**
@@ -77,7 +73,6 @@ export interface MicWatchdog {
  */
 export function watchMicHealth(stream: MediaStream, events: MicHealthEvents): MicWatchdog {
   const issues = new Set<MicIssue>();
-  let level = 0;
   let stopped = false;
   let raf: number | null = null;
   let audioCtx: AudioContext | null = null;
@@ -160,9 +155,6 @@ export function watchMicHealth(stream: MediaStream, events: MicHealthEvents): Mi
     let sum = 0;
     for (let i = 0; i < buffer.length; i++) sum += buffer[i] * buffer[i];
     const rms = Math.sqrt(sum / buffer.length);
-    // A little headroom so normal speech lands high on the meter.
-    level = Math.min(1, rms * 6);
-    events.onLevel?.(level);
 
     // Silence only matters while the track is otherwise healthy — reporting it
     // on top of "track-ended" would just bury the real cause.
@@ -185,7 +177,6 @@ export function watchMicHealth(stream: MediaStream, events: MicHealthEvents): Mi
   sample();
 
   return {
-    level: () => level,
     active: () => new Set(issues),
     frequencies() {
       if (!analyser) return null;
