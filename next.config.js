@@ -7,6 +7,29 @@ const nextConfig = {
   },
   // Renamed out of `experimental` in Next 15.
   serverExternalPackages: ['@react-pdf/renderer'],
+  // `@huggingface/transformers` (offline-transcribe.ts) is CLIENT-ONLY — a
+  // dynamic `import()` inside a 'use client' module, used only for the
+  // on-device transcription fallback. But Vercel's build-output file tracer
+  // does static analysis of every reachable `require()`/`import`, including
+  // ones behind a runtime-only, browser-only code path, and it cannot prove
+  // that path never runs on the server. So it dragged the WHOLE package into
+  // the serverless function for every route that could reach it — onnxruntime
+  // ships multi-platform native `.node` binaries, and `sharp` (transformers'
+  // own dependency, on top of the one already excluded from THIS app's own
+  // image handling below) ships prebuilt binaries per OS/arch too. The result
+  // was a single page's function ballooning to 380MB uncompressed against
+  // Vercel's 250MB limit — the deploy did not almost fail, it did fail, and
+  // this is the actual fix, not a tweak: exclude what is genuinely never
+  // needed server-side from being traced into ANY function at all.
+  outputFileTracingExcludes: {
+    '*': [
+      'node_modules/@huggingface/transformers/**',
+      'node_modules/onnxruntime-node/**',
+      'node_modules/onnxruntime-web/**',
+      'node_modules/sharp/**',
+      'node_modules/@img/**',
+    ],
+  },
   images: {
     // ZRNote uses no `next/image`. Turning the optimizer off removes the
     // /_next/image endpoint entirely, which is what pulls in `sharp` (and its
