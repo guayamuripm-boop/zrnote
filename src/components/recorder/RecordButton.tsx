@@ -64,6 +64,18 @@ const STALL_CHECK_MS = 10_000;
 /** Attempts to re-acquire the microphone before admitting defeat. */
 const MAX_RECOVERY_ATTEMPTS = 5;
 
+// How often to transcribe what has already been uploaded, WHILE still
+// recording. Groq's free tier allows 20 requests a minute, so a 45-minute
+// class could never be transcribed in under a couple of minutes — but those
+// minutes used to be spent entirely after the user pressed "Finalizar",
+// staring at a spinner, while the 45 minutes of recording before it sat idle.
+// One pass a minute keeps pace with one 60s segment a minute, so by the time
+// recording stops there is usually nothing left to do but the last segment.
+//
+// Browsers throttle background timers to roughly one tick a minute, which is
+// exactly this cadence — so being backgrounded costs this nothing.
+const LIVE_TRANSCRIBE_EVERY_MS = 60_000;
+
 export default function RecordButton({ meetingId, meetingTitle, onFinalized }: RecordButtonProps) {
   const [state, setState] = useState<RecordingState>('idle');
   const [elapsed, setElapsed] = useState(0);
@@ -81,6 +93,8 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const [captureMode, setCaptureMode] = useState<CaptureMode>('mic');
   const [canShareSystem, setCanShareSystem] = useState(false);
   const [sharingSystem, setSharingSystem] = useState(false);
+  /** Segments already transcribed while the recording is still going. */
+  const [liveTranscribed, setLiveTranscribed] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   /** The mixed capture being recorded, plus the sources that feed it. */
@@ -88,6 +102,10 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const stallTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const liveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const liveBusyRef = useRef(false);
+  /** Held so finalize can wait for an in-flight pass instead of racing it. */
+  const liveInFlightRef = useRef<Promise<void> | null>(null);
   const stopKeepAliveRef = useRef<(() => void) | null>(null);
   const uploaderRef = useRef<SegmentUploader | null>(null);
   const watchdogRef = useRef<MicWatchdog | null>(null);
@@ -582,6 +600,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       setWarning(systemNotice);
       setMicIssue(null);
       setOrphanSegments(0);
+      setLiveTranscribed(0);
       isRecordingRef.current = true;
 
       recordingStartedAtRef.current = Date.now();
@@ -626,6 +645,11 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
         if (!isRecordingRef.current || recoveringRef.current) return;
         if (Date.now() - lastChunkAtRef.current > CHUNK_STALL_MS) void recoverCapture();
       }, STALL_CHECK_MS);
+
+      // Transcribe as we go, so "Finalizar" has almost nothing left to do.
+      liveTimerRef.current = setInterval(() => {
+        liveInFlightRef.current = pumpLiveTranscription();
+      }, LIVE_TRANSCRIBE_EVERY_MS);
 
       setState('recording');
 
@@ -709,6 +733,50 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
   };
 
+  /**
+   * Transcribe what has already been uploaded, without stopping the recording.
+   *
+   * Three conditions, each protecting something specific:
+   *
+   *  • Still recording. A pass that starts as the user presses "Finalizar"
+   *    would append to the transcript at the same time as the real pipeline —
+   *    the same minute of the meeting, twice.
+   *  • Online. Offline this is a guaranteed-failed request and a wasted radio
+   *    wake-up; the audio is safe locally and gets transcribed later anyway.
+   *  • The upload queue is EMPTY. This is the subtle one: a segment still
+   *    being retried belongs BEFORE ones already uploaded, and transcribing
+   *    past it would leave it permanently behind the marker — its minute of
+   *    the meeting silently absent from the transcript. Waiting until nothing
+   *    is in flight means the order is settled before anything is read.
+   *
+   * Every failure is swallowed on purpose. This is opportunistic work: the
+   * real pipeline runs at the end regardless and redoes whatever was missed.
+   */
+  const pumpLiveTranscription = useCallback(async () => {
+    if (liveBusyRef.current || !isRecordingRef.current) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+    liveBusyRef.current = true;
+    try {
+      const stillQueued = await pendingSegments(meetingIdRef.current);
+      if (stillQueued.length > 0 || !isRecordingRef.current) return;
+
+      const res = await fetch(`/api/meetings/${meetingIdRef.current}/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step: 'transcribe', live: true }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (typeof data?.segmentsProcessed === 'number') {
+        setLiveTranscribed(data.segmentsProcessed);
+      }
+    } catch {
+      /* opportunistic: the pipeline at the end is what actually guarantees it */
+    } finally {
+      liveBusyRef.current = false;
+    }
+  }, []);
+
   /** Shared by "Finalizar" and by the recovery of an interrupted session. */
   const runPipeline = useCallback(async () => {
     setState('processing');
@@ -750,9 +818,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   }, [onFinalized]);
 
   const finalizeRecording = async () => {
+    // Set FIRST: it is what stops a new live-transcription pass from starting
+    // while this one is tearing the recording down.
     isRecordingRef.current = false;
     if (timerRef.current) clearInterval(timerRef.current);
     if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+    if (liveTimerRef.current) clearInterval(liveTimerRef.current);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     await markSession(meetingIdRef.current, { state: 'finalizing' });
 
@@ -814,6 +885,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       );
     }
 
+    // A live pass already in flight is reading and appending to the very same
+    // transcript the pipeline is about to. Waiting for it costs a second at
+    // most and is the difference between a clean transcript and one with a
+    // minute of the meeting written into it twice.
+    await liveInFlightRef.current?.catch(() => {});
+
     await runPipeline();
   };
 
@@ -826,6 +903,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     if (drained.failed > 0 && drained.pending === 0) {
       setWarning(`${drained.failed} fragmento(s) no se pudieron subir. Se procesará el resto.`);
     }
+    // A live pass already in flight is reading and appending to the very same
+    // transcript the pipeline is about to. Waiting for it costs a second at
+    // most and is the difference between a clean transcript and one with a
+    // minute of the meeting written into it twice.
+    await liveInFlightRef.current?.catch(() => {});
+
     await runPipeline();
   };
 
@@ -872,6 +955,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
       if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+      if (liveTimerRef.current) clearInterval(liveTimerRef.current);
       watchdogRef.current?.stop();
       uploaderRef.current?.dispose();
       stopKeepAliveRef.current?.();
@@ -1084,6 +1168,16 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
             {state === 'uploading' && queue.pending > 0 && (
               <p className="text-xs text-slate-400 dark:text-slate-500">
                 Quedan {queue.pending} fragmento(s) por subir.
+              </p>
+            )}
+
+            {/* Says out loud that the wait at the end is already being eaten
+                into — and, when it is not, stays quiet rather than claiming it. */}
+            {isLive && liveTranscribed > 0 && (
+              <p className="text-xs flex items-center justify-center gap-1 text-emerald-600 dark:text-emerald-400">
+                <span>✍️</span>
+                {liveTranscribed} fragmento{liveTranscribed === 1 ? '' : 's'} ya transcrito
+                {liveTranscribed === 1 ? '' : 's'} — al finalizar casi no habrá espera
               </p>
             )}
 

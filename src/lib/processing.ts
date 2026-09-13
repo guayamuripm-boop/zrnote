@@ -144,6 +144,65 @@ export interface SegmentOutcome {
  *     exactly that segment. Everything after it waits its turn rather than
  *     being skipped — which is what the old `offset + attempted` did.
  */
+export interface StoredAudioSegment {
+  segment_index?: number;
+  r2_key?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Which segments still need transcribing, and where the marker lands after.
+ *
+ * `segments_transcribed_offset` used to mean "how many ARRAY POSITIONS have
+ * been processed", and the array was sliced with it. That holds only while
+ * array position and segment_index are the same number — which stops being
+ * true the moment a segment is missing from the middle, and a segment IS
+ * missing from the middle whenever an upload is still being retried.
+ *
+ * The failure that creates is nasty and silent. Say segment 5's upload is
+ * still failing while 6 and 7 land: the array is [0,1,2,3,4,6,7], the marker
+ * advances to 7 positions, and then segment 5's retry finally succeeds. Now
+ * the array is [0..7] — every entry after position 5 has SHIFTED ONE PLACE.
+ * Position 7 is now segment 7, which was already transcribed, so it gets
+ * transcribed a second time and appended twice, while segment 5 — the one
+ * that was waiting all along — is never transcribed at all. The transcript
+ * ends up with a minute duplicated and a different minute missing, and
+ * nothing anywhere reports a problem.
+ *
+ * Reading the marker as a segment_index instead removes the whole class of
+ * bug: indices are stable no matter what the array does. For the ordinary
+ * gapless case the two readings produce the identical number, so this changes
+ * nothing for meetings already in flight.
+ */
+export function selectPendingSegments(
+  segments: StoredAudioSegment[],
+  nextIndex: number,
+  maxSegments: number,
+): { batch: StoredAudioSegment[]; remaining: number } {
+  const pending = segments
+    .filter((s) => Number(s.segment_index ?? 0) >= nextIndex)
+    .sort((a, b) => Number(a.segment_index ?? 0) - Number(b.segment_index ?? 0));
+
+  return { batch: pending.slice(0, maxSegments), remaining: Math.max(0, pending.length - maxSegments) };
+}
+
+/**
+ * Where the marker lands after transcribing `cut` of `batch`.
+ *
+ * One past the last segment actually dealt with — NOT `nextIndex + cut`,
+ * which would silently step over an index that was never there, and then step
+ * over the real segment carrying that index if it showed up later.
+ */
+export function advanceTranscribedIndex(
+  batch: StoredAudioSegment[],
+  cut: number,
+  currentNextIndex: number,
+): number {
+  if (cut <= 0) return currentNextIndex;
+  const last = batch[cut - 1];
+  return Math.max(currentNextIndex, Number(last?.segment_index ?? 0) + 1);
+}
+
 export function transcribeCutoff(outcomes: SegmentOutcome[]): number {
   for (let i = 0; i < outcomes.length; i++) {
     if (!outcomes[i].text && outcomes[i].permanent !== true) return i;
@@ -332,7 +391,25 @@ async function heartbeat(supabase: any, meetingId: string) {
     .eq('id', meetingId);
 }
 
-export async function transcribeMeeting(meetingId: string, maxSegments: number = 9): Promise<TranscribeResult> {
+export interface TranscribeOptions {
+  /**
+   * Transcribing WHILE the meeting is still being recorded.
+   *
+   * The work is identical — the same segments, the same marker, the same
+   * appending — but it must leave the meeting's own lifecycle alone: no
+   * flipping `status` to 'processing' and no heartbeat touching `ended_at`,
+   * because the meeting is not being processed, it is being RECORDED, and
+   * pretending otherwise makes the meeting page think an abandoned pipeline
+   * needs rescuing (see its `isStale` check) and start a competing one.
+   */
+  live?: boolean;
+}
+
+export async function transcribeMeeting(
+  meetingId: string,
+  maxSegments: number = 9,
+  opts: TranscribeOptions = {},
+): Promise<TranscribeResult> {
   const supabase = getSupabaseAdmin();
   const groqKey = process.env.GROQ_API_KEY;
 
@@ -366,9 +443,16 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     return { success: false, error: 'No audio segments found in meeting', segmentsProcessed: 0, segmentsTotal: 0, more: false };
   }
 
-  const offset = meeting.segments_transcribed_offset || 0;
-  const pendingSegments = segments.slice(offset);
-  const batch = pendingSegments.slice(0, maxSegments);
+  // The marker is a segment_index, not an array position — see
+  // selectPendingSegments for the silent duplicate-and-drop bug that reading
+  // it as a position causes as soon as an upload is retried out of order.
+  // The raw value is kept alongside the coerced one: the conditional write at
+  // the end has to match the row EXACTLY as it is, and `eq(col, 0)` does not
+  // match a NULL in Postgres — that mismatch would silently refuse to save
+  // the transcript of any meeting whose marker was never set.
+  const rawOffset: number | null = meeting.segments_transcribed_offset ?? null;
+  const offset = rawOffset || 0;
+  const { batch } = selectPendingSegments(segments, offset, maxSegments);
 
   if (batch.length === 0) {
     const transcript = meeting.transcript_raw || '';
@@ -437,7 +521,9 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
       }
     }
 
-    if (i + BATCH_SIZE < batch.length) {
+    // No heartbeat while recording: `ended_at` is what tells the rest of the
+    // system "a pipeline is alive here", and nothing is being processed yet.
+    if (i + BATCH_SIZE < batch.length && !opts.live) {
       await heartbeat(supabase, meetingId);
     }
   }
@@ -461,12 +547,12 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   const newTranscriptions = kept.map((o) => o.text).filter((t): t is string => Boolean(t));
   const segErrors = outcomes.map((o) => o.error).filter((e): e is string => Boolean(e));
   const processed = newTranscriptions.length;
-  const finalOffset = offset + cut;
+  const finalOffset = advanceTranscribedIndex(batch, cut, offset);
   const existingTranscript = meeting.transcript_raw || '';
   const fullTranscript = existingTranscript
     ? existingTranscript + '\n\n' + newTranscriptions.join('\n\n')
     : newTranscriptions.join('\n\n');
-  const more = finalOffset < segments.length;
+  const more = selectPendingSegments(segments, finalOffset, 1).batch.length > 0;
 
   // No progress at all, and the first pending segment failed recoverably.
   // Returning `more:true` here would make the client spin on that same segment
@@ -486,7 +572,17 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
   // If this batch transcribed NOTHING and there is still no transcript at all,
   // fail loudly with the real Groq error instead of silently "succeeding" with
   // an empty transcript (which used to surface later as a confusing 400 on analyze).
-  if (processed === 0 && !existingTranscript.trim()) {
+  //
+  // EXCEPT while recording. A meeting that opens with three minutes of silence
+  // before anyone speaks is completely ordinary, and a live pass has no
+  // business declaring a verdict on a meeting that is still happening. Worse,
+  // returning here would skip the marker update below, so the next pass a
+  // minute later would re-transcribe those same silent segments, and the one
+  // after that would redo those plus the next — a loop that grows every
+  // minute and burns the very rate limit this whole feature exists to work
+  // around. Live passes only ever advance; the verdict belongs to the final
+  // pipeline run, which still reaches this branch normally.
+  if (processed === 0 && !existingTranscript.trim() && !opts.live) {
     const reason = segErrors[0] || 'ningún segmento pudo transcribirse';
 
     // Silencio no es un fallo técnico: el audio se grabó y se transcribió bien,
@@ -518,7 +614,17 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     return { success: false, error: `No se pudo transcribir el audio: ${reason}`, segmentsProcessed: 0, segmentsTotal: segments.length, more: false };
   }
 
-  const { error: updateError } = await supabase
+  // Written ONLY if the marker is still where this pass found it.
+  //
+  // `transcript_raw` is appended to, so two passes that both read the same
+  // marker would both append the same segments — the same minute of the
+  // meeting written into the acta twice. That is not hypothetical now that
+  // transcription also runs DURING recording: the client keeps the two apart,
+  // but a connection dropped mid-response leaves the client believing a pass
+  // ended while the server is still finishing it. Postgres settles it instead
+  // of trust: whoever gets there second matches no row, appends nothing, and
+  // says so.
+  const pendingWrite = supabase
     .from('meetings')
     .update({
       transcript_raw: fullTranscript,
@@ -526,12 +632,44 @@ export async function transcribeMeeting(meetingId: string, maxSegments: number =
     })
     .eq('id', meetingId);
 
+  const { data: updatedRows, error: updateError } = await (
+    rawOffset === null
+      ? pendingWrite.is('segments_transcribed_offset', null)
+      : pendingWrite.eq('segments_transcribed_offset', rawOffset)
+  ).select('id');
+
   if (updateError) {
     return { success: false, error: `Failed to save transcript: ${updateError.message}`, segmentsProcessed: processed, segmentsTotal: segments.length, more: false };
   }
 
+  if (!updatedRows || updatedRows.length === 0) {
+    // Someone else moved the marker while this pass was working. Its
+    // transcription is discarded — wasteful, but the alternative is a
+    // duplicated passage in the acta. `more: true` sends the caller back for
+    // another pass, which will read the marker the other side left behind.
+    logger.warn('Transcription pass discarded: marker moved underneath it', {
+      meetingId,
+      expectedOffset: offset,
+      live: Boolean(opts.live),
+    });
+    return {
+      success: true,
+      transcript: existingTranscript,
+      segmentsProcessed: 0,
+      segmentsTotal: segments.length,
+      more: true,
+    };
+  }
+
+  // Counted, not inferred from the marker: the marker is an index now, and
+  // with a gap in the middle an index runs ahead of the count — which the
+  // progress display would render as "47 de 45".
+  const processedCount = segments.filter(
+    (s: StoredAudioSegment) => Number(s.segment_index ?? 0) < finalOffset,
+  ).length;
+
   logger.info('Transcription batch completed', { meetingId, processed, newOffset: finalOffset, total: segments.length, more, errors: segErrors.length });
-  return { success: true, transcript: fullTranscript, segmentsProcessed: finalOffset, segmentsTotal: segments.length, more };
+  return { success: true, transcript: fullTranscript, segmentsProcessed: processedCount, segmentsTotal: segments.length, more };
 }
 
 

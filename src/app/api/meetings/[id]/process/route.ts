@@ -7,6 +7,23 @@ import { logger } from '@/lib/logger';
 
 const processSchema = z.object({
   step: z.enum(['transcribe', 'analyze', 'emails', 'vectorize']).optional(),
+  /**
+   * Transcribe segments that have already been uploaded WHILE the meeting is
+   * still being recorded, instead of waiting for the user to press
+   * "Finalizar" and then doing all of it at once.
+   *
+   * Groq's free tier allows 20 requests a minute, so a 45-minute class — 45
+   * segments — cannot be transcribed in less than a couple of minutes no
+   * matter how it is arranged. Those two minutes used to be spent entirely
+   * AFTER the recording ended, with the user watching a spinner, while the 45
+   * minutes of recording before it sat completely idle. This just moves the
+   * same work into the time that was already passing anyway.
+   *
+   * It changes nothing about the work itself: same segments, same marker,
+   * same appending, same idempotency. What it must NOT do is touch the
+   * meeting's lifecycle — see TranscribeOptions.live.
+   */
+  live: z.boolean().optional().default(false),
 });
 
 /**
@@ -51,6 +68,7 @@ export async function POST(
   }
 
   let { step } = parsed.data;
+  const live = parsed.data.live === true && parsed.data.step === 'transcribe';
   const meetingId = resolvedParams.id;
 
   const { data: meeting } = await supabase
@@ -100,22 +118,36 @@ export async function POST(
   }
 
   if (step === 'transcribe') {
-    const { error: updateError } = await supabase
-      .from('meetings')
-      .update({
-        status: 'processing',
-        error_message: null,
-        ended_at: new Date().toISOString(),
-      })
-      .eq('id', meetingId);
+    // While recording, the meeting's status stays exactly as it is. Flipping
+    // it to 'processing' would tell the meeting page that an interrupted
+    // pipeline needs rescuing, and it would helpfully start a second one on
+    // top of the recording still in progress.
+    if (!live) {
+      const { error: updateError } = await supabase
+        .from('meetings')
+        .update({
+          status: 'processing',
+          error_message: null,
+          ended_at: new Date().toISOString(),
+        })
+        .eq('id', meetingId);
 
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
     }
 
-    const result = await transcribeMeeting(meetingId);
+    const result = await transcribeMeeting(meetingId, 9, { live });
 
     if (!result.success) {
+      // A live pass runs opportunistically against a meeting that is still
+      // being recorded: segments are mid-upload, Groq may be busy, the phone
+      // may have lost signal. None of that is a failed meeting — the real
+      // pipeline still runs at the end and will redo whatever was missed. So
+      // it is reported, never recorded as a failure on the meeting itself.
+      if (live) {
+        return NextResponse.json({ ok: false, live: true, error: result.error });
+      }
       await markFailed(supabase, meetingId, result.error || 'Error al transcribir');
       return NextResponse.json({ ok: false, error: result.error, segmentsProcessed: result.segmentsProcessed, segmentsTotal: result.segmentsTotal });
     }
