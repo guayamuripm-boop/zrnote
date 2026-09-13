@@ -4,6 +4,7 @@ import { verifyMinuteToken } from '@/lib/minute-links';
 import { matchItemsToParticipant } from '@/lib/email-service';
 import { sortActionItems } from '@/lib/action-items';
 import { toParagraphs } from '@/lib/readable-text';
+import { normalizeMinuteSections } from '@/lib/minute-text';
 import { readStudyAids, isStudyAidsEmpty } from '@/lib/study-aids';
 import StudySection from '@/components/study/StudySection';
 import { PriorityBadge } from '@/components/PriorityBadge';
@@ -93,6 +94,10 @@ export default async function MinutaPublicaPage({
   }
 
   const minute = minuteResult.data;
+  // This page is opened by PARTICIPANTS, from a link in an e-mail, on a phone
+  // — the audience least able to do anything about a crash and least likely to
+  // report it. Same normalisation as the meeting page, for the same reason.
+  const sections = normalizeMinuteSections(minute);
   const studyAids = readStudyAids(minute);
   const allItems = sortActionItems(itemsResult.data || []);
 
@@ -167,13 +172,13 @@ export default async function MinutaPublicaPage({
           </section>
         )}
 
-        {minute?.summary && (
+        {sections.summary && (
           <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Resumen</h2>
             {/* Párrafos cortos: esta página se abre casi siempre desde el
                 móvil, tras pulsar el enlace de un correo. */}
             <div className="space-y-3">
-              {toParagraphs(minute.summary).map((p, i) => (
+              {toParagraphs(sections.summary).map((p, i) => (
                 <p key={i} className="text-slate-700 dark:text-slate-200 leading-relaxed">
                   {p}
                 </p>
@@ -187,13 +192,13 @@ export default async function MinutaPublicaPage({
             minuta compartida que mas se va a usar. */}
         {!isStudyAidsEmpty(studyAids) && <StudySection aids={studyAids} minuteId={minute!.id} />}
 
-        {Array.isArray(minute?.decisions) && minute.decisions.length > 0 && (
+        {sections.decisions.length > 0 && (
           <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Decisiones</h2>
             <ul className="space-y-2">
-              {(minute.decisions as any[]).map((d, i) => (
+              {sections.decisions.map((d, i) => (
                 <li key={i} className="text-sm text-slate-700 dark:text-slate-200 pl-4 relative before:content-['·'] before:absolute before:left-0 before:text-slate-300">
-                  {typeof d === 'string' ? d : `${d.decision ?? ''}${d.context ? ` (${d.context})` : ''}`}
+                  {d}
                 </li>
               ))}
             </ul>

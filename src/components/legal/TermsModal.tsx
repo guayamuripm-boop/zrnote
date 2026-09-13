@@ -35,6 +35,7 @@ export default function TermsModal({
   const [agreed, setAgreed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -87,6 +88,14 @@ export default function TermsModal({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        // This dialog BLOCKS the whole dashboard, so a raw "Unauthorized" here
+        // is not a message — it is a locked door with no handle. An expired
+        // session is also the one failure the user can actually fix, so say
+        // which one it is and what to do about it.
+        if (res.status === 401) {
+          setSessionExpired(true);
+          throw new Error('Tu sesión caducó mientras leías. Vuelve a entrar y podrás aceptar.');
+        }
         throw new Error(data.error || 'No se pudo registrar tu aceptación');
       }
       onAccept();
@@ -162,7 +171,19 @@ export default function TermsModal({
             </span>
           </label>
 
-          {saveError && <p className="text-sm text-rose-600 dark:text-rose-400">{saveError}</p>}
+          {saveError && (
+            <div className="space-y-2">
+              <p className="text-sm text-rose-600 dark:text-rose-400">{saveError}</p>
+              {sessionExpired && (
+                <a
+                  href="/login"
+                  className="inline-block gradient-primary text-white px-4 py-2 rounded-xl text-sm font-medium"
+                >
+                  Volver a iniciar sesión
+                </a>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-3 justify-end">
             {!required && (

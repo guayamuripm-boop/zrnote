@@ -14,6 +14,7 @@ import ResendEmailsButton from '@/components/ResendEmailsButton';
 import { sortActionItems } from '@/lib/action-items';
 import { toParagraphs } from '@/lib/readable-text';
 import { readStudyAids, isStudyAidsEmpty } from '@/lib/study-aids';
+import { normalizeMinuteSections } from '@/lib/minute-text';
 import StudySection from '@/components/study/StudySection';
 import CacheMinuteForOffline from '@/components/CacheMinuteForOffline';
 import CopyMinuteButton from '@/components/CopyMinuteButton';
@@ -45,6 +46,12 @@ export default async function MeetingDetailPage({
   ]);
 
   const minute = minuteResult.data;
+  // Normalised BEFORE anything renders it. A minute stored by an older build
+  // can hold objects where strings belong (see minute-text.ts) and React
+  // throws on those mid-render, which the error boundary turns into "Algo
+  // salió mal" for the whole page — the acta intact and unreachable. Write
+  // time is now guarded too, but that does nothing for what is already saved.
+  const sections = normalizeMinuteSections(minute);
   // Apuntes de clase. Solo los produce el estilo "Clase", asi que en un acta
   // ejecutiva vienen vacios y la seccion entera no se pinta.
   const studyAids = readStudyAids(minute);
@@ -105,18 +112,18 @@ export default async function MeetingDetailPage({
     <div className="space-y-6">
       {/* Header */}
       <div className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 truncate">{meeting.title}</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 break-words">{meeting.title}</h1>
             <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">
               {meeting.coordination && `${meeting.coordination} · `}
               {new Date(meeting.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 sm:justify-end">
             <StatusBadge status={meeting.status} />
             {canAddAudio && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Link
                   href={`/dashboard/meetings/${meeting.id}/record`}
                   className="gradient-primary text-white px-4 py-2 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all inline-flex items-center gap-2"
@@ -178,11 +185,11 @@ export default async function MeetingDetailPage({
               title={meeting.title}
               coordination={meeting.coordination}
               createdAt={meeting.created_at}
-              summary={minute.summary}
-              topics={minute.topics}
-              decisions={minute.decisions}
-              changes={minute.changes}
-              nextSteps={minute.next_steps}
+              summary={sections.summary}
+              topics={sections.topics}
+              decisions={sections.decisions}
+              changes={sections.changes}
+              nextSteps={sections.nextSteps}
               actionItems={actionItems.map((a) => ({
                 description: a.description,
                 priority: a.priority,
@@ -203,17 +210,34 @@ export default async function MeetingDetailPage({
               Minuta
               {meeting.status === 'completed' && (
                 <span className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+                  {/* Both get the NORMALISED sections, never the raw row:
+                      they build plain text from the same fields the page
+                      renders, so the same wrong shapes would land as
+                      "[object Object]" in a WhatsApp message or a pasted acta. */}
                   <ShareWhatsApp
                     title={meeting.title}
                     date={meeting.created_at}
-                    minute={minute}
+                    minute={{
+                      summary: sections.summary,
+                      decisions: sections.decisions,
+                      blockers: sections.blockers,
+                      next_steps: sections.nextSteps,
+                    }}
                     actionItems={(actionItems as any[]) || []}
                   />
                   <CopyMinuteButton
                     title={meeting.title}
                     createdAt={meeting.created_at}
                     coordination={meeting.coordination}
-                    minute={minute}
+                    minute={{
+                      summary: sections.summary,
+                      decisions: sections.decisions,
+                      blockers: sections.blockers,
+                      project_statuses: sections.projectStatuses,
+                      next_steps: sections.nextSteps,
+                      discussion: sections.discussion,
+                      ideas: sections.ideas,
+                    }}
                     actionItems={(actionItems as any[]) || []}
                     participants={participants}
                   />
@@ -234,7 +258,7 @@ export default async function MeetingDetailPage({
               <h3 className="font-medium text-sm text-slate-500 dark:text-slate-400 mb-1">Resumen</h3>
               {/* Párrafos cortos en vez de un bloque: ver `readable-text.ts`. */}
               <div className="space-y-3">
-                {toParagraphs(minute.summary).map((p, i) => (
+                {toParagraphs(sections.summary).map((p, i) => (
                   <p key={i} className="text-slate-700 dark:text-slate-200 leading-relaxed">
                     {p}
                   </p>
@@ -311,7 +335,7 @@ export default async function MeetingDetailPage({
             <AssignActionItems meetingId={meeting.id} actionItems={actionItems} participants={participants} />
           )}
 
-          {minute.decisions && (minute.decisions as string[]).length > 0 && (
+          {sections.decisions.length > 0 && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
                 <div className="w-8 h-8 gradient-success rounded-lg flex items-center justify-center">
@@ -322,7 +346,7 @@ export default async function MeetingDetailPage({
                 Decisiones
               </h2>
               <ul className="space-y-2">
-                {(minute.decisions as string[]).map((d, i) => (
+                {sections.decisions.map((d, i) => (
                   <li key={i} className="flex items-start gap-2 text-slate-700 dark:text-slate-200 text-sm">
                     <span className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0 mt-0.5">
                       <svg className="w-3 h-3 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -336,7 +360,7 @@ export default async function MeetingDetailPage({
             </section>
           )}
 
-          {minute.blockers && (minute.blockers as any[]).length > 0 && (
+          {sections.blockers.length > 0 && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
                 <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
@@ -347,7 +371,7 @@ export default async function MeetingDetailPage({
                 Bloqueos
               </h2>
               <div className="space-y-3">
-                {(minute.blockers as any[]).map((b, i) => (
+                {sections.blockers.map((b, i) => (
                   <div key={i} className="bg-rose-50/80 border border-rose-100 dark:bg-rose-900/20 dark:border-rose-800/30 rounded-xl p-4">
                     <h3 className="font-semibold text-rose-800 dark:text-rose-300 text-sm">{b.issue}</h3>
                     <p className="text-sm text-rose-600 dark:text-rose-400 mt-0.5">Impacto: {b.impact}</p>
@@ -360,22 +384,22 @@ export default async function MeetingDetailPage({
 
           {/* Secondary detail — de-emphasized (lighter header, no big icon box)
               to cut visual noise, since these are background info, not action. */}
-          {((minute.discussion && (minute.discussion as any[]).length > 0) ||
-            (minute.project_statuses && (minute.project_statuses as any[]).length > 0) ||
-            (minute.ideas && (minute.ideas as string[]).length > 0) ||
-            (minute.next_steps && (minute.next_steps as string[]).length > 0)) && (
+          {(sections.discussion.length > 0 ||
+            sections.projectStatuses.length > 0 ||
+            sections.ideas.length > 0 ||
+            sections.nextSteps.length > 0) && (
             <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated space-y-5">
               <h2 className="text-sm font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
                 Más detalle
               </h2>
 
-              {minute.project_statuses && (minute.project_statuses as any[]).length > 0 && (
+              {sections.projectStatuses.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="text-base">📊</span> Estado de proyectos
                   </h3>
                   <div className="space-y-2">
-                    {(minute.project_statuses as any[]).map((p, i) => (
+                    {sections.projectStatuses.map((p, i) => (
                       <div key={i} className="border-l-2 border-blue-300 dark:border-blue-700 pl-3 py-0.5">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm text-slate-800 dark:text-slate-200">{p.project}</span>
@@ -388,13 +412,13 @@ export default async function MeetingDetailPage({
                 </div>
               )}
 
-              {minute.next_steps && (minute.next_steps as string[]).length > 0 && (
+              {sections.nextSteps.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="text-base">➡️</span> Próximos pasos
                   </h3>
                   <ul className="space-y-1.5">
-                    {(minute.next_steps as string[]).map((n, i) => (
+                    {sections.nextSteps.map((n, i) => (
                       <li key={i} className="text-sm text-slate-600 dark:text-slate-300 pl-4 relative before:content-['·'] before:absolute before:left-0 before:text-slate-300 dark:before:text-slate-600">
                         {n}
                       </li>
@@ -403,13 +427,13 @@ export default async function MeetingDetailPage({
                 </div>
               )}
 
-              {minute.discussion && (minute.discussion as any[]).length > 0 && (
+              {sections.discussion.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="text-base">💬</span> Temas discutidos
                   </h3>
                   <div className="space-y-3">
-                    {(minute.discussion as any[]).map((d, i) => (
+                    {sections.discussion.map((d, i) => (
                       <div key={i} className="border-l-2 border-slate-200 dark:border-slate-700 pl-3">
                         <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{d.topic}</p>
                         {d.speaker && <p className="text-xs text-slate-400 dark:text-slate-500">{d.speaker}</p>}
@@ -420,13 +444,13 @@ export default async function MeetingDetailPage({
                 </div>
               )}
 
-              {minute.ideas && (minute.ideas as string[]).length > 0 && (
+              {sections.ideas.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="text-base">💡</span> Ideas
                   </h3>
                   <ul className="space-y-1.5">
-                    {(minute.ideas as string[]).map((idea, i) => (
+                    {sections.ideas.map((idea, i) => (
                       <li key={i} className="text-sm text-slate-500 dark:text-slate-400 pl-4 relative before:content-['·'] before:absolute before:left-0 before:text-slate-300 dark:before:text-slate-600">
                         {idea}
                       </li>

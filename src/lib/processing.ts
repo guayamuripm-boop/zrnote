@@ -6,6 +6,7 @@ import { isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
 import { cleanWhisperResult } from '@/lib/whisper-quality';
 import { getMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
 import { normalizeStudyAids, isStudyAidsEmpty, countStudyAids, readStudyAids } from '@/lib/study-aids';
+import { toText, toTextList, toBlockers, toProjectStatuses, toDiscussion } from '@/lib/minute-text';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
@@ -1276,17 +1277,30 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     logger.info('Study aids generated', { meetingId, pieces: countStudyAids(studyAids) });
   }
 
+  // Every field goes through minute-text.ts on the way in.
+  //
+  // The JSON shape asked for in the prompt is a request, not a guarantee, and
+  // the previous code only guarded SOME of it: `decisions` and `next_steps`
+  // coerced objects to strings, `ideas` and `blockers` were stored raw, and
+  // `topics` used `d.topic || d`, which silently falls back to the whole
+  // OBJECT when the key is missing. One `ideas: [{idea: "..."}]` from the
+  // model was enough to make React throw mid-render and the error boundary
+  // take down the entire meeting page — the acta safe in the database and
+  // impossible to open. Normalising all of it in one place means no future
+  // field can be added and quietly left unguarded.
   const minutePayload: Record<string, any> = {
       meeting_id: meetingId,
-      summary: minuteJSON.summary,
-      topics: (minuteJSON.discussion || []).map((d: any) => d.topic || d),
-      decisions: (minuteJSON.decisions || []).map((d: any) => typeof d === 'string' ? d : `${d.decision}${d.context ? ` (${d.context})` : ''}`),
-      changes: [],
-      next_steps: (minuteJSON.next_steps || []).map((n: any) => typeof n === 'string' ? n : `${n.step}${n.owner ? ` — ${n.owner}` : ''}`),
-      discussion: minuteJSON.discussion || [],
-      project_statuses: minuteJSON.project_statuses || [],
-      blockers: minuteJSON.blockers || [],
-      ideas: minuteJSON.ideas || [],
+      summary: toText(minuteJSON.summary),
+      topics: toTextList((minuteJSON.discussion || []).map((d: any) => d?.topic ?? d)),
+      decisions: toTextList(minuteJSON.decisions),
+      changes: toTextList(minuteJSON.changes),
+      next_steps: toTextList(minuteJSON.next_steps),
+      discussion: toDiscussion(minuteJSON.discussion),
+      project_statuses: toProjectStatuses(minuteJSON.project_statuses),
+      blockers: toBlockers(minuteJSON.blockers),
+      ideas: toTextList(minuteJSON.ideas),
+      // The unmodified model output is kept exactly as it came, so a shape we
+      // normalised wrongly can still be recovered from here.
       raw_llm_output: JSON.stringify(minuteJSON),
       study_aids: studyAids,
   };

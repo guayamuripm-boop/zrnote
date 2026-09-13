@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { generateMinutePDFBlob } from '@/lib/minute-pdf';
+import { normalizeMinuteSections } from '@/lib/minute-text';
 import { readStudyAids } from '@/lib/study-aids';
 
 export async function GET(
@@ -51,14 +52,20 @@ export async function GET(
     ended_at: meeting.ended_at,
   };
 
+  // Same normalisation as the meeting page: a minute stored with objects
+  // where strings belong would otherwise reach the PDF renderer, which has no
+  // error boundary to fall back on — the export just fails or prints
+  // "[object Object]" into a document someone is about to sign.
+  const sections = normalizeMinuteSections(minute);
+
   const minuteData = {
-    summary: minute.summary || '',
-    discussion: minute.discussion || [],
-    decisions: minute.decisions || [],
-    project_statuses: minute.project_statuses || [],
-    blockers: minute.blockers || [],
-    ideas: minute.ideas || [],
-    next_steps: minute.next_steps || [],
+    summary: sections.summary,
+    discussion: sections.discussion,
+    decisions: sections.decisions,
+    project_statuses: sections.projectStatuses,
+    blockers: sections.blockers,
+    ideas: sections.ideas,
+    next_steps: sections.nextSteps,
     action_items: (actionItemsResult.data || []).map((i) => ({
       assignee_name: i.assignee_name || 'Sin asignar',
       description: i.description,
