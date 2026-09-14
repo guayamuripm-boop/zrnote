@@ -106,9 +106,14 @@ export default async function MinutaPublicaPage({
   const me = (participantResult.data || []).find(
     (p: any) => (p.email_override || '').toLowerCase().trim() === email,
   );
-  const myName = me?.name || email.split('@')[0];
-  const myItems = matchItemsToParticipant(allItems, myName, email);
-  const otherItems = allItems.filter((i: any) => !myItems.includes(i));
+  // Un enlace público generado desde el botón "Compartir" del dashboard lleva
+  // el email vacío a propósito (ver share-link/route.ts): no hay a quién
+  // saludar ni compromisos que resaltar como "tuyos", así que se trata como
+  // una vista genérica en vez de forzar un saludo a "".
+  const isPublicLink = email === '';
+  const myName = isPublicLink ? '' : me?.name || email.split('@')[0];
+  const myItems = isPublicLink ? [] : matchItemsToParticipant(allItems, myName, email);
+  const otherItems = isPublicLink ? allItems : allItems.filter((i: any) => !myItems.includes(i));
 
   const fecha = new Date(meeting.created_at).toLocaleDateString('es-ES', {
     day: 'numeric',
@@ -136,7 +141,7 @@ export default async function MinutaPublicaPage({
             {fecha}
           </p>
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-3">
-            Hola {myName}, esta es la minuta que se te envió por correo.
+            {isPublicLink ? 'Minuta compartida mediante un enlace.' : `Hola ${myName}, esta es la minuta que se te envió por correo.`}
           </p>
         </div>
 
@@ -208,7 +213,7 @@ export default async function MinutaPublicaPage({
         {otherItems.length > 0 && (
           <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">
-              Otros compromisos de la reunión
+              {isPublicLink ? 'Compromisos' : 'Otros compromisos de la reunión'}
             </h2>
             <ul className="space-y-2">
               {otherItems.map((item: any) => (
@@ -237,10 +242,16 @@ export default async function MinutaPublicaPage({
             <Link href="/legal/privacidad" className="text-slate-400 dark:text-slate-500 hover:text-blue-600">
               Privacidad
             </Link>
-            <span className="text-slate-300 dark:text-slate-600">·</span>
-            <Link href={`/baja/${token}`} className="text-slate-400 dark:text-slate-500 hover:text-rose-500">
-              No quiero recibir más correos
-            </Link>
+            {/* No tiene sentido en un enlace público: no llegó por correo, así
+                que no hay suscripción de la que darse de baja. */}
+            {!isPublicLink && (
+              <>
+                <span className="text-slate-300 dark:text-slate-600">·</span>
+                <Link href={`/baja/${token}`} className="text-slate-400 dark:text-slate-500 hover:text-rose-500">
+                  No quiero recibir más correos
+                </Link>
+              </>
+            )}
           </div>
         </footer>
       </div>

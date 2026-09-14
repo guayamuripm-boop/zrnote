@@ -108,11 +108,11 @@ describe('normalizeStudyAids', () => {
       key_concepts: Array.from({ length: 100 }, (_, i) => ({ term: `t${i}`, definition: 'x'.repeat(2000) })),
       outline: Array.from({ length: 50 }, () => ({ section: 'S', points: Array(40).fill('p') })),
     });
-    expect(aids.flashcards).toHaveLength(24);
-    expect(aids.key_concepts).toHaveLength(24);
-    expect(aids.key_concepts[0].definition.length).toBe(700);
-    expect(aids.outline).toHaveLength(12);
-    expect(aids.outline[0].points).toHaveLength(10);
+    expect(aids.flashcards).toHaveLength(40);
+    expect(aids.key_concepts).toHaveLength(40);
+    expect(aids.key_concepts[0].definition.length).toBe(1000);
+    expect(aids.outline).toHaveLength(20);
+    expect(aids.outline[0].points).toHaveLength(16);
   });
 });
 

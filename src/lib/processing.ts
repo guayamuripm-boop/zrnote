@@ -5,6 +5,7 @@ import { buildMeetingEmailJobs, dispatchEmailJobs } from '@/lib/meeting-emails';
 import { isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
 import { cleanWhisperResult } from '@/lib/whisper-quality';
 import { getMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
+import { getSummaryLength } from '@/lib/summary-length';
 import { normalizeStudyAids, isStudyAidsEmpty, countStudyAids, readStudyAids } from '@/lib/study-aids';
 import { toText, toTextList, toBlockers, toProjectStatuses, toDiscussion } from '@/lib/minute-text';
 
@@ -693,18 +694,28 @@ export async function transcribeMeeting(
  */
 const MINUTE_PROMPT = (
   transcript: string,
-  opts: { meetingDate?: string; context?: MeetingContext; style?: string; styleNotes?: string | null } = {},
+  opts: {
+    meetingDate?: string;
+    context?: MeetingContext;
+    style?: string;
+    styleNotes?: string | null;
+    summaryLength?: string;
+  } = {},
 ) => {
   const { meetingDate, context } = opts;
   const people = context?.participantNames ?? [];
   const needsTitle = Boolean(context?.titleIsAuto);
   const styleDef = getMinuteStyle(opts.style);
+  const lengthDef = getSummaryLength(opts.summaryLength);
 
   // El resumen es lo primero que se lee y lo unico que llega a WhatsApp, asi
-  // que cada estilo define que tiene que contar. Sin override, el de siempre.
+  // que dos ejes lo gobiernan: CUÁNTO se extiende (elegido por el organizador,
+  // summary-length.ts) y DE QUÉ habla (el estilo del acta, fijo por tipo de
+  // sesión). Van concatenados: el largo primero, porque es la instrucción de
+  // formato; el contenido después, porque es la de fondo.
   const summaryInstruction =
-    styleDef.summaryInstruction ??
-    "3 a 5 frases repartidas en 2 o 3 párrafos CORTOS separados por un salto de línea doble (\\n\\n): primero para qué se reunieron y qué se resolvió, después qué queda pendiente. Máximo 2 frases por párrafo — se lee en el móvil y en WhatsApp, y un bloque largo no lo lee nadie. Cuenta resultados, no narres la conversación ni digas 'se habló de'. Si la reunión no llegó a nada concreto, dilo con esas palabras.";
+    `${lengthDef.lengthInstruction} ${styleDef.contentFocus ??
+      'Primero para qué se reunieron y qué se resolvió, después qué queda pendiente. Cuenta resultados, no narres la conversación ni digas "se habló de". Si la reunión no llegó a nada concreto, dilo con esas palabras.'}`;
 
   // Notas cortas del organizador para ESTA acta. Van como el último bloque de
   // contexto, antes del formato de respuesta, y explícitamente marcadas como
@@ -1018,7 +1029,7 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
 
   const { data: meetingRow, error: meetingError } = await supabase
     .from('meetings')
-    .select('transcript_raw, started_at, created_at, minute_style, style_notes')
+    .select('transcript_raw, started_at, created_at, minute_style, style_notes, summary_length')
     .eq('id', meetingId)
     .single();
 
@@ -1069,7 +1080,13 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
   });
 
   const buildPrompt = (t: string) =>
-    MINUTE_PROMPT(t, { meetingDate, context, style: meetingRow.minute_style, styleNotes: meetingRow.style_notes });
+    MINUTE_PROMPT(t, {
+      meetingDate,
+      context,
+      style: meetingRow.minute_style,
+      styleNotes: meetingRow.style_notes,
+      summaryLength: meetingRow.summary_length,
+    });
 
   // Spanish with accents tokenises denser than the usual chars/4 rule of thumb,
   // and underestimating is what produced `413 Request too large ... Limit
@@ -1097,7 +1114,10 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
               model,
               messages: [{ role: 'user', content: buildPrompt(meetingTranscript!) }],
               temperature: 0.3,
-              max_tokens: 8192,
+              // Subido de 8192: el resumen "detallado" y unos apuntes de
+              // clase de verdad completos (más CAPS en study-aids.ts) pueden
+              // superar el techo anterior en una clase larga y densa.
+              max_tokens: 16000,
               response_format: { type: 'json_object' },
             }),
           });
@@ -1142,7 +1162,11 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     // trimming the transcript only if it alone blows the budget.
     const TPM_BUDGET = 10500;
     const MIN_OUTPUT = 1800;
-    const MAX_OUTPUT = 5000;
+    // 5000 -> 6500: el resumen "detallado" y unos apuntes de clase más
+    // completos (más CAPS en study-aids.ts) piden más espacio de salida. La
+    // llamada de más abajo ya recorta esto con Math.min según lo que quede de
+    // presupuesto, así que subir el techo no arriesga el límite de Groq.
+    const MAX_OUTPUT = 6500;
     const overheadTokens = estTokens(buildPrompt(''));
 
     // Chars of transcript that fit alongside the prompt and the reply.

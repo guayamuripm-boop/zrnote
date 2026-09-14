@@ -8,6 +8,7 @@ import RetryButton from '@/components/RetryButton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import ShareWhatsApp from '@/components/ShareWhatsApp';
+import ShareLinkButton from '@/components/ShareLinkButton';
 import ActionItemStatus from '@/components/ActionItemStatus';
 import MeetingParticipants from '@/components/MeetingParticipants';
 import ResendEmailsButton from '@/components/ResendEmailsButton';
@@ -225,6 +226,7 @@ export default async function MeetingDetailPage({
                     }}
                     actionItems={(actionItems as any[]) || []}
                   />
+                  <ShareLinkButton meetingId={meeting.id} title={meeting.title} />
                   <CopyMinuteButton
                     title={meeting.title}
                     createdAt={meeting.created_at}

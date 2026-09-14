@@ -90,20 +90,20 @@ export interface StudyAids {
  * una fila enorme. Cortar por arriba es más barato que validar por abajo.
  */
 const CAPS = {
-  outlineSections: 12,
-  outlinePoints: 10,
-  concepts: 24,
-  examples: 8,
-  questions: 15,
-  flashcards: 24,
-  mistakes: 8,
-  examNotes: 8,
-  resources: 10,
-  openQuestions: 8,
+  outlineSections: 20,
+  outlinePoints: 16,
+  concepts: 40,
+  examples: 14,
+  questions: 25,
+  flashcards: 40,
+  mistakes: 12,
+  examNotes: 12,
+  resources: 14,
+  openQuestions: 12,
   /** Un término de glosario o el anverso de una tarjeta: una línea. */
   shortText: 200,
   /** Una definición, una respuesta, el desarrollo de un ejemplo. */
-  longText: 700,
+  longText: 1000,
 } as const;
 
 /**

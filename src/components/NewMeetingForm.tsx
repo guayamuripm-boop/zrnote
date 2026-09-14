@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { MINUTE_STYLE_OPTIONS, MAX_STYLE_NOTES_LENGTH, getMinuteStyle } from '@/lib/minute-styles';
+import { SUMMARY_LENGTH_OPTIONS } from '@/lib/summary-length';
 import { savePendingMeeting } from '@/lib/meeting-queue';
 
 interface Participant {
@@ -11,7 +12,13 @@ interface Participant {
   email: string;
 }
 
-export default function NewMeetingForm({ initialStyle }: { initialStyle: string }) {
+export default function NewMeetingForm({
+  initialStyle,
+  initialSummaryLength,
+}: {
+  initialStyle: string;
+  initialSummaryLength: string;
+}) {
   const [title, setTitle] = useState('');
   const [coordination, setCoordination] = useState('');
   const [type, setType] = useState<'presencial' | 'virtual' | 'llamada'>('presencial');
@@ -26,6 +33,7 @@ export default function NewMeetingForm({ initialStyle }: { initialStyle: string 
   // uno. Se premarca con la última elección del usuario (ver page.tsx, que la
   // trae del servidor) para que "Grabar ahora" no obligue a elegir cada vez.
   const [minuteStyle, setMinuteStyle] = useState(initialStyle);
+  const [summaryLength, setSummaryLength] = useState(initialSummaryLength);
   const [styleNotes, setStyleNotes] = useState('');
   const [showNotes, setShowNotes] = useState(false);
   const router = useRouter();
@@ -45,6 +53,7 @@ export default function NewMeetingForm({ initialStyle }: { initialStyle: string 
       autoTitle: true,
       minuteStyle,
       styleNotes: styleNotes.trim() || undefined,
+      summaryLength,
     };
 
     // The common, online case: unchanged from before — a normal request, a
@@ -114,6 +123,7 @@ export default function NewMeetingForm({ initialStyle }: { initialStyle: string 
         participants,
         minuteStyle,
         styleNotes: styleNotes.trim() || undefined,
+        summaryLength,
       }),
     });
 
@@ -202,6 +212,36 @@ export default function NewMeetingForm({ initialStyle }: { initialStyle: string 
             </p>
           </div>
         )}
+
+        {/* Nivel de detalle del resumen — eje aparte del estilo: el estilo
+            decide de qué habla, esto decide cuánto se extiende. */}
+        <div className="pt-1 border-t border-slate-200/70 dark:border-slate-700/50">
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mt-3 mb-2 uppercase tracking-wide">
+            Nivel de detalle del resumen
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {SUMMARY_LENGTH_OPTIONS.map((level) => (
+              <button
+                key={level.value}
+                type="button"
+                onClick={() => setSummaryLength(level.value)}
+                className={`text-center px-2 py-2 rounded-xl border transition-all ${
+                  summaryLength === level.value
+                    ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-600'
+                    : 'border-slate-200 dark:border-slate-700 hover:bg-white/60 dark:hover:bg-white/5'
+                }`}
+                title={level.shortDescription}
+              >
+                <span className="text-sm font-medium text-slate-900 dark:text-slate-100 block">
+                  {level.emoji} {level.label}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+            {SUMMARY_LENGTH_OPTIONS.find((l) => l.value === summaryLength)?.shortDescription}
+          </p>
+        </div>
       </div>
 
       {/* Quick record — one tap, start recording now */}

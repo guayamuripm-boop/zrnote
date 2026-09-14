@@ -41,6 +41,7 @@ export interface PendingMeeting {
   autoTitle: boolean;
   minuteStyle?: string;
   styleNotes?: string;
+  summaryLength?: string;
   participants: { name: string; email: string }[];
   /**
    * When the recording-consent checkbox was confirmed, LOCALLY, before this
@@ -168,6 +169,7 @@ export async function ensureMeetingSynced(meetingId: string): Promise<boolean> {
         autoTitle: pending.autoTitle,
         minuteStyle: pending.minuteStyle,
         styleNotes: pending.styleNotes,
+        summaryLength: pending.summaryLength,
         participants: pending.participants,
         recordingConsentAt: pending.consentAt,
       }),

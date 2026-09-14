@@ -31,10 +31,12 @@ export interface MinuteStyleDef {
    */
   extraSchema?: string;
   /**
-   * Sustituye la instrucción del campo `summary`. Un acta de clase no resume
-   * "para qué se reunieron y qué se resolvió": resume qué se enseñó.
+   * Sustituye el CONTENIDO del campo `summary` — de qué tiene que hablar, no
+   * cuánto tiene que extenderse (eso es summary-length.ts, un eje aparte). Un
+   * acta de clase no resume "para qué se reunieron y qué se resolvió": resume
+   * qué se enseñó.
    */
-  summaryInstruction?: string;
+  contentFocus?: string;
   /**
    * Si este estilo produce el bloque `study_aids`. Gobierna la interfaz (si se
    * muestra la sección de estudio) y el aviso del selector.
@@ -53,6 +55,8 @@ export const MINUTE_STYLES: Record<string, MinuteStyleDef> = {
     roleFraming:
       'Eres un jefe de gabinete con veinte años levantando actas. Tu trabajo no es resumir lo que se habló: es dejar por escrito lo que hay que hacer y lo que quedó decidido, para que alguien que NO estuvo en la reunión pueda actuar mañana sin preguntar nada.',
     commitmentExamples: '"yo me encargo", "quedamos en que…", "necesito que…", "para el viernes tengo…", "lo hago yo"',
+    contentFocus:
+      'Primero para qué se reunieron y qué se resolvió, después qué queda pendiente. Cuenta resultados, no narres la conversación ni digas "se habló de". Si la reunión no llegó a nada concreto, dilo con esas palabras.',
   },
   educativa: {
     value: 'educativa',
@@ -64,8 +68,8 @@ export const MINUTE_STYLES: Record<string, MinuteStyleDef> = {
       'Eres el mejor estudiante de la clase tomando apuntes, con la disciplina de un coordinador académico. Tu trabajo no es narrar lo que dijo el profesor: es dejar unos apuntes formales con los que otra persona pueda ESTUDIAR esta clase sin haber estado en ella — entender los conceptos, repasarlos y llegar preparada al examen.',
     commitmentExamples:
       '"para la próxima clase traigan…", "queda de tarea…", "revisen el capítulo…", "entreguen el…", "van a preparar…", "esto entra en el examen"',
-    summaryInstruction:
-      'De qué trató la clase y qué hay que llevarse de ella, en 3 a 5 frases repartidas en 2 o 3 párrafos CORTOS separados por un salto de línea doble (\\n\\n): primero el tema y cómo encaja con lo anterior, después las ideas principales que se explicaron y, si las hubo, lo que queda pendiente de entregar o estudiar. Máximo 2 frases por párrafo — se lee en el móvil. Escribe sobre el CONTENIDO ("la clase cubrió la ley de Ohm y su aplicación a circuitos en serie"), no sobre la sesión ("el profesor habló de…", "se discutió el tema de…").',
+    contentFocus:
+      'De qué trató la clase y qué hay que llevarse de ella: primero el tema y cómo encaja con lo anterior, después las ideas principales que se explicaron y, si las hubo, lo que queda pendiente de entregar o estudiar. Escribe sobre el CONTENIDO ("la clase cubrió la ley de Ohm y su aplicación a circuitos en serie"), no sobre la sesión ("el profesor habló de…", "se discutió el tema de…").',
 
     extraRules: `APUNTES DE CLASE: EL BLOQUE "study_aids"
 Además del acta, esta sesión es una CLASE, así que produces también material de estudio. Es la parte que más se va a usar, así que trátala con el mismo cuidado que los compromisos.
@@ -86,7 +90,7 @@ CÓMO LLENAR CADA PARTE
 - open_questions: preguntas que se hicieron en clase y quedaron SIN responder, o algo que el docente dejó "para la próxima". Es lo que el estudiante tiene que preguntar.
 
 CANTIDAD
-Ajústala a lo que dio la clase, no a llenar el documento. Una clase densa de una hora: 8-15 conceptos, 6-10 preguntas, 10-15 tarjetas. Una charla corta o una sesión de dudas: mucho menos, o nada. Un array vacío es una respuesta correcta.`,
+Ajústala a lo que dio la clase, no a llenar el documento — pero por defecto, PECA DE MÁS, no de menos: estos apuntes tienen que poder sustituir el cuaderno de quien no pudo tomar los suyos, así que es mejor un concepto de más que uno que falte. Una clase densa de una hora: 15-25 conceptos, 10-18 preguntas, 20-30 tarjetas, y el outline con TODAS las secciones que se cubrieron, no un resumen de las principales. Una charla corta o una sesión de dudas: mucho menos, o nada. Un array vacío sigue siendo una respuesta correcta cuando de verdad no hay nada que poner — pero no recortes contenido real que sí se explicó sólo para que la lista quede corta.`,
 
     extraSchema: `,
   "study_aids": {

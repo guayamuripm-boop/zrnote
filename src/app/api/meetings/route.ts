@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthedUser } from '@/lib/api-auth';
 import { normalizeMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
+import { normalizeSummaryLength } from '@/lib/summary-length';
 
 const createMeetingSchema = z.object({
   // Present only when the meeting was created OFFLINE (see meeting-queue.ts):
@@ -30,6 +31,10 @@ const createMeetingSchema = z.object({
   // que no reconozca, así que un estilo nuevo no exige tocar este schema.
   minuteStyle: z.string().optional(),
   styleNotes: z.string().max(MAX_STYLE_NOTES_LENGTH).optional(),
+  // Igual que minuteStyle: la lista vive en summary-length.ts, no aquí —
+  // normalizeSummaryLength() degrada a 'normal' ante cualquier valor que no
+  // reconozca.
+  summaryLength: z.string().optional(),
   // Cuándo se confirmó el aviso de consentimiento — para una reunión creada
   // sin conexión, esto ocurrió en el DISPOSITIVO, potencialmente horas antes
   // de que este POST llegara a suceder. Lo que importa legalmente es que se
@@ -114,6 +119,7 @@ export async function POST(request: Request) {
     title_is_auto: parsed.data.autoTitle,
     minute_style: normalizeMinuteStyle(parsed.data.minuteStyle),
     style_notes: parsed.data.styleNotes?.trim() || null,
+    summary_length: normalizeSummaryLength(parsed.data.summaryLength),
   };
   if (parsed.data.id) insertPayload.id = parsed.data.id;
 
@@ -161,6 +167,12 @@ export async function POST(request: Request) {
     await supabase
       .from('users')
       .update({ default_minute_style: normalizeMinuteStyle(parsed.data.minuteStyle) })
+      .eq('id', user.id);
+  }
+  if (parsed.data.summaryLength) {
+    await supabase
+      .from('users')
+      .update({ default_summary_length: normalizeSummaryLength(parsed.data.summaryLength) })
       .eq('id', user.id);
   }
 
