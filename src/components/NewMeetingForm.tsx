@@ -27,6 +27,7 @@ export default function NewMeetingForm({
   const [emailInput, setEmailInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [quickLoading, setQuickLoading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Compartido entre "Grabar ahora" y el formulario programado: es el mismo
   // control el que gobierna las dos vías de creación, así que sólo hace falta
@@ -92,6 +93,49 @@ export default function NewMeetingForm({
       return;
     }
     router.push(`/dashboard/meetings/${id}/record`);
+  };
+
+  // "Ya tengo el audio grabado": mismo espíritu que handleQuickRecord —una
+  // reunión rápida con título automático—, pero salta a /upload en vez de a
+  // /record. Es el camino honesto para quien quiere grabar con la app del
+  // teléfono (o ya lo hizo) y traer el archivo aquí. NO tiene rama offline:
+  // subir un audio de todos modos exige red, así que forzar la creación en
+  // el servidor primero simplifica todo — la reunión queda "de verdad"
+  // creada antes de tocar la subida.
+  const handleUploadInstead = async () => {
+    setUploadLoading(true);
+    setError(null);
+    const now = new Date();
+    const autoTitle = `Grabación ${now.toLocaleDateString('es', { day: 'numeric', month: 'short' })} ${now.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}`;
+    const payload = {
+      title: autoTitle,
+      coordination: '',
+      type: 'presencial' as const,
+      participants: [] as { name: string; email: string }[],
+      autoTitle: true,
+      minuteStyle,
+      styleNotes: styleNotes.trim() || undefined,
+      summaryLength,
+    };
+
+    try {
+      const response = await fetch('/api/meetings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        const { id } = await response.json();
+        router.push(`/dashboard/meetings/${id}/upload`);
+        return;
+      }
+      const err = await response.json().catch(() => ({}));
+      setUploadLoading(false);
+      setError('Error al crear reunión: ' + (err.error || 'desconocido'));
+    } catch {
+      setUploadLoading(false);
+      setError('Sin conexión. Para subir un audio necesitas estar en línea.');
+    }
   };
 
   const addParticipant = () => {
@@ -269,7 +313,39 @@ export default function NewMeetingForm({
             {quickLoading ? 'Preparando…' : 'Grabar ahora'}
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Empieza a grabar al instante. Podrás añadir participantes después.
+            Empieza a grabar al instante. Mantén esta pestaña abierta y encendida.
+          </p>
+        </div>
+      </button>
+
+      {/* Alternativa honesta a grabar dentro de la app: la grabadora del
+          teléfono sí sigue con la pantalla bloqueada, y este flujo sube
+          después el archivo aquí. La clase larga o la reunión de dos horas
+          se llevan mejor así. */}
+      <button
+        type="button"
+        onClick={handleUploadInstead}
+        disabled={uploadLoading}
+        className="w-full glass rounded-2xl p-4 flex items-center gap-4 text-left hover:shadow-elevated transition-all duration-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-400/40 disabled:opacity-60"
+      >
+        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shrink-0">
+          {uploadLoading ? (
+            <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="font-semibold text-slate-900 dark:text-slate-100">
+            {uploadLoading ? 'Creando reunión…' : 'Ya tengo el audio grabado'}
+          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Grábalo con la app del teléfono y súbelo aquí. Ideal si vas a bloquear el móvil o salir de la app.
           </p>
         </div>
       </button>
