@@ -44,9 +44,13 @@ interface RecordButtonProps {
 }
 
 // One segment = one full MediaRecorder session (start→stop), so every uploaded
-// file is independently decodable. 60s keeps the number of Whisper calls sane
-// while bounding what a catastrophic failure can cost to a single minute.
-const SEGMENT_DURATION_MS = 60 * 1000;
+// file is independently decodable. 30s es el tope de lo que una catástrofe
+// puede costar: si el teléfono se bloquea, el navegador se cae o iOS suspende
+// el tab justo ahora, se pierde COMO MUCHO el ultimo trozo de esta duración
+// (menos, casi siempre — ver `handleVisibilityChange`, que rota al bloquear).
+// Bajado de 60s a 30s tras un caso real en el que un usuario perdió cerca de
+// un minuto de clase al bloquear el móvil.
+const SEGMENT_DURATION_MS = 30 * 1000;
 
 // 32 kbps mono Opus is transparent for speech — Opus was designed for voice at
 // this rate, and Whisper hears no difference. The previous 128 kbps produced
@@ -95,6 +99,10 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   const [sharingSystem, setSharingSystem] = useState(false);
   /** Segments already transcribed while the recording is still going. */
   const [liveTranscribed, setLiveTranscribed] = useState(0);
+  /** Segundos de audio ya escritos a disco (device o server), acumulados por
+   *  segmento cerrado. Es el numero que el usuario necesita ver: "ya tengo
+   *  esto asegurado, si todo falla ahora, no lo pierdo". */
+  const [savedSeconds, setSavedSeconds] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   /** The mixed capture being recorded, plus the sources that feed it. */
@@ -192,6 +200,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     segmentStartTimeRef.current = Date.now();
     segmentCountRef.current++;
     setSegmentCount(segmentCountRef.current);
+    // Todo lo que llega hasta aqui esta a punto de ir a disco (ver el .then),
+    // asi que a efectos del usuario "ya esta a salvo". Sumar la duracion real
+    // de cada segmento cerrado es mas honesto que multiplicar `segmentCount`
+    // por el nominal de 30s, porque los que rota `handleVisibilityChange` al
+    // bloquear duran menos.
+    setSavedSeconds((prev) => prev + Math.max(0, durationSec));
 
     const id = meetingIdRef.current;
     void saveSegment({ meetingId: id, index, blob, mime: mimeTypeRef.current, durationSec })
@@ -403,11 +417,15 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
 
   const handleVisibilityChange = useCallback(async () => {
     if (document.visibilityState === 'hidden' && isRecordingRef.current) {
-      // Close the current segment so whatever has been captured so far is
-      // already safe — but only if it holds enough audio to be worth a file.
-      // Rotating on a segment that just started would produce a sub-second
-      // clip the server discards as "too small".
-      if (Date.now() - segmentStartTimeRef.current > 5000) {
+      // Cierra el segmento en curso YA — cualquier cosa capturada hasta este
+      // instante queda en IndexedDB. El umbral era 5s por miedo a producir
+      // clips que el servidor descartara por "demasiado pequeños"; bajado a
+      // 1.5s tras un caso real de pérdida: un segundo y medio de audio vale
+      // mucho más que perderlo. El servidor sólo tira lo verdaderamente
+      // sub-segundo. Y en iOS, si mr.stop() no responde (Safari suspende
+      // audio en background), al volver al foreground `recoverCapture`
+      // salvará lo que haya quedado con `collectSegment()`.
+      if (Date.now() - segmentStartTimeRef.current > 1500) {
         rotateSegment();
       }
     } else if (document.visibilityState === 'visible' && isRecordingRef.current) {
@@ -1146,7 +1164,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           </div>
           <div className="space-y-1">
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              {state === 'recording' && `${segmentCount} segmento${segmentCount !== 1 ? 's' : ''}`}
+              {state === 'recording' && (
+                savedSeconds > 0
+                  ? `≈ ${Math.max(1, Math.round(savedSeconds / 60))} min ya a salvo${segmentCount > 0 ? ` · ${segmentCount} fragmento${segmentCount !== 1 ? 's' : ''}` : ''}`
+                  : segmentCount > 0
+                    ? `${segmentCount} fragmento${segmentCount !== 1 ? 's' : ''}`
+                    : 'Grabando…'
+              )}
               {state === 'paused' && 'En pausa'}
               {state === 'recovering' && 'Reconectando el micrófono…'}
               {state === 'uploading' && 'Guardando el audio…'}

@@ -80,7 +80,7 @@ export function backgroundRecordingSupport(): BackgroundCapability {
     return {
       level: 'unsupported',
       message:
-        'En iPhone y iPad, Safari corta la grabación al bloquear la pantalla o cambiar de app. Mantén ZRNote abierto y en primer plano — la pantalla puede atenuarse, pero no la bloquees.',
+        'En iPhone y iPad, Safari corta la grabación al bloquear la pantalla o cambiar de app — es una limitación del sistema, no de ZRNote. Para clases o reuniones largas, mejor graba con Notas de Voz del iPhone y usa el botón «Ya tengo el audio grabado» para subir el archivo aquí después.',
     };
   }
 
