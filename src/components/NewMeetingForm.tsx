@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { MINUTE_STYLE_OPTIONS, MAX_STYLE_NOTES_LENGTH, getMinuteStyle } from '@/lib/minute-styles';
 import { SUMMARY_LENGTH_OPTIONS } from '@/lib/summary-length';
@@ -38,6 +38,12 @@ export default function NewMeetingForm({
   const [styleNotes, setStyleNotes] = useState('');
   const [showNotes, setShowNotes] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // El shortcut "Subir audio" del manifest.json apunta a
+  // /dashboard/meetings/new?action=upload — al llegar por ahí arrancamos el
+  // flujo de subida directamente en vez de obligar al usuario a tocar el
+  // botón. Un ref para no reentrar si el efecto se dispara dos veces.
+  const autoTriggeredRef = useRef(false);
 
   // Quick record: create a meeting instantly with an auto title and jump straight
   // to recording — no form. The scheduled flow (below) stays for planned meetings.
@@ -137,6 +143,16 @@ export default function NewMeetingForm({
       setError('Sin conexión. Para subir un audio necesitas estar en línea.');
     }
   };
+
+  useEffect(() => {
+    if (autoTriggeredRef.current) return;
+    if (searchParams?.get('action') !== 'upload') return;
+    autoTriggeredRef.current = true;
+    void handleUploadInstead();
+    // handleUploadInstead cambia estilo/nivel actuales — al arrancar automático,
+    // simplemente reusa las últimas preferencias del usuario ya cargadas como
+    // initialStyle / initialSummaryLength.
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addParticipant = () => {
     const name = nameInput.trim();

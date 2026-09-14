@@ -24,7 +24,10 @@
 // primera navegación (no un icono suelto) que este service worker sirve desde
 // caché — hace falta subir VERSION para que la instalación vuelva a correr y
 // la incluya, no basta con que el fetch handler la reconozca.
-const VERSION = 'zrnote-v5';
+// v6: se intercepta el POST del share sheet a /share-target (Web Share Target)
+// — sin bump de VERSION el sistema operativo seguiría llamando al SW anterior
+// y ese POST no llegaría a ninguna parte.
+const VERSION = 'zrnote-v6';
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = '/offline.html';
 // La única navegación de /dashboard que este SW puede cachear con seguridad.
@@ -84,11 +87,77 @@ function isMutableAsset(url) {
   return /\.(png|svg|ico|webmanifest|woff2?)$/.test(url.pathname) || url.pathname === '/manifest.json';
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Web Share Target: cuando el usuario está en Notas de Voz (u otra
+// grabadora) y toca Compartir → ZRNote, el sistema operativo hace un POST
+// multipart/form-data con el audio a la URL declarada en manifest.json.
+// El SW guarda el fichero en un IndexedDB dedicado y redirige a la página
+// /share-target, que se encarga de crear la reunión y consumir el fichero
+// para el flujo de subida existente.
+// ────────────────────────────────────────────────────────────────────────────
+const SHARE_STASH_DB = 'zrnote-share-stash';
+const SHARE_STASH_STORE = 'shared';
+const SHARE_STASH_SLOT = 'pending';
+
+function openShareStashDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SHARE_STASH_DB, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(SHARE_STASH_STORE, { keyPath: 'id' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function stashSharedFile(file) {
+  const db = await openShareStashDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(SHARE_STASH_STORE, 'readwrite');
+    tx.objectStore(SHARE_STASH_STORE).put({
+      id: SHARE_STASH_SLOT,
+      file,
+      name: file.name || 'audio',
+      type: file.type || 'audio/mpeg',
+      size: file.size,
+      receivedAt: Date.now(),
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function handleShareTarget(request) {
+  try {
+    const formData = await request.formData();
+    const file = formData.get('audio');
+    if (file && typeof file === 'object' && 'size' in file && file.size > 0) {
+      await stashSharedFile(file);
+    }
+  } catch {
+    // Si algo se rompió, /share-target lo detectará al no encontrar nada
+    // en el depósito y le pedirá al usuario que reintente.
+  }
+  // 303 See Other: navegación GET a la página, con el POST descartado del
+  // historial (el usuario no verá "confirmar reenvío" al pulsar atrás).
+  return Response.redirect('/share-target', 303);
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  if (request.method !== 'GET') return;
-
   const url = new URL(request.url);
+
+  // El share target es lo único no-GET que este SW responde.
+  if (
+    request.method === 'POST' &&
+    url.origin === self.location.origin &&
+    url.pathname === '/share-target'
+  ) {
+    event.respondWith(handleShareTarget(request));
+    return;
+  }
+
+  if (request.method !== 'GET') return;
 
   // Never touch other origins or the API — those must always be live.
   if (url.origin !== self.location.origin) return;

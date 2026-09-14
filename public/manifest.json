@@ -39,9 +39,44 @@
       "url": "/dashboard/meetings/new"
     },
     {
+      "name": "Subir audio grabado",
+      "short_name": "Subir audio",
+      "description": "Sube un audio grabado con la app del teléfono",
+      "url": "/dashboard/meetings/new?action=upload"
+    },
+    {
       "name": "Mis compromisos",
       "short_name": "Compromisos",
       "url": "/dashboard/action-items"
     }
-  ]
+  ],
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "audio",
+          "accept": [
+            "audio/*",
+            "video/mp4",
+            "video/quicktime",
+            ".mp3",
+            ".m4a",
+            ".wav",
+            ".mp4",
+            ".aac",
+            ".ogg",
+            ".webm",
+            ".opus",
+            ".flac"
+          ]
+        }
+      ]
+    }
+  }
 }

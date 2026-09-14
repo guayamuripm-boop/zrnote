@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAudioConverter, segmentAudioNoReencode } from '@/lib/audio-conversion';
 import { createClient } from '@/lib/supabase/client';
@@ -9,6 +9,8 @@ import { splitAdtsAac } from '@/lib/audio-split';
 import { decodeToMono, chunkFloatToWav } from '@/lib/audio-wav';
 import { runMeetingPipeline } from '@/lib/pipeline-client';
 import RecordingConsentGate from '@/components/legal/RecordingConsentGate';
+import { MAX_UPLOAD_ATTEMPTS, backoffMs, isPermanentHttpFailure } from '@/lib/retry-backoff';
+import { readSharedAudio, clearSharedAudio } from '@/lib/share-stash';
 
 interface UploadedFile {
   _id: string;
@@ -65,8 +67,12 @@ const nextId = () => `f${Date.now()}_${idCounter++}`;
 export default function UploadAudioPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const meetingId = params.id as string;
   const inputRef = useRef<HTMLInputElement>(null);
+  // Se puso a true tras haber ingerido el fichero del share-stash, para no
+  // reintentarlo con cada re-render mientras el efecto sigue vivo.
+  const sharedConsumedRef = useRef(false);
 
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -249,6 +255,37 @@ export default function UploadAudioPage() {
 
   const removeFile = (id: string) => setFiles((prev) => prev.filter((f) => f._id !== id));
 
+  // Ingesta del audio que llegó vía Web Share Target.
+  //
+  // El flujo: usuario en Notas de Voz → Compartir → ZRNote → el SW guarda el
+  // fichero en un IndexedDB dedicado (share-stash) → /share-target crea la
+  // reunión → nos empuja aquí con ?shared=1. Sólo queda leer el fichero,
+  // meterlo en `addFiles` (mismo camino que si lo hubiera elegido a mano) y
+  // limpiar el depósito para que un segundo intento pida un fichero nuevo.
+  useEffect(() => {
+    if (searchParams?.get('shared') !== '1') return;
+    if (sharedConsumedRef.current) return;
+    let cancelled = false;
+
+    async function ingest() {
+      const shared = await readSharedAudio();
+      if (cancelled || !shared) return;
+      sharedConsumedRef.current = true;
+
+      // addFiles espera un FileList — se construye uno real con DataTransfer,
+      // que es la única forma web-standard de crearlo desde código.
+      const dt = new DataTransfer();
+      dt.items.add(shared.file);
+      await addFiles(dt.files);
+      await clearSharedAudio();
+    }
+
+    void ingest();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, addFiles]);
+
   /** Upload every pending/failed chunk. Safe to call again to retry the ones that failed. */
   const handleUpload = async () => {
     const toUpload = files.filter((f) => f.status === 'pending' || f.status === 'error');
@@ -285,58 +322,99 @@ export default function UploadAudioPage() {
         prev.map((f) => (f._id === target._id ? { ...f, status: 'uploading', segmentIndex, error: undefined } : f)),
       );
 
-      try {
-        const ext = (target.file.name.split('.').pop() || 'aac').toLowerCase();
+      // Same retry policy as the recorder's own upload queue (retry-backoff.ts):
+      // exponential backoff, and a genuine network error (not a real HTTP
+      // response — the connection is simply down) parks the chunk instead of
+      // spending one of its attempts. The file stays selected and held in
+      // memory for the rest of THIS page session, so a dropped Wi-Fi signal or
+      // a spotty connection now recovers on its own — one manual click used to
+      // be required for every single chunk that hit a blip, on a file that can
+      // be dozens of chunks long.
+      let attempt = 0;
+      let doneChunk = false;
 
-        // 1. Ask the server for a signed upload URL (tiny JSON request).
-        const signRes = await fetch(`/api/meetings/${meetingId}/direct-upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phase: 'sign', segmentIndex, ext, size: target.file.size }),
-        });
-        const signData = await signRes.json().catch(() => ({}));
-        if (!signRes.ok) throw new Error(signData.error || 'No se pudo firmar la subida');
+      while (!doneChunk) {
+        attempt++;
 
-        // 2. Upload the chunk straight to Storage (no Vercel size cap).
-        //
-        // Store it as a generic binary. Storage used to keep `audio/aac`, and
-        // that stored type travelled all the way into the multipart part sent
-        // to Groq — which rejects `aac` outright, so every transcription came
-        // back `400 file must be one of the following types`. The server now
-        // sets the Content-Type explicitly per attempt, and keeping the stored
-        // type neutral removes the trap entirely.
-        const { error: upErr } = await supabase.storage
-          .from('meeting-audio')
-          .uploadToSignedUrl(signData.path, signData.token, target.file, {
-            contentType: 'application/octet-stream',
-          });
-        if (upErr) throw new Error(upErr.message);
-
-        // 3. Register the segment metadata.
-        const regRes = await fetch(`/api/meetings/${meetingId}/direct-upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phase: 'register',
-            segmentIndex,
-            path: signData.path,
-            durationSec: Math.round(target.durationSec || 0),
-          }),
-        });
-        if (!regRes.ok) {
-          const err = await regRes.json().catch(() => ({}));
-          throw new Error(err.error || 'No se pudo registrar el fragmento');
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          setFiles((prev) =>
+            prev.map((f) => (f._id === target._id ? { ...f, error: 'Sin conexión — reintentando…' } : f)),
+          );
+          await new Promise((r) => setTimeout(r, 5000));
+          attempt--; // waiting for a connection back is not a failed attempt
+          continue;
         }
 
-        setFiles((prev) => prev.map((f) => (f._id === target._id ? { ...f, status: 'done' } : f)));
-      } catch (e: any) {
-        setFiles((prev) =>
-          prev.map((f) =>
-            f._id === target._id
-              ? { ...f, status: 'error', error: e?.message || 'Error subiendo el archivo' }
-              : f,
-          ),
-        );
+        try {
+          const ext = (target.file.name.split('.').pop() || 'aac').toLowerCase();
+
+          // 1. Ask the server for a signed upload URL (tiny JSON request).
+          const signRes = await fetch(`/api/meetings/${meetingId}/direct-upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phase: 'sign', segmentIndex, ext, size: target.file.size }),
+          });
+          const signData = await signRes.json().catch(() => ({}));
+          if (!signRes.ok) {
+            const err: any = new Error(signData.error || 'No se pudo firmar la subida');
+            err.permanent = isPermanentHttpFailure(signRes.status);
+            throw err;
+          }
+
+          // 2. Upload the chunk straight to Storage (no Vercel size cap).
+          //
+          // Store it as a generic binary. Storage used to keep `audio/aac`, and
+          // that stored type travelled all the way into the multipart part sent
+          // to Groq — which rejects `aac` outright, so every transcription came
+          // back `400 file must be one of the following types`. The server now
+          // sets the Content-Type explicitly per attempt, and keeping the stored
+          // type neutral removes the trap entirely.
+          const { error: upErr } = await supabase.storage
+            .from('meeting-audio')
+            .uploadToSignedUrl(signData.path, signData.token, target.file, {
+              contentType: 'application/octet-stream',
+            });
+          if (upErr) throw new Error(upErr.message);
+
+          // 3. Register the segment metadata.
+          const regRes = await fetch(`/api/meetings/${meetingId}/direct-upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              phase: 'register',
+              segmentIndex,
+              path: signData.path,
+              durationSec: Math.round(target.durationSec || 0),
+            }),
+          });
+          if (!regRes.ok) {
+            const err = await regRes.json().catch(() => ({}));
+            const e: any = new Error(err.error || 'No se pudo registrar el fragmento');
+            e.permanent = isPermanentHttpFailure(regRes.status);
+            throw e;
+          }
+
+          setFiles((prev) => prev.map((f) => (f._id === target._id ? { ...f, status: 'done' } : f)));
+          doneChunk = true;
+        } catch (e: any) {
+          const message = e?.message || 'Error subiendo el archivo';
+
+          if (e?.permanent || attempt >= MAX_UPLOAD_ATTEMPTS) {
+            setFiles((prev) =>
+              prev.map((f) => (f._id === target._id ? { ...f, status: 'error', error: message } : f)),
+            );
+            doneChunk = true; // out of attempts — move on to the next file
+          } else {
+            setFiles((prev) =>
+              prev.map((f) =>
+                f._id === target._id
+                  ? { ...f, error: `${message} — reintentando (${attempt}/${MAX_UPLOAD_ATTEMPTS})` }
+                  : f,
+              ),
+            );
+            await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+          }
+        }
       }
     }
 
@@ -498,6 +576,11 @@ export default function UploadAudioPage() {
                     )}
                     {f.status === 'preparing' && <span className="text-amber-600 dark:text-amber-400">Preparando…</span>}
                     {f.status === 'error' && <span className="text-rose-600 dark:text-rose-400">{f.error}</span>}
+                    {/* A retry in progress: still 'uploading', but with a transient
+                        note attached — see the backoff loop in handleUpload. */}
+                    {f.status === 'uploading' && f.error && (
+                      <span className="text-amber-600 dark:text-amber-400">{f.error}</span>
+                    )}
                   </p>
                 </div>
               </div>
