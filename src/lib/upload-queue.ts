@@ -28,6 +28,7 @@ import {
 } from '@/lib/recording-store';
 import { maybeCompressAudio } from '@/lib/audio-compression';
 import { ensureMeetingSynced } from '@/lib/meeting-queue';
+import { MAX_UPLOAD_ATTEMPTS, backoffMs, isPermanentHttpFailure } from '@/lib/retry-backoff';
 
 export interface QueueStatus {
   /** Segments captured but not yet confirmed by the server. */
@@ -40,24 +41,10 @@ export interface QueueStatus {
 
 export type QueueListener = (status: QueueStatus) => void;
 
-/** Beyond this a failure is no longer plausibly transient. ~8 min of retries. */
-const MAX_ATTEMPTS = 8;
-/** 2s, 4s, 8s… capped, so a long outage does not spin the radio pointlessly. */
-const BACKOFF_MS = (attempt: number) => Math.min(2000 * 2 ** (attempt - 1), 60_000);
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function extFor(mime: string): string {
   return mime.includes('mp4') ? 'mp4' : mime.includes('ogg') ? 'ogg' : 'webm';
-}
-
-/**
- * A 4xx other than 408/429 means the server will reject these exact bytes
- * every time. Retrying is pure battery drain, and worse, it hides the real
- * problem behind a spinner.
- */
-function isPermanent(status: number): boolean {
-  return status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
 export class SegmentUploader {
@@ -178,14 +165,14 @@ export class SegmentUploader {
       } catch (err: any) {
         const message = err?.message || String(err);
 
-        if (err?.permanent || attempt >= MAX_ATTEMPTS) {
+        if (err?.permanent || attempt >= MAX_UPLOAD_ATTEMPTS) {
           await updateSegment(seg.id, { state: 'failed', attempts: attempt, lastError: message });
           return;
         }
 
         await updateSegment(seg.id, { state: 'pending', attempts: attempt, lastError: message });
         this.emit();
-        await sleep(BACKOFF_MS(attempt));
+        await sleep(backoffMs(attempt));
       }
     }
   }
@@ -205,7 +192,7 @@ export class SegmentUploader {
     if (!res.ok) {
       const data = await res.json().catch(() => ({} as any));
       const error: any = new Error(data.error || `HTTP ${res.status}`);
-      error.permanent = isPermanent(res.status);
+      error.permanent = isPermanentHttpFailure(res.status);
       throw error;
     }
   }
