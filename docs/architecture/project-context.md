@@ -3,9 +3,9 @@
 
 ---
 
-## 🛡️ 2026-09-20 — Auditoría de seguridad y reorganización del repo (SIN DESPLEGAR)
+## 🛡️ 2026-09-20 — Auditoría de seguridad y reorganización del repo (DESPLEGADO, commit `4234a26`)
 
-Cambios en el árbol de trabajo, **sin commit ni despliegue todavía**. Detalle en
+En producción y verificado con pruebas de humo (logout por GET → 405, endpoints sin sesión → 401, cabeceras intactas). Detalle en
 [`../security/audit-2026-09-20.md`](../security/audit-2026-09-20.md).
 
 - **Seguridad:** `send-emails` ya no acepta la clave de servicio como credencial
@@ -16,8 +16,9 @@ Cambios en el árbol de trabajo, **sin commit ni despliegue todavía**. Detalle 
 - **Repo:** documentos de la raíz movidos a `docs/` por audiencia, SQL operativo a
   `supabase/scripts/`, `.backup/` fuera de git ([ADR 0003](../adr/0003-repository-layout.md)).
   Este archivo antes vivía en la raíz como `CONTEXT.md`.
+- **Además:** límites en creación de reuniones, subida de fragmentos y tope global en `/process`; `serverError()` sustituye los `error.message` crudos.
 - **Pendiente antes de dar por cerrado:**
-  1. **Aplicar la migración `032_atomic_rate_limit.sql`** en Supabase (sin ella el código usa la ruta antigua no atómica).
+  1. **Aplicar la migración `032_atomic_rate_limit.sql`** en la base de ZRNote (`qmdcpcwigzebqcoeiebi`) desde el SQL Editor de Supabase. El conector MCP de Supabase de esta cuenta **no** ve ese proyecto (solo ve `zr-prod`, que es otra aplicación: alumnos/cohortes) — no aplicarla allí. Sin la migración el código usa la ruta antigua no atómica.
   2. **Rotar `extension.pem`** (sigue en el historial del repo público).
   3. Definir el correo de contacto en `SECURITY.md` (hoy es un marcador).
   4. Generar un `MINUTE_LINK_SECRET` propio en Vercel si no existe (`openssl rand -hex 32`).
