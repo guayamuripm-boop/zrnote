@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthedUser } from '@/lib/api-auth';
+import { serverError } from '@/lib/api-errors';
 
 // Skip audio entirely: attach a transcript someone already has (Zoom's own
 // export, Meet's captions, notes typed by hand) and let the SAME pipeline
@@ -64,7 +65,7 @@ export async function POST(
     .eq('id', resolvedParams.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('meetings/[id]/transcript', error);
   }
 
   return NextResponse.json({ ok: true });

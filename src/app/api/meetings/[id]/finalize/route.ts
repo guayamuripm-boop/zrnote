@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAuthedUser } from '@/lib/api-auth';
+import { serverError } from '@/lib/api-errors';
 
 // A single /process call is capped at 60s server-side (vercel.json maxDuration),
 // so if a step were genuinely in flight it resolves (success or failure) well
@@ -60,7 +61,7 @@ export async function POST(
       .eq('id', resolvedParams.id);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return serverError('meetings/[id]/finalize', error);
     }
 
     return NextResponse.json({ ok: true, nextStep: 'transcribe' });
@@ -75,7 +76,7 @@ export async function POST(
     .eq('id', resolvedParams.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('meetings/[id]/finalize', error);
   }
 
   return NextResponse.json({ ok: true, nextStep: 'transcribe' });

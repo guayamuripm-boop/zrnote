@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { serverError } from '@/lib/api-errors';
 
 // Must mirror the `valid_doc_type` CHECK on legal_documents (migration 020).
 const consentSchema = z.object({
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
     );
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('legal/consent', error);
   }
 
   return NextResponse.json({ ok: true });
@@ -73,7 +74,7 @@ export async function GET(request: Request) {
     .eq('user_id', user.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('legal/consent', error);
   }
 
   // Transform to map for easy lookup

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthedUser } from '@/lib/api-auth';
 import { logger } from '@/lib/logger';
+import { serverError } from '@/lib/api-errors';
 
 /**
  * Recording consent for ONE meeting.
@@ -61,7 +62,7 @@ export async function POST(
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('meetings/[id]/consent', error);
   }
   if (!meeting) {
     return NextResponse.json({ error: 'Reunión no encontrada' }, { status: 404 });

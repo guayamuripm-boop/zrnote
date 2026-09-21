@@ -34,11 +34,12 @@ Qué protege ZRNote, contra quién, y con qué control. Cada fila apunta al arch
 
 | Clave | Ruta | Límite |
 |---|---|---|
-| `<userId>:<meetingId>:process` | `/api/meetings/[id]/process` | 10 / min **por reunión** (no hay tope global por usuario) |
+| `<userId>:<meetingId>:process` | `/api/meetings/[id]/process` | 10 / min por reunión |
 | `agent:<userId>` | `/api/agent/query` | 10 / min |
 | `send-emails:<userId>` | `/api/meetings/[id]/send-emails` | 10 / min |
-
-Sin limitar (pendiente, ver auditoría): creación de reuniones, subida de fragmentos.
+| `<userId>:process:all` | `/api/meetings/[id]/process` | 40 / min por usuario, todas las reuniones |
+| `upload:<userId>` | `/upload-segment` | 120 / min (una cola offline se vacía en ráfagas) |
+| `create-meeting:<userId>` | `POST /api/meetings` | 30 / min |
 
 ## Reglas para código nuevo
 
@@ -46,7 +47,7 @@ Sin limitar (pendiente, ver auditoría): creación de reuniones, subida de fragm
 2. **El cliente admin (`getSupabaseAdmin()`) solo después de autorizar** por sesión, token firmado o `assertCron`. Y filtra por dueño explícitamente: el RLS no te protege con esa clave.
 3. **Todo lo que gasta cuota lleva `checkRateLimit`.**
 4. **Entrada de usuario con Zod**; los enums espejan los CHECK de la base.
-5. **Errores al cliente sin `error.message` crudo de Supabase** (revela tablas y columnas). Pendiente de barrer en las rutas existentes.
+5. **Errores al cliente sin `error.message` crudo de Supabase** (revela tablas y columnas). Usa `serverError()` (`lib/api-errors.ts`).
 6. **Secretos**: ni en URLs, ni en logs, ni en `NEXT_PUBLIC_*`.
 
 ## Riesgos aceptados

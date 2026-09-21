@@ -1,5 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { serverError } from '@/lib/api-errors';
 
 export async function GET(request: Request) {
   const supabase = await createServerSupabase();
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
       .order('effective_date', { ascending: false });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return serverError('legal/documents', error);
     }
 
     // Get latest version of each document

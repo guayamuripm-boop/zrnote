@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { transcribeMeeting } from '@/lib/processing';
 import { checkRateLimit } from '@/lib/rate-limiter';
 import { logger } from '@/lib/logger';
+import { serverError } from '@/lib/api-errors';
 
 const processSchema = z.object({
   step: z.enum(['transcribe', 'analyze', 'emails', 'vectorize']).optional(),
@@ -52,7 +53,13 @@ export async function POST(
 
   // Rate limiting per user per meeting (DB-based)
   const rateLimitKey = `${user.id}:${resolvedParams.id}:process`;
-  const { allowed } = await checkRateLimit(rateLimitKey);
+  // Per-user cap across ALL meetings, so spreading requests over many meetings
+  // does not multiply the quota of the paid AI providers.
+  const [perMeeting, perUser] = await Promise.all([
+    checkRateLimit(rateLimitKey),
+    checkRateLimit(`${user.id}:process:all`, { max: 40 }),
+  ]);
+  const allowed = perMeeting.allowed && perUser.allowed;
   if (!allowed) {
     return NextResponse.json(
       { error: 'Demasiadas peticiones seguidas. Espera unos segundos.', retryAfterSec: 20 },
@@ -133,7 +140,7 @@ export async function POST(
         .eq('id', meetingId);
 
       if (updateError) {
-        return NextResponse.json({ error: updateError.message }, { status: 500 });
+        return serverError('meetings/[id]/process', updateError);
       }
     }
 

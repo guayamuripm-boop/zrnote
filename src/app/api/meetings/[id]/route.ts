@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { serverError } from '@/lib/api-errors';
 
 const patchMeetingSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -78,7 +79,7 @@ export async function PATCH(
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('meetings/[id]', error);
   }
   if (!meeting) {
     return NextResponse.json({ error: 'Reunión no encontrada' }, { status: 404 });
@@ -116,7 +117,7 @@ export async function PATCH(
     if (rows.length > 0) {
       const { error: partError } = await supabase.from('meeting_participants').insert(rows);
       if (partError) {
-        return NextResponse.json({ error: partError.message }, { status: 500 });
+        return serverError('meetings/[id]', partError);
       }
     }
   }
@@ -158,7 +159,7 @@ export async function DELETE(
     .eq('created_by', user.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('meetings/[id]', error);
   }
 
   const storageKeys = (meeting.audio_segments || [])

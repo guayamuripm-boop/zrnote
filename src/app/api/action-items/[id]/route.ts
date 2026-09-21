@@ -2,6 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { serverError } from '@/lib/api-errors';
 
 const patchSchema = z.object({
   status: z.enum(['pendiente', 'en_progreso', 'completado']),
@@ -55,7 +56,7 @@ export async function PATCH(
     .eq('id', resolvedParams.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('action-items/[id]', error);
   }
   return NextResponse.json({ ok: true, status: parsed.data.status });
 }

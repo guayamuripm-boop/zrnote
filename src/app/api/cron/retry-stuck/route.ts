@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { assertCron } from '@/lib/cron-auth';
 import { logger } from '@/lib/logger';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { serverError } from '@/lib/api-errors';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,7 @@ export async function GET(request: Request) {
 
   if (error) {
     logger.error('[cron/retry-stuck] Error fetching meetings', { error: error.message });
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('cron/retry-stuck', error);
   }
 
   const ids = (stuck || []).map((m) => m.id);

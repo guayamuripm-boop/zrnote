@@ -5,6 +5,8 @@ import { getAuthedUser } from '@/lib/api-auth';
 import { normalizeMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
 import { normalizeSummaryLength } from '@/lib/summary-length';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { checkRateLimit } from '@/lib/rate-limiter';
+import { serverError } from '@/lib/api-errors';
 
 const createMeetingSchema = z.object({
   // Present only when the meeting was created OFFLINE (see meeting-queue.ts):
@@ -72,6 +74,11 @@ export async function POST(request: Request) {
   }
   const { user, supabase } = auth;
 
+  const { allowed } = await checkRateLimit(`create-meeting:${user.id}`, { max: 30 });
+  if (!allowed) {
+    return NextResponse.json({ error: 'Demasiadas reuniones creadas seguidas. Espera un minuto.' }, { status: 429 });
+  }
+
   const body = await request.json();
   const parsed = createMeetingSchema.safeParse(body);
 
@@ -101,7 +108,7 @@ export async function POST(request: Request) {
       .single();
 
     if (insertError) {
-      return NextResponse.json({ error: `No se pudo crear perfil: ${insertError.message}` }, { status: 500 });
+      return serverError('meetings (create profile)', insertError);
     }
     orgId = upserted?.org_id || null;
   }
@@ -153,7 +160,7 @@ export async function POST(request: Request) {
   }
 
   if (error || !meeting) {
-    return NextResponse.json({ error: error?.message || 'No se pudo crear la reunión' }, { status: 500 });
+    return serverError('meetings (insert)', error ?? new Error('insert returned no row'));
   }
 
   // Recordar la elección para la próxima vez — así "Grabar ahora" no obliga a

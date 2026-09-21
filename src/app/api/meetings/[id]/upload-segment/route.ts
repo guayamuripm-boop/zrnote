@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getAuthedUser } from '@/lib/api-auth';
 import { registerAudioSegment } from '@/lib/audio-segments';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { serverError } from '@/lib/api-errors';
+import { checkRateLimit } from '@/lib/rate-limiter';
 
 const ALLOWED_TYPES: Record<string, string> = {
   'audio/webm': 'webm',
@@ -35,6 +37,12 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const { user, supabase } = auth;
+
+  // Generous: a durable offline queue drains in bursts. This only stops floods.
+  const { allowed } = await checkRateLimit(`upload:${user.id}`, { max: 120 });
+  if (!allowed) {
+    return NextResponse.json({ error: 'Demasiadas subidas seguidas. Espera un momento.' }, { status: 429, headers: { 'Retry-After': '30' } });
+  }
 
   const formData = await request.formData();
   const audioFile = formData.get('audio') as File;
@@ -75,7 +83,7 @@ export async function POST(
     });
 
   if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    return serverError('meetings/[id]/upload-segment', uploadError);
   }
 
   // Atomic where migration 027 is applied, read-modify-write where it is not.

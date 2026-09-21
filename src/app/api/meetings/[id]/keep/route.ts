@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthedUser } from '@/lib/api-auth';
+import { serverError } from '@/lib/api-errors';
 
 const keepSchema = z.object({ kept: z.boolean() });
 
@@ -41,7 +42,7 @@ export async function POST(
         { status: 503 },
       );
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError('meetings/[id]/keep', error);
   }
 
   return NextResponse.json({ ok: true, kept: parsed.data.kept });
