@@ -23,7 +23,14 @@ export default function SignOutButton({ className }: { className?: string }) {
       // Losing the cache-wipe must never block signing out — that would trade
       // a privacy nicety for a stuck session, the wrong side of that trade.
     } finally {
-      window.location.href = '/api/auth/signout';
+      // POST, not GET: a GET signout can be triggered cross-site by an <img>.
+      // The response is a redirect we don't need to follow — we navigate ourselves.
+      try {
+        await fetch('/api/auth/signout', { method: 'POST', credentials: 'same-origin', redirect: 'manual' });
+      } catch {
+        // Offline: still leave the page; the next request re-validates the session.
+      }
+      window.location.href = '/login';
     }
   };
 

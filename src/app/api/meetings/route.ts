@@ -1,10 +1,10 @@
 import { createServerSupabase } from '@/lib/supabase/server';
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthedUser } from '@/lib/api-auth';
 import { normalizeMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
 import { normalizeSummaryLength } from '@/lib/summary-length';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 const createMeetingSchema = z.object({
   // Present only when the meeting was created OFFLINE (see meeting-queue.ts):
@@ -88,10 +88,7 @@ export async function POST(request: Request) {
   let orgId = userRecord?.org_id || null;
 
   if (userError || !userRecord) {
-    const adminSupabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-    );
+    const adminSupabase = getSupabaseAdmin();
     const { data: upserted, error: insertError } = await adminSupabase
       .from('users')
       .upsert({

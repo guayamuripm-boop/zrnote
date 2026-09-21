@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { embedSingle } from '@/lib/embeddings';
 import { logger } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/rate-limiter';
 
 const querySchema = z.object({
   query: z.string().min(1).max(2000),
@@ -18,6 +19,11 @@ export async function POST(request: Request) {
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { allowed } = await checkRateLimit(`agent:${user.id}`);
+  if (!allowed) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
   }
 
   const body = await request.json();

@@ -162,7 +162,7 @@ Todo lo que salga ahí es un envío que murió a mitad.
 ### Aplicar la migración en producción
 
 La conexión directa a Postgres está bloqueada; la vía que funciona es la
-Management API (ver `CONTEXT.md`):
+Management API (ver `docs/architecture/project-context.md`):
 
 ```bash
 curl -X POST "https://api.supabase.com/v1/projects/qmdcpcwigzebqcoeiebi/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data-binary @- < supabase/migrations/021_email_idempotency.sql

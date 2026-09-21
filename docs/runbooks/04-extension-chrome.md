@@ -187,7 +187,7 @@ Se planteó en esta versión y se descartó, por dos motivos:
 
 1. **`extension.pem` (la clave privada de firma) está comprometida.** Estuvo
    versionada en un repo público y sigue en el historial de Git — es el
-   pendiente crítico #1 en `CONTEXT.md` desde antes de este cambio.
+   pendiente crítico #1 en `docs/architecture/project-context.md` desde antes de este cambio.
    `extension.crx` está firmado con esa clave: repartirlo perpetúa la
    exposición, porque cualquiera con acceso al historial podría firmar una
    actualización maliciosa con la misma identidad.
@@ -202,7 +202,7 @@ dos se implementó todavía: **el botón de instalación que sí se añadió es 
 para la PWA** (ver [runbook 06](06-instalacion-y-ayuda.md)), que no tiene
 ninguno de estos dos problemas.
 
-Antes de rotar la clave (punto pendiente #1 de `CONTEXT.md`) y de considerar
+Antes de rotar la clave (punto pendiente #1 de `docs/architecture/project-context.md`) y de considerar
 un botón de descarga de la extensión, hay que decidir cuál de las dos vías se
 sigue.
 

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { logger } from '@/lib/logger';
 import { embedTexts } from '@/lib/embeddings';
 import { buildMeetingEmailJobs, dispatchEmailJobs } from '@/lib/meeting-emails';
@@ -40,13 +40,6 @@ export interface EmailResult {
   /** Omitidos por constar ya como enviados. Ver `email-outbox.ts`. */
   skipped?: number;
   error?: string;
-}
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-  );
 }
 
 export interface MeetingContext {
@@ -977,8 +970,9 @@ export async function discoverGeminiModels(apiKey: string): Promise<string[]> {
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=100`,
-      { signal: AbortSignal.timeout(10000) },
+      'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',
+      // Header, not `?key=`: query strings end up in access logs and proxies.
+      { headers: { 'x-goog-api-key': apiKey }, signal: AbortSignal.timeout(10000) },
     );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 

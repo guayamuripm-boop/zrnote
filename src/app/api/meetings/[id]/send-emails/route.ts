@@ -1,6 +1,7 @@
-import { createServerSupabase } from '@/lib/supabase/server';
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { getAuthedUser } from '@/lib/api-auth';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { checkRateLimit } from '@/lib/rate-limiter';
 import { buildMeetingEmailJobs, dispatchEmailJobs } from '@/lib/meeting-emails';
 import { isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
 import { logger } from '@/lib/logger';
@@ -10,40 +11,40 @@ import { logger } from '@/lib/logger';
  *
  * On-demand (re)send. Same builders as the pipeline step — see
  * `src/lib/meeting-emails.ts`; there is exactly one implementation now.
- * Only the meeting creator may trigger it.
+ * Only the meeting creator may trigger it. There is deliberately NO
+ * "internal caller" bypass: the automated pipeline calls the builders
+ * directly, and a shared-secret shortcut here would be a second way in.
  */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const resolvedParams = await params;
-  const authHeader = request.headers.get('authorization') || '';
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
-  const isInternal = serviceKey.length > 0 && authHeader === `Bearer ${serviceKey}`;
 
-  const supabase = await createServerSupabase();
-  let userId: string | null = null;
+  const auth = await getAuthedUser(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { user, supabase } = auth;
 
-  if (!isInternal) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    userId = user.id;
-  }
+  // Each call sends real e-mail through a quota-limited Gmail account.
+  const { allowed } = await checkRateLimit(`send-emails:${user.id}`);
+  if (!allowed) return NextResponse.json({ error: 'Demasiadas solicitudes. Espera un minuto.' }, { status: 429 });
 
   if (!isEmailConfigured()) {
     return NextResponse.json({ error: EMAIL_NOT_CONFIGURED }, { status: 503 });
   }
 
-  let meetingQuery = supabase.from('meetings').select('id, title, created_by').eq('id', resolvedParams.id);
-  if (!isInternal) meetingQuery = meetingQuery.eq('created_by', userId!);
-
-  const { data: meeting } = await meetingQuery.maybeSingle();
+  const { data: meeting } = await supabase
+    .from('meetings')
+    .select('id, title, created_by')
+    .eq('id', resolvedParams.id)
+    .eq('created_by', user.id)
+    .maybeSingle();
   if (!meeting) return NextResponse.json({ error: 'Reunión no encontrada' }, { status: 404 });
 
   // The e-mail builders read participants + minute + action items across tables
-  // that RLS scopes to the owner; use the service client so an internal call
-  // (and the owner's own call) always sees the full picture.
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey);
+  // that RLS scopes to the owner; use the service client so the owner's call
+  // always sees the full picture. Ownership was verified just above.
+  const admin = getSupabaseAdmin();
 
   const jobs = await buildMeetingEmailJobs(admin, resolvedParams.id, meeting.title, meeting.created_by);
 

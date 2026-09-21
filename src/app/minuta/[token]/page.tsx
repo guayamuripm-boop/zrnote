@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { createClient } from '@supabase/supabase-js';
 import { verifyMinuteToken } from '@/lib/minute-links';
 import { matchItemsToParticipant } from '@/lib/email-service';
 import { sortActionItems } from '@/lib/action-items';
@@ -9,6 +8,7 @@ import { readStudyAids, isStudyAidsEmpty } from '@/lib/study-aids';
 import StudySection from '@/components/study/StudySection';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import ZRLogo from '@/components/ZRLogo';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 // Vista PÚBLICA de una minuta, para quien la recibió por correo y no tiene
 // cuenta. Antes, el botón «Ver en ZRNote» llevaba a /dashboard/meetings/{id},
@@ -68,10 +68,7 @@ export default async function MinutaPublicaPage({
 
   // El token ya demuestra el derecho a leer esta reunión, así que se consulta
   // con el cliente admin: RLS está pensado para sesiones, y aquí no hay ninguna.
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!,
-  );
+  const admin = getSupabaseAdmin();
 
   // Se pide SÓLO lo que puede verse en público. En particular NO se pide
   // `transcript_raw`: la transcripción literal de una reunión es mucho más

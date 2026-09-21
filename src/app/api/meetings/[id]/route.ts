@@ -1,8 +1,8 @@
 import { createServerSupabase } from '@/lib/supabase/server';
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 const patchMeetingSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -166,10 +166,7 @@ export async function DELETE(
     .filter(Boolean);
 
   if (storageKeys.length > 0) {
-    const admin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-    );
+    const admin = getSupabaseAdmin();
     const { error: removeError } = await admin.storage.from('meeting-audio').remove(storageKeys);
     if (removeError) {
       logger.error('Meeting delete: audio removal failed', { meetingId: resolvedParams.id, error: removeError.message });

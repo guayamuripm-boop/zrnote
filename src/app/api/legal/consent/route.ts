@@ -1,5 +1,20 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
+
+// Must mirror the `valid_doc_type` CHECK on legal_documents (migration 020).
+const consentSchema = z.object({
+  doc_type: z.enum([
+    'terms_of_service',
+    'privacy_policy',
+    'cookie_policy',
+    'recording_consent',
+    'data_processing_agreement',
+    'user_rights',
+    'fair_use_policy',
+  ]),
+  doc_version: z.string().regex(/^\d+\.\d+(\.\d+)?$/, 'Formato: X.Y o X.Y.Z'),
+});
 
 export async function POST(request: Request) {
   const supabase = await createServerSupabase();
@@ -10,14 +25,11 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { doc_type, doc_version } = body;
-
-  if (!doc_type || !doc_version) {
-    return NextResponse.json(
-      { error: 'Missing doc_type or doc_version' },
-      { status: 400 }
-    );
+  const parsed = consentSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
+  const { doc_type, doc_version } = parsed.data;
 
   // Get IP and User-Agent for audit trail
   const ip = request.headers.get('x-forwarded-for') ||

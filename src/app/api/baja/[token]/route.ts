@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { verifyMinuteToken } from '@/lib/minute-links';
 import { logger } from '@/lib/logger';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 // Baja de un clic (RFC 8058).
 //
@@ -17,10 +17,7 @@ import { logger } from '@/lib/logger';
 // exactamente quien puede darse de baja de ella.
 
 function admin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!,
-  );
+  return getSupabaseAdmin();
 }
 
 async function darDeBaja(token: string, source: 'one-click' | 'pagina') {

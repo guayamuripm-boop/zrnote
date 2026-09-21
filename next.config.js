@@ -75,7 +75,7 @@ const nextConfig = {
               // while the user has a connection and explicitly asked to
               // download it — the offline USE of an already-cached model makes
               // no further network request at all.
-              "connect-src 'self' blob: https://api.groq.com https://*.supabase.co wss://*.supabase.co https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net",
+              "connect-src 'self' blob: https://api.groq.com https://*.supabase.co wss://*.supabase.co https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net https://api.jina.ai",
               // data: is required by the silent keep-alive clip that holds the
               // tab in a "playing media" state while recording with the screen
               // off (src/lib/background-audio.ts). blob: is the recorder itself.

@@ -1,7 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { registerAudioSegment } from '@/lib/audio-segments';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 // For audio formats the browser cannot decode/split client-side (e.g. raw .aac
 // from voice recorders) we let the browser upload the whole file straight to
@@ -34,10 +34,7 @@ export async function POST(
     return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
   }
 
-  const service = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-  );
+  const service = getSupabaseAdmin();
 
   const existingSegments: any[] = meeting.audio_segments || [];
 

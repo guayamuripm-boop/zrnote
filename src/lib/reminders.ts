@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/logger';
 import { escapeHtml } from '@/lib/safe-html';
 import { sendMail, isEmailConfigured, EMAIL_NOT_CONFIGURED, unsubscribeHeaders } from '@/lib/smtp';
@@ -10,6 +9,7 @@ import {
 } from '@/lib/email-outbox';
 import { unsubscribeUrl, signMinuteToken, canSignLinks } from '@/lib/minute-links';
 import { appUrl } from '@/lib/app-url';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 // Sends one reminder email per assignee for action items due TOMORROW that are
 // not yet completed. Firing exactly one day before the due date means a single,
@@ -26,10 +26,7 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
     return { sent: 0, failed: 0, skipped: EMAIL_NOT_CONFIGURED };
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-  );
+  const supabase = getSupabaseAdmin();
 
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);

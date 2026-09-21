@@ -1,7 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getAuthedUser } from '@/lib/api-auth';
 import { registerAudioSegment } from '@/lib/audio-segments';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 const ALLOWED_TYPES: Record<string, string> = {
   'audio/webm': 'webm',
@@ -65,10 +65,7 @@ export async function POST(
 
   const r2Key = `${meeting.org_id || 'default'}/${resolvedParams.id}/segment_${segmentIndex}.${ext}`;
 
-  const serviceClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-  );
+  const serviceClient = getSupabaseAdmin();
 
   const { error: uploadError } = await serviceClient.storage
     .from('meeting-audio')

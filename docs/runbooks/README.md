@@ -33,6 +33,6 @@ Un runbook por subsistema. Cada uno responde a las mismas cuatro preguntas:
 
 ## Documentos relacionados
 
-- [`CONTEXT.md`](../../CONTEXT.md) — estado general del proyecto, fuente de verdad
-- [`BACKLOG.md`](../../BACKLOG.md) — tareas pendientes priorizadas
+- [`docs/architecture/project-context.md`](../architecture/project-context.md) — estado general del proyecto, fuente de verdad
+- [`BACKLOG.md`](../product/backlog.md) — tareas pendientes priorizadas
 - `supabase/migrations/*.sql` — cada migración lleva su propio SQL de reversión comentado al final

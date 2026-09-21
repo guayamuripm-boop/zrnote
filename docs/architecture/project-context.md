@@ -1,0 +1,573 @@
+# ZRNote — Contexto Maestro del Proyecto
+> **Fuente de verdad única.** Leer al inicio de cada sesión, actualizar al final.
+
+---
+
+## 🛡️ 2026-09-20 — Auditoría de seguridad y reorganización del repo (SIN DESPLEGAR)
+
+Cambios en el árbol de trabajo, **sin commit ni despliegue todavía**. Detalle en
+[`../security/audit-2026-09-20.md`](../security/audit-2026-09-20.md).
+
+- **Seguridad:** `send-emails` ya no acepta la clave de servicio como credencial
+  ([ADR 0002](../adr/0002-no-service-key-as-credential.md)); rate limiter atómico
+  ([ADR 0001](../adr/0001-atomic-rate-limiting.md)); límite en `agent/query` y `send-emails`;
+  logout solo por POST; Zod en `legal/consent`; clave de Gemini por cabecera.
+- **Código:** `getSupabaseAdmin()` centralizado (`src/lib/supabase/admin.ts`).
+- **Repo:** documentos de la raíz movidos a `docs/` por audiencia, SQL operativo a
+  `supabase/scripts/`, `.backup/` fuera de git ([ADR 0003](../adr/0003-repository-layout.md)).
+  Este archivo antes vivía en la raíz como `CONTEXT.md`.
+- **Pendiente antes de dar por cerrado:**
+  1. **Aplicar la migración `032_atomic_rate_limit.sql`** en Supabase (sin ella el código usa la ruta antigua no atómica).
+  2. **Rotar `extension.pem`** (sigue en el historial del repo público).
+  3. Definir el correo de contacto en `SECURITY.md` (hoy es un marcador).
+  4. Generar un `MINUTE_LINK_SECRET` propio en Vercel si no existe (`openssl rand -hex 32`).
+  5. Tras desplegar: probar Salir (logout) y «Enviar correos» en un navegador real.
+
+---
+
+## 🚦 ESTADO: modo estudio para clases (v1.19.0 desplegado, 2026-09-08)
+
+**En producción: v1.19.0** (commit `4cce44c`). Build ✅ · TypeScript ✅ ·
+284 tests ✅ · Next 15 + React 19 · https://zrnote.vercel.app
+
+**Humo tras el despliegue (2026-09-08):** `/` → 200, `/login` → 200,
+`/robots.txt` → 200, `/manifest.json` → 200, `/legal` → 200,
+`/dashboard/ayuda` → 307 a login (correcto), `/minuta/token-invalido` → 200
+con «enlace no válido» (falla cerrado), `/api/health` → ok,
+`/api/version` → 1.19.0. Los dos crones responden 401 sin autenticación, no
+503: `CRON_SECRET` **sí** está configurado en Vercel.
+
+**Se desplegó de una vez v1.15 a v1.19** (llevaban acumuladas desde el
+2026-08-08) — botón «Instalar app» + página de ayuda (v1.15); corrección de
+falsos positivos del filtro de silencio + compromisos evento/tarea (v1.16);
+estilo del acta (v1.17); segunda capa contra alucinaciones de Whisper (v1.18);
+modo estudio (v1.19). Ver
+[runbook 06](../runbooks/06-instalacion-y-ayuda.md),
+[runbook 05 §1.5](../runbooks/05-transcripcion-y-legibilidad.md),
+[runbook 01 §7](../runbooks/01-correo.md) y
+[runbook 07](../runbooks/07-estilo-del-acta.md).
+
+**v1.19 — modo estudio.** El estilo «Clase» (antes «Educativa») ya no cambia
+sólo el tono: produce ADEMÁS un bloque de apuntes —temario, glosario, ejemplos
+resueltos, errores frecuentes, notas de examen, preguntas de repaso y
+tarjetas— con su propia interfaz de estudio (tres pestañas, tarjetas con
+progreso) en la página de la reunión, en la minuta compartida y en el PDF.
+Un estilo puede ahora aportar sus propios campos al esquema de salida del
+prompt (`extraRules` / `extraSchema`), así que añadir el siguiente no toca
+`processing.ts`. Ver [runbook 08](../runbooks/08-modo-estudio.md).
+
+> 📘 **Los procedimientos operativos viven en [`docs/runbooks/`](../runbooks/README.md)**,
+> uno por subsistema, cada uno con su diagnóstico y su marcha atrás.
+> Empieza por [00 — Respaldo y restauración](../runbooks/00-respaldo-y-restauracion.md).
+
+### ⚠️ Cuota de Supabase — SIN RESOLVER
+
+El panel avisa de que la organización `guayamuri studio` superó la cuota del
+ciclo anterior, y el proyecto lleva la etiqueta `EXCEEDING USAGE LIMITS`.
+**Los proyectos quedarán restringidos a partir del 27 de septiembre de 2026**
+si sigue por encima.
+
+Descartado ya: no es que el cron de retención esté deshabilitado —
+`/api/cron/retention` responde 401 sin autenticación, o sea que `CRON_SECRET`
+está puesto. Que el cron *corra* y *borre* de verdad está sin comprobar.
+
+Sospechosos por orden de probabilidad:
+1. **Audio sin borrar** en `meeting-audio` (límite: 1 GB). Basta con que el
+   cron falle a mitad para que se acumule.
+2. **`meeting_chunks`** (límite de base: 500 MB). Cada fragmento lleva un
+   embedding de 1536 dimensiones y la transcripción entera se trocea de 500 en
+   500 caracteres: decenas de filas gordas por reunión.
+3. **Transferencia** (límite: 5 GB/mes). No se ve desde SQL — hay que mirar
+   Project Settings → Usage.
+
+Para medirlo: [`supabase/scripts/diagnose-quota.sql`](../../supabase/scripts/diagnose-quota.sql),
+que sólo lee y dice cuál de los tres es.
+
+### Migraciones — todas aplicadas (2026-09-08)
+
+`001` a `026` **aplicadas en producción** (proyecto `qmdcpcwigzebqcoeiebi`,
+rama `main`). Las tres últimas se aplicaron juntas el 2026-09-08 y se verificó
+que existen las cinco columnas: `action_items.kind`, `meetings.minute_style`,
+`meetings.style_notes`, `users.default_minute_style`, `minutes.study_aids`.
+
+> ⚠️ **Ojo con el proyecto al que te conectas.** El repo tiene dos vecinos
+> fáciles de confundir en la misma cuenta: `zr-prod` y `zr-mecademy` son la
+> **academia** (`students`, `cohorts`, `exams`), no ZRNote. La base de ZRNote
+> es la de `NEXT_PUBLIC_SUPABASE_URL` en `.env.local`. Antes de aplicar nada,
+> comprueba que el proyecto tiene tabla `meetings`.
+
+Para volver a aplicarlas en otra base (una copia, un entorno nuevo) está
+[`supabase/scripts/apply-024-025-026.sql`](../../supabase/scripts/apply-024-025-026.sql):
+las tres en un bloque, idempotentes, con la consulta de comprobación al final.
+
+Variables de entorno: **no hace falta ninguna nueva.** `MINUTE_LINK_SECRET` es
+opcional; sin ella la clave de firma se deriva de `SUPABASE_SERVICE_ROLE_KEY`.
+
+**Comprobación de humo tras el despliegue de v1.14 (2026-08-08):** `/` → 200,
+`/robots.txt` → 200, `/manifest.json` → 200, `/login` → 200, `sw.js` sirve
+`zrnote-v4`, `/minuta/token-invalido` → 200 con «enlace no válido» (falla
+cerrado, no 500).
+
+**Pendiente de verificar contra producción real:** las 8 pruebas de la
+[guía de prueba](../runbooks/03-guia-de-prueba-v1.12.md) — en particular la
+Prueba 1 (enlace público desde un correo real) — y la extensión de Chrome en
+una reunión en vivo, que sigue sin verificarse con audio real.
+
+**Punto de restauración:** etiqueta `v1.14.0-estable` (commit `6a325c0`),
+rama `respaldo/v1.14.0-estable`, snapshot en `.backups/`. Ver
+[runbook 00](../runbooks/00-respaldo-y-restauracion.md) para el
+procedimiento completo de vuelta atrás si algo falla en producción.
+
+### Qué cambió (v1.16 → v1.17, sin desplegar)
+
+- **Estilo del acta: Ejecutiva o Educativa**, elegido por reunión (con la
+  última elección guardada como valor por defecto). Cambia qué cuenta como
+  compromiso y el tono de apertura del prompt — no la estructura del acta ni
+  el modelo de datos, que siguen siendo los mismos. Diseñado a propósito para
+  poder añadir un tercer estilo después sin migración: la lista vive en
+  código (`minute-styles.ts`), no en un `CHECK` de la base de datos.
+- **Notas cortas y opcionales del organizador** ("somos un colegio, usa
+  'estudiantes'..."), insertadas en el prompt explícitamente como contexto,
+  nunca como instrucción — investigado y descartado un cuadro de texto libre
+  sin acotar por el riesgo de inyección de prompt.
+- Selector compartido en `/dashboard/meetings/new`, aplica tanto a «Grabar
+  ahora» como al formulario programado. Ver
+  [runbook 07](../runbooks/07-estilo-del-acta.md). Migración
+  `025_minute_style.sql`.
+
+### Qué cambió (v1.15 → v1.16, sin desplegar)
+
+- **Corregidos falsos positivos del filtro de silencio (v1.14).** Reportado en
+  producción: reuniones audibles se marcaban como "sin voz detectada". Causa:
+  `/hasta la proxima/` no estaba anclado y esa despedida es normalísima en
+  cualquier cierre de reunión o clase real; y `isRepetitionLoop` se aplicaba
+  también sobre texto real con métricas de Whisper sanas. Arreglo: las
+  alucinaciones de Whisper son siempre frases cortas y enlatadas, así que
+  ahora el filtro de patrones ignora cualquier texto de más de 80 caracteres,
+  y la heurística de repetición sólo se usa cuando Whisper no mandó
+  `compression_ratio`. Ver [runbook 05 §1.5](../runbooks/05-transcripcion-y-legibilidad.md).
+- **Compromisos: evento vs. tarea.** La IA clasifica cada compromiso —
+  `'evento'` si ocurre en un momento concreto (reunión, llamada, visita),
+  `'tarea'` para todo lo demás (el caso común: enviar, revisar, preparar). Ya
+  no se ofrece un bloque de 30 minutos en Calendar para algo que no lo es: una
+  tarea con fecha marca el día entero; una tarea SIN fecha ya no fabrica una
+  fecha falsa — enlaza directo a los compromisos dentro de ZRNote. Se
+  investigó integrar Google Tasks de verdad y se descartó: a diferencia de
+  Calendar, no tiene URL de "añadir rápido" sin OAuth. Ver
+  [runbook 01 §7](../runbooks/01-correo.md). Migración `024_action_item_kind.sql`.
+- Confirmado, sin cambios de código: **no hay ningún límite de cantidad de
+  compromisos** en el correo ni en la app — se investigó a petición explícita
+  y no existe tal `.slice()`. El único techo real es el presupuesto de tokens
+  de Groq (el modelo de respaldo gratuito) en reuniones muy densas, una
+  restricción de la cuota gratuita, no del código.
+
+### Qué cambió (v1.14 → v1.15, sin desplegar)
+
+- **Botón «Instalar app»** en la landing, el dashboard y el perfil — usa
+  `beforeinstallprompt` en Chrome/Edge/Android y un modal de instrucciones en
+  iOS Safari, que nunca dispara ese evento. Se auto-oculta si ya está
+  instalada o si el navegador no soporta instalar PWAs.
+- **Página `/dashboard/ayuda`** con un tema por sección: grabar, acta,
+  compromisos, correos, buscar, compartir, instalar, privacidad.
+- **Decisión explícita: NO hay botón para descargar la extensión de Chrome.**
+  `extension.pem` sigue comprometida (pendiente #1 más abajo) y Chrome
+  moderno bloquea los `.crx` sueltos de todos modos. Ver
+  [runbook 04 §6.5](../runbooks/04-extension-chrome.md).
+
+### Qué cambió (v1.13 → v1.14)
+
+- **Alucinaciones de Whisper sobre silencio.** Ya no se genera un acta creíble
+  de una reunión que no ocurrió: dos barreras (transcripción y análisis) usan
+  las métricas `no_speech_prob` / `avg_logprob` / `compression_ratio` que la
+  petición ya pedía y se ignoraban. Si no hay voz audible, la reunión falla
+  con un mensaje claro y no se manda ningún correo.
+- **Acta en párrafos cortos**, en los 4 sitios donde se muestra (página,
+  correo, minuta pública, WhatsApp) — antes era un bloque de 3-5 frases.
+- **WhatsApp reducido a lo accionable**: resumen + compromisos + enlace,
+  ~600 caracteres en vez de volcar el acta entera con tope de 3.500.
+- **Logo de la PWA arreglado.** No faltaba: el service worker servía el icono
+  antiguo en caché desde la v1.5.0, pese a que la marca cambió en la v1.7.0.
+  Ver [runbook 05](../runbooks/05-transcripcion-y-legibilidad.md).
+
+### Qué cambió (v1.11 → v1.12)
+
+- **Fuga de compromisos entre personas**: `matchItemsToParticipant` comparaba con
+  `includes()`, así que Ana recibía las tareas de Mariana como suyas. Y los
+  nombres con tilde no coincidían nunca.
+- **Correos duplicados**: `email_logs` se escribe ahora ANTES de enviar, con
+  `dedupe_key` UNIQUE.
+- **`/send-emails` se cortaba a los 10 s**: faltaba en `vercel.json`.
+- **La minuta se abre sin cuenta** (`/minuta/{token}` firmado). El botón «Ver en
+  ZRNote» llevaba a un 404 para todo el que no fuera el organizador.
+- **Baja de un clic** (RFC 8058) con `List-Unsubscribe`.
+- **Aviso de cuota**: Gmail corta a los 500/día en silencio; ahora se avisa.
+- Proveedor de correo tras una interfaz: cambiar a Brevo/Resend el día que haya
+  dominio propio es un `case`, no una reescritura. Ver [runbook 01 §6](../runbooks/01-correo.md).
+
+### Qué cambió (v1.12 → v1.13)
+
+- **Título por IA en "Grabar ahora".** Antes se quedaba para siempre como
+  "Grabación 5 ago 14:30". Ahora, al generar la minuta, se sustituye por uno
+  que la IA redacta a partir de la transcripción — nunca pisa un título que la
+  persona haya escrito a mano (columna `title_is_auto`, migración `023`).
+
+Ya aplicado en producción:
+- ✅ Migración `020_mvp_hardening_and_legal_v2.sql` (vía Management API).
+- ✅ `CRON_SECRET` configurado (verificado: los crons responden 401 sin él).
+- ✅ Código commiteado y en GitHub — repo y producción coinciden.
+- ✅ Sin vulnerabilidades explotables (ver "Auditoría pre-lanzamiento").
+
+**Pendiente y solo tú puedes hacerlo:**
+1. **Rotar la clave de firma de la extensión** — `extension.pem` estuvo versionada en un repo público, así que sigue en el historial. Genera un par nuevo desde `chrome://extensions` → "Empaquetar extensión" sin indicar clave privada.
+2. **Abrir `/dashboard/diagnostico`** una vez con tu sesión iniciada: comprueba en vivo las claves de Groq/Gemini, el almacenamiento y los correos. Es lo único que no puedo verificar yo (las claves son secretas).
+3. **Probar la extensión en una reunión real** (reescrita, no verificada en vivo — ver `extension/README.md`).
+
+### Cómo ejecutar SQL en producción (la conexión directa está bloqueada)
+`supabase db query`/`db push` cuelgan: el host `db.*.supabase.co` no publica registro A y el CLI intenta Postgres directo. La vía que funciona es la Management API por HTTPS:
+```bash
+curl -X POST "https://api.supabase.com/v1/projects/qmdcpcwigzebqcoeiebi/database/query" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" -d '{"query":"select 1"}'
+```
+
+### Cómo probar la app localmente
+`vercel env pull` **no** descarga las variables marcadas como sensibles: escribe `[SENSITIVE]` y la app da 500 en todo lo que toque Supabase. Para pruebas locales basta con la URL y la clave anónima (ambas públicas por diseño, viajan al navegador):
+```
+NEXT_PUBLIC_SUPABASE_URL=https://qmdcpcwigzebqcoeiebi.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon, desde el panel de Supabase>
+```
+Eso permite verificar páginas públicas, login y middleware. Transcripción y correos requieren las claves reales.
+
+---
+
+## 🔴 AUDITORÍA 2026-07-30 — QUÉ ESTABA ROTO Y CÓMO SE ARREGLÓ
+
+### Bugs que impedían que la app funcionara
+
+| # | Síntoma para el usuario | Causa real | Arreglo |
+|---|---|---|---|
+| 1 | **"Reintentar" nunca funcionaba** si la minuta ya se había generado alguna vez | `minutes.meeting_id` es `UNIQUE`; `analyzeMeeting` hacía `INSERT` siempre → error de clave duplicada → la reunión se marcaba `failed`. Bucle infinito de fallos. | `analyzeMeeting` ahora borra la minuta y sus action items previos antes de insertar. Idempotente. |
+| 2 | **Los correos nunca salían** en reuniones con compromisos con fecha | `generateGoogleCalendarUrl` usaba `date-fns` con el patrón `yyyyMMddTHHmmssZ`. En date-fns `T` y `Z` son *tokens*, no literales → `RangeError` en **cada** llamada, lanzado desde dentro de la construcción del email. | Reescrito sin date-fns, formateando desde los componentes UTC. Cubierto por `google-calendar.test.ts`. |
+| 3 | **"Minuta no disponible"** con la minuta existiendo | `.single()` sobre `minutes` devolvía error si había 0 o 2 filas. | `.maybeSingle()` en todas las lecturas de `minutes`. |
+| 4 | **Todo el proceso fallaba** si faltaba la migración de pgvector o la key de Jina | El paso `vectorize` era obligatorio en el pipeline del cliente. | Sacado del camino crítico. El pipeline es ahora **transcribir → minuta → correos**. `vectorize` sigue existiendo pero se invoca aparte y nunca marca la reunión como fallida. |
+| 5 | **Fallo al procesar audios largos** en el móvil (pestaña que se cierra sola) | `decodeToMono` materializa TODO el audio como PCM: 2 h en estéreo 48 kHz ≈ 2,7 GB. | Audios de más de 15 min se cortan con FFmpeg en modo `-c copy` (sin decodificar, memoria ≈ tamaño del archivo, instantáneo). |
+| 6 | **Subir audio dos veces sobreescribía la primera tanda** | La página siempre numeraba los fragmentos desde 0. | Nueva fase `begin` en `/direct-upload` que devuelve el siguiente índice libre. Los segmentos se ordenan siempre por `segment_index`. |
+| 7 | **Un archivo con error bloqueaba toda la subida** sin salida | `allDone = files.every(done)` — sin reintento ni continuación parcial. | Botones separados: reintentar los fallidos, o generar la minuta con lo ya subido. |
+| 8 | **Un corte de red abortaba todo el procesamiento** | El bucle del cliente devolvía error al primer `catch`. | `runMeetingPipeline` reintenta ante errores de red y espera ante 429 en lugar de rendirse. |
+| 9 | **"Mis Tareas" salía vacía** para quien organizó la reunión | Solo mostraba items con `assignee_email`/`assignee_user_id`, pero la IA asigna por NOMBRE. | Ahora incluye también todos los compromisos de las reuniones que creaste, marcando cuáles son "a tu nombre". |
+| 10 | Prioridades desordenadas | `.order('priority')` ordena alfabéticamente: alta, **baja**, media. | `sortActionItems()` con orden real (estado → prioridad → fecha). Cubierto por tests. |
+| 11 | **No se podían añadir participantes** después de crear la reunión | "Grabar ahora" lo prometía pero no existía UI ni endpoint. | `PATCH /api/meetings/[id]` acepta `participants` + componente `MeetingParticipants`. |
+| 12 | **Correos perdidos sin forma de reenviar** | Solo se enviaban dentro del pipeline. | Botón "Enviar correos" en la minuta (`ResendEmailsButton`). |
+| 13 | **"La reunión falló"** sin decir por qué | El error se escribía en `transcript_raw`, **destruyendo la transcripción**. | Columna `meetings.error_message`; la UI muestra el motivo real. |
+| 14 | Un compromiso con prioridad rara ("urgente") tumbaba el `INSERT` completo | `priority` tiene CHECK y `due_date` es DATE. | `normalizePriority` / `normalizeDueDate`. Cubierto por tests. |
+| 15 | Fechas de vencimiento casi siempre `null` | El prompt no sabía qué día era la reunión. | Se le pasa la fecha real para resolver "el viernes". |
+| 16 | Modal de términos que **dejaba fuera de la app** | El checkbox exigía llegar al final del scroll, pero un documento corto nunca dispara `scroll` → checkbox deshabilitado para siempre, con `required` = bloqueo total. | Se mide el scroll en lugar de esperar el evento; y si el documento no carga, se falla en abierto. |
+| 17 | Documentos legales ilegibles | Usaban clases `prose` de `@tailwindcss/typography`, que **no está instalado**. | CSS propio `.legal-doc` en `globals.css`. |
+
+### Vulnerabilidades corregidas
+
+| Gravedad | Problema | Arreglo |
+|---|---|---|
+| 🔴 Crítica | **`/api/cron/retention` y `/api/cron/retry-stuck` sin ninguna autenticación.** Cualquiera en internet podía borrar el audio y la transcripción de todas las reuniones de más de 30 días, o poner todas las reuniones en "procesando". | `assertCron()` exige `Authorization: Bearer $CRON_SECRET`. **Falla cerrado**: sin la variable, responde 503 y no hace nada. |
+| 🔴 Crítica | **`extension.pem` (clave privada de firma) versionada en un repo público de GitHub.** Permite publicar una actualización maliciosa firmada con la misma identidad. | Añadida a `.gitignore`. **La clave debe considerarse comprometida y regenerarse** (ver checklist). |
+| 🟠 Alta | **El borrado de cuenta nunca borraba el audio.** Filtraba por `f.name.includes(meetingId)` sobre un listado que solo devuelve carpetas. También quedaban los embeddings (fragmentos literales de la conversación). | Se borra por `r2_key` real, en lotes, más `meeting_chunks` y `user_consent_log`. |
+| 🟠 Alta | **Borrar una reunión dejaba su audio en Storage para siempre.** | `DELETE /api/meetings/[id]` borra los archivos. |
+| 🟠 Alta | **XSS en los correos del pipeline.** El título de la reunión y los nombres se inyectaban sin escapar (la ruta manual sí escapaba; había dos implementaciones divergentes). | Una sola implementación en `lib/meeting-emails.ts`, con escape y adjunto `.ics`. Test de XSS. |
+| 🟠 Alta | **CORS con credenciales para `meet.google.com`, `zoom.us`, `teams.microsoft.com`.** Cualquier script en esas páginas podía actuar como el usuario. | Solo `chrome-extension://` (y `localhost` fuera de producción). |
+| 🟡 Media | `/api/test-storage` permitía a cualquier usuario listar el Storage y gastar cuota de Groq. | Eliminado. |
+| 🟡 Media | Contraseñas de 6 caracteres. | Mínimo 8. |
+| 🟡 Media | La retención borraba `transcript_raw` junto al audio, impidiendo regenerar la minuta. | Solo borra el audio, como dice el aviso de privacidad. |
+
+### Limpieza
+- Eliminado: `/api/test-storage`, `/dashboard/meetings/[id]/speakers` y `/api/meetings/[id]/speaker-map` (funciones huérfanas, sin UI ni uso en el pipeline), `LegalDisclaimer.tsx` (sin usar).
+- Eliminadas las dependencias `googleapis` (~86 paquetes) y `lucide-react`: no se importaban en ninguna parte.
+- Tres copias divergentes del bucle del pipeline unificadas en `lib/pipeline-client.ts`.
+- Dos implementaciones de correo unificadas en `lib/meeting-emails.ts`.
+
+---
+
+## ⚖️ CAPA LEGAL (nueva)
+
+Escrita como **advertencias claras en lenguaje llano**, no como contrato de abogado: ZRNote está en fase piloto. Textos en `020_mvp_hardening_and_legal_v2.sql`, editables desde SQL sin redesplegar.
+
+**El control más importante: `RecordingConsentGate`.** Antes de grabar o subir audio hay que marcar una casilla confirmando que se informó a todos los participantes y que dieron su consentimiento. Queda registrado en `meetings.recording_consent_at` / `recording_consent_by`.
+
+Por qué es lo primero que hay que tener bien: en Venezuela, la [Ley sobre Protección a la Privacidad de las Comunicaciones](https://www.asambleanacional.gob.ve/leyes/sancionadas/ley-sobre-proteccion-a-la-privacidad-de-las-comunicaciones) castiga con **3 a 5 años de prisión** grabar una comunicación sin autorización, y la [jurisprudencia laboral ha rechazado grabaciones como prueba](https://perezcalzadilla.com/normativas-y-jurisprudencia-relacionada-con-grabaciones-de-voz-como-medios-probatorios/) por falta de consentimiento expreso, aunque quien grabara participara en la conversación. España/UE (RGPD), México (LFPDPPP) y Colombia (Ley 1581) exigen consentimiento informado. El criterio más exigente es el más simple: **consentimiento de todos, siempre**.
+
+Documentos publicados (`/legal`):
+- `/legal/consentimiento` — guía práctica de qué decir antes de grabar.
+- `/legal/terminos` — condiciones de uso, fase beta, sin garantías, responsabilidad del usuario.
+- `/legal/privacidad` — qué se guarda, qué proveedor lo procesa, 30 días de retención de audio, derechos.
+- `/legal/cookies` — solo cookies necesarias.
+
+Contacto declarado: `zr.coordinacion.tecnologia@gmail.com`.
+
+Enganches en la UI: casilla obligatoria en el registro, `TermsGate` al entrar al dashboard, enlaces en el pie del dashboard y de la landing, sección "Tus datos" en el perfil (descarga RGPD + borrado de cuenta).
+
+**Sigue pendiente** (no es urgente en piloto, sí antes de cobrar o abrir al público): razón social y domicilio del responsable, revisión por un abogado en cada país, contratos de encargo con los proveedores, registro ante la autoridad de datos si aplica.
+
+---
+
+## 🔧 CÓMO FUNCIONA EL PROCESAMIENTO
+
+```
+Grabar (RecordButton)              Subir audio (upload/page.tsx)
+   │ segmentos de 60s                 │ trocea por DURACIÓN real (180s/trozo)
+   │ 1 segmento = 1 sesión            │ ADTS→frames · largo→FFmpeg -c copy
+   │ completa de MediaRecorder        │ medio→WAV 16k mono · raro→transcodifica
+   │ subida serializada               │ subida directa a Storage (URL firmada)
+   ▼                                  ▼
+        lib/pipeline-client.ts → runMeetingPipeline()
+   │
+   ├─ POST /process?step=transcribe   Groq Whisper, lotes de 3, presupuesto 40s,
+   │                                  repite mientras `more:true`
+   ├─ POST /process?step=analyze      Gemini 2.0 Flash (o Groq/Llama), minuta +
+   │                                  action items. IDEMPOTENTE.
+   └─ POST /process?step=emails       Correos personalizados + .ics. Un fallo aquí
+                                      es AVISO, no error: la minuta ya existe.
+   ▼
+status=completed
+```
+
+Reglas que no hay que romper:
+- **Un segmento = un ciclo `start()`→`stop()`.** Nunca trocear un stream continuo: en WebM/OGG la cabecera va solo en el primer trozo y el resto es indecodificable (esto costó semanas de "no funciona").
+- **Nunca subir un blob que no venga de un `onstop`.**
+- **Nunca decidir el troceado por bytes**: un `.aac` de voz mete 40 min en 18 MB y revienta el límite de 60 s de Vercel. Siempre por duración real.
+- **`analyze` y `vectorize` deben ser idempotentes**: cualquier reintento los vuelve a ejecutar.
+- **Los correos no pueden tumbar una minuta buena.**
+
+---
+
+## 📁 ARCHIVOS CLAVE
+
+```
+src/
+├── lib/
+│   ├── pipeline-client.ts      # Bucle único del pipeline (cliente)
+│   ├── processing.ts           # transcribe / analyze / vectorize (servidor)
+│   ├── meeting-emails.ts       # Constructor único de los correos
+│   ├── action-items.ts         # Consulta y orden de compromisos
+│   ├── minute-styles.ts        # Un registro: tono Y esquema de salida por estilo
+│   ├── study-aids.ts           # Apuntes de clase: tipos + normalizador defensivo
+│   ├── flashcard-deck.ts       # Aritmética del mazo de tarjetas (pura, probada)
+│   ├── cron-auth.ts            # Guardia de /api/cron/*
+│   ├── audio-split.ts          # ADTS AAC sin decodificar
+│   ├── audio-wav.ts            # Decodificación → WAV 16k mono
+│   └── audio-conversion.ts     # FFmpeg.wasm: segmentar (-c copy) y transcodificar
+├── components/
+│   ├── recorder/RecordButton.tsx
+│   ├── legal/RecordingConsentGate.tsx   # ⬅ control legal principal
+│   ├── legal/TermsGate.tsx · TermsModal.tsx
+│   ├── study/StudySection.tsx                # ⬅ modo estudio (3 pestañas)
+│   ├── MeetingParticipants.tsx · ResendEmailsButton.tsx
+│   └── minutes/AssignActionItems.tsx
+└── app/api/meetings/[id]/
+    ├── process/route.ts        # transcribe|analyze|emails|vectorize
+    ├── direct-upload/route.ts  # begin|sign|register
+    ├── consent/route.ts        # consentimiento de grabación
+    └── send-emails/route.ts    # reenvío manual
+```
+
+---
+
+## 🚀 CHECKLIST DE DESPLIEGUE
+
+### 1. Migración (obligatorio, manual — Vercel no aplica migraciones)
+Supabase → SQL Editor → pegar y ejecutar:
+```
+supabase/migrations/020_mvp_hardening_and_legal_v2.sql
+```
+Es idempotente: se puede ejecutar varias veces y funciona aunque la 019 nunca se aplicara. Añade `error_message`, el consentimiento de grabación y los textos legales v2.
+
+Verificar:
+```sql
+select doc_type, version from public.legal_documents order by doc_type;
+select column_name from information_schema.columns
+ where table_name='meetings' and column_name in ('error_message','recording_consent_at');
+```
+
+### 2. Variables de entorno (Vercel → Settings → Environment Variables)
+Ver `.env.example`. La nueva y obligatoria es **`CRON_SECRET`** (`openssl rand -hex 32`): sin ella los crons responden 503 y no se ejecutan, a propósito.
+
+### 3. Rotar la clave de la extensión de Chrome
+`extension.pem` está en el historial de un repo público. Cualquiera puede firmar una actualización con esa identidad.
+```bash
+git rm --cached extension.pem extension.crx
+git commit -m "chore: dejar de versionar la clave de firma de la extensión"
+```
+Luego generar un par de claves nuevo en `chrome://extensions` (Empaquetar extensión, sin indicar clave privada). El ID de la extensión cambiará: hay que reinstalarla.
+
+### 4. Comprobaciones
+```bash
+npm run typecheck && npm run test && npm run build
+```
+
+---
+
+## 🔍 DIAGNÓSTICO
+
+| Qué mirar | Cómo |
+|---|---|
+| ¿Por qué falló una reunión? | Se muestra en la propia página de la reunión (`meetings.error_message`) |
+| Errores en producción | `npx vercel logs --level error --limit 20 --no-branch --expand` |
+| ¿Gmail está bien configurado? | `GET /api/health/email` con sesión iniciada (no envía nada) |
+| Correos enviados | Tabla `email_logs` en Supabase |
+| Transcripción | Buscar `Segment transcribed` / `Segment transcription failed` |
+
+---
+
+## ✅ EL PIPELINE COMPLETO YA FUNCIONA (v1.9.1 → v1.10.0, 2026-07-31)
+
+Primera reunión procesada de extremo a extremo. Los tres fallos que lo impedían,
+diagnosticados con evidencia y no por suposición:
+
+### 1. Los `.aac` subidos fallaban al transcribir
+`400 file must be one of the following types: [flac mp3 mp4 mpeg mpga m4a ogg opus wav webm]` en los 15 segmentos.
+
+Se descargó un segmento real del storage: `ff f1 50 40…` — **ADTS AAC perfectamente válido**, 2,2 MB, 180 s. El troceado estaba bien. **Groq valida el CONTENIDO**, no la extensión ni el `Content-Type`: rechaza AAC sin contenedor se llame como se llame. El reetiquetado a `.m4a` que traía el código (documentado como "el fix de v1.0.5") nunca podía funcionar. Un primer intento arreglando sólo el MIME tampoco bastó — el reintento volvió a dar 400 con `offset 0`, lo que lo confirmó.
+
+**Arreglo:** el ADTS se re-muxea a MP4/M4A con FFmpeg **antes de subirlo** (`-c copy`: envuelve el mismo audio, sin recodificar ni perder calidad). Si el stream copy no produce un contenedor válido, cae a MP3 recodificado. Como ffmpeg no siempre falla de forma ruidosa, `looksLikeContainer()` verifica los magic bytes de cada segmento (`ftyp`, `ID3`/sync, `RIFF+WAVE`, `OggS`, EBML) y descarta la salida si no es un contenedor real.
+
+**Los archivos ya en storage no se pueden salvar desde el servidor** (Node no trae decodificador AAC), así que se detectan por su sync word y se devuelve un mensaje accionable —"vuelve a subir el archivo"— en vez de un 400 que "Reintentar" no puede resolver.
+
+### 2. Gemini: modelos retirados, dos veces
+- `gemini-2.0-flash` → `429 … free_tier_requests, limit: 0` (cuota CERO, no un límite que se pueda esperar).
+- `gemini-2.5-flash-lite` → `404 … no longer available to new users`.
+
+Fijar un nombre de modelo es una apuesta perdida contra Google. Ahora `discoverGeminiModels()` **lista los modelos de la propia clave** (`GET /v1beta/models`), filtra los que soportan `generateContent` y los ordena: flash primero, alias `latest` arriba, preview/experimental y generaciones viejas al fondo. Cachea 10 min. `GEMINI_MODEL` sigue mandando si se quiere fijar uno.
+
+**Además**, Groq sólo se usaba cuando FALTABA la clave de Gemini, así que al fallar Gemini la minuta se perdía con el respaldo configurado y ocioso. Ahora cualquier fallo de Gemini cae a Groq.
+
+### 3. Groq: `413 Request too large — Limit 12000`
+El estimador usaba `caracteres/4`, demasiado optimista para español con acentos, así que el recorte "para que quepa" se quedaba corto. Pasa a `caracteres/3`, presupuesto 10 500, y ante un 413 recorta al 55 % y reintenta en vez de rendirse.
+
+---
+
+## ✍️ EL PROMPT DE LA MINUTA (v1.8.0 → v1.10.0)
+
+Revisado mirando una transcripción **real** de producción:
+> *"bueno este muchacho voy a grabar la reunión voy a utilizar bueno una aplicación…"*
+
+Texto corrido, sin puntuación y **sin ninguna marca de hablante**. Sobre eso, el prompt pedía *"infiere quién se comprometió; si no hay nombre usa el label ('Speaker 1')"*. Se le pedía atribuir responsabilidades sobre un texto que no contiene atribución: inventaba nombres o escribía "Speaker 1". Y la lista de participantes estaba en la base de datos sin usarse.
+
+**Qué se hizo:**
+- `getMeetingContext()` carga título, área y participantes, y alimenta a **ambos** pasos.
+- **Whisper recibe por fin su `prompt`** (sólo se enviaba si existían "speaker hints", que nada en la app crea). Es un *prior* de estilo y vocabulario: una frase bien puntuada le devuelve la puntuación, y los nombres propios hacen que los escriba bien en vez de adivinarlos.
+- El prompt declara **cómo es el texto que va a leer**, prohíbe inventar y limita los responsables a los convocados o a nombres dichos en claro; ante la duda, `null`.
+- **Clasifica primero el tipo de reunión** (seguimiento / decisión / lluvia de ideas / informativa) porque cambia qué merece guardarse. Una informativa con 0 compromisos es un resultado correcto.
+- **Reglas para transcripciones largas**: recorrerla entera antes de escribir, y que lo dicho AL FINAL prevalezca sobre lo corregido antes — los acuerdos se cierran al cierre.
+- **Jerarquía de sacrificio declarada**: si sobra material se recorta `discussion` e `ideas`, nunca compromisos, decisiones ni bloqueos.
+- **Compromiso vs idea** con señales lingüísticas y desempate explícito ("ante la duda es idea"): un compromiso falso destruye la confianza en toda la minuta.
+- Guía de prioridad, para que deje de marcar todo como "media".
+- Lista de repaso final antes de responder.
+
+`parseMinuteJson()` sustituye al `/\{[\s\S]*\}/` (primera llave a **última** llave del texto, que se rompía con cualquier frase final con llaves): recorre llaves balanceadas ignorando las de dentro de strings, quita fences de markdown y desenvuelve el array en el que Gemini a veces mete la minuta.
+
+**Consecuencia esperada y buscada:** más compromisos sin responsable y sin fecha que antes. Es correcto — un responsable equivocado manda la tarea a la bandeja de quien no es.
+
+---
+
+## 📧 CORREOS: FECHA POR DEFINIR (v1.10.0)
+
+El enlace de Google Calendar **sólo se generaba si el compromiso ya traía fecha**, así que desaparecía justo en los casos que más lo necesitan. Ahora:
+- **Todos** los compromisos llevan enlace. Con fecha: *"Añadir a Calendar"*. Sin fecha: propone mañana 9:00 y dice *"Ponerle fecha"* — Google abre la pantalla con el día editable para que lo elija el responsable.
+- Una fecha ausente se muestra como **"Por definir"** en ámbar, no como un guion: es una decisión pendiente, no una celda vacía.
+- La tabla del coordinador también lleva enlace por fila.
+
+---
+
+## 🔐 AUDITORÍA PRE-LANZAMIENTO (v1.6.0, 2026-07-31)
+
+### Next.js 14 → 15: no era opcional
+`next@14.2.18` arrastraba una vulnerabilidad **crítica**: *Authorization Bypass in Next.js Middleware* (GHSA-f82v-jwr5-mffw). El middleware de ZRNote es justo lo que protege `/dashboard`. Además Next 14 ya no recibe parches de seguridad (sólo se mantienen la mayor actual y la anterior).
+
+Se actualizó a **Next 15.5.22 + React 19 + @supabase/ssr 0.12 + supabase-js 2.111**. Se eligió 15 y no 16 a propósito: 15 sigue soportada y el salto es mucho menos arriesgado justo antes de lanzar.
+
+Cambios que exigió la migración:
+- `cookies()` es asíncrono → `createServerSupabase()` ahora es `async` y **todas** sus llamadas llevan `await` (23 archivos).
+- `@supabase/ssr` 0.12: se pasó de `get/set/remove` a `getAll/setAll`. El triple antiguo está deprecado y maneja mal las cookies partidas de sesiones grandes.
+- `params` de rutas y páginas dinámicas es ahora `Promise` → migrados 12 archivos.
+- `experimental.serverComponentsExternalPackages` → `serverExternalPackages`.
+
+### Estado de vulnerabilidades
+| Paquete | Estado |
+|---|---|
+| next | ✅ Resuelto (15.5.22) |
+| sharp (libvips CVEs) | ✅ Forzado a ^0.35.3 vía `overrides`. Además `images.unoptimized: true` elimina el endpoint `/_next/image`, que es lo único que usaba sharp. |
+| postcss (nivel raíz) | ✅ Subido a ^8.5.25 |
+| postcss (empaquetado dentro de next) | ⚠️ **Riesgo aceptado.** Next fija 8.4.31 dentro de su propio paquete y no acepta `overrides`. **No es explotable aquí**: es una herramienta de *build* que procesa únicamente nuestro propio CSS (nunca entrada de usuario) y no llega al navegador. Se resolverá solo cuando Next actualice su dependencia. |
+
+### Verificación en ejecución real (no sólo compilación)
+Se levantó el build de producción localmente contra la base de datos real y se comprobó:
+- `/`, `/login`, `/signup`, `/legal` y los 4 documentos legales → **200**, con el contenido v2 leído de Supabase.
+- `/dashboard` sin sesión → **307 a /login** (el middleware protege de verdad).
+- `/api/health/services` sin sesión → **401**.
+- `/api/legal/documents` → devuelve los documentos v2.
+
+**Esto atrapó un fallo real**: en el primer intento todo daba 500. Era `.env.local` con valores `[SENSITIVE]` (Vercel no descarga variables marcadas como sensibles), no un fallo de código — pero de no haberlo probado en ejecución, el diagnóstico habría sido imposible de distinguir de una migración rota.
+
+### Comprobado en la base de datos de producción
+- Bucket `meeting-audio`: existe, **privado**, con 3 políticas.
+- RLS activo en las 7 tablas con datos personales.
+- Migración 018 aplicada (funciones `SECURITY DEFINER` que evitan la recursión de políticas).
+- Datos: 16 reuniones completadas, 14 minutas → 2 reuniones quedaron "completadas sin minuta" por el bug antiguo de falso éxito. El código nuevo lo impide y la UI ahora ofrece "Reintentar" en ese caso.
+
+### Nueva página: `/dashboard/diagnostico`
+Los fallos que de verdad tumban ZRNote son invisibles en el código: una clave revocada, un modelo que el proveedor retiró, un bucket que falta. La página los prueba **en vivo** y los muestra en verde/ámbar/rojo, marcando cuáles bloquean la app. Enlazada desde *Mi Perfil*.
+
+Es la forma de responder «¿está todo bien?» sin leer logs ni preguntarle a un desarrollador — y de detectar el día que Groq retire `whisper-large-v3` o Google retire `gemini-2.0-flash`.
+
+---
+
+## 📱 PWA Y GRABACIÓN CON LA PANTALLA APAGADA (v1.5.0)
+
+**El service worker existía en `public/` desde el principio pero nadie llamaba nunca a `register()`.** ZRNote no era una PWA instalable: Chrome en Android solo ofrece instalación real si hay un worker registrado con handler de `fetch`. Y si se hubiera registrado tal como estaba, habría sido peor: cacheaba **toda** respuesta GET —incluido el HTML autenticado del dashboard y `/api/`— en una caché compartida.
+
+Qué se hizo:
+- `ServiceWorkerRegistrar` lo registra (solo en producción).
+- `sw.js` reescrito: cachea únicamente estáticos inmutables (`/_next/static/`, iconos, ffmpeg) y sirve `/offline.html` cuando no hay red. **Nunca** toca `/api/` ni HTML de sesión.
+- `manifest.json` con `id`, `scope`, icono `maskable` y accesos directos.
+- Quitado `maximumScale: 1 / userScalable: false`, que impedía hacer zoom.
+
+**Por qué la grabación se cortaba con la pantalla apagada:** la rotación de segmentos dependía de `setInterval`, y el navegador estrangula los temporizadores a ~1 tick/minuto en segundo plano. El segmento nunca se cerraba, crecía sin control y acababa superando el tope de 4 MB de subida — se perdía entero.
+
+Arreglo (`src/lib/background-audio.ts` + `RecordButton`):
+- **El reloj de rotación es ahora `ondataavailable`**, que lo dispara el hilo de medios, no un temporizador de JS. Sigue funcionando con la pantalla apagada.
+- **Keep-alive**: un clip de silencio en bucle mantiene la pestaña como "reproduciendo medios", que es lo que impide que el sistema la congele, y `mediaSession` muestra la notificación del SO con pausa/reanudar.
+- **El tiempo transcurrido se recalcula desde timestamps**, no contando ticks.
+- `backgroundRecordingSupport()` avisa por adelantado según el dispositivo.
+
+**iOS sigue sin poder** grabar en segundo plano: Safari suspende la captura al salir de primer plano y ninguna API web lo cambia. La UI lo dice antes de empezar, en vez de dejar que se descubra perdiendo una reunión. En Android se puede bloquear la pantalla.
+
+---
+
+## ⚠️ LÍMITES CONOCIDOS (documentados, no son bugs)
+
+- **Hay que dejar la pestaña abierta** mientras se procesa. El pipeline lo dirige el navegador. Si se cierra, la reunión queda en `processing`; el cron diario la libera a `failed` con un mensaje claro y "Reintentar" continúa desde donde quedó sin perder nada.
+- **iPhone/iPad: no se puede bloquear la pantalla** mientras se graba (limitación de Safari, no del código).
+- **Extensión de Chrome**: reescrita por completo en la v2.0.0 y **pendiente de prueba en vivo**. Ver `extension/README.md` para qué estaba roto y qué falta verificar.
+- **RAG / `/api/agent/query`**: funciona técnicamente pero no tiene UI y requiere `org_id`. Fase 2.
+- **Crons diarios** (plan Hobby de Vercel, máximo 2). La recuperación automática ocurre una vez al día; el botón "Reintentar" es inmediato.
+- Reuniones de más de ~2 h con Groq/Llama pierden parte de la transcripción por el límite de 12k tokens/minuto. Con `GEMINI_API_KEY` configurada no se recorta nada.
+
+---
+
+## 🎯 SIGUIENTE (post-MVP)
+
+| Prioridad | Qué | Por qué / esfuerzo |
+|---|---|---|
+| **Alta** | **Editar la minuta a mano** | La IA se equivoca y hoy no hay forma de corregir un compromiso, un responsable o el resumen. Es lo que más confianza da. ~2 días |
+| **Alta** | **Poner fecha desde la app** (selector en cada compromiso) | Hoy sólo se puede desde el correo → Google Calendar. Debería poder hacerse en "Compromisos". ~1 día |
+| **Alta** | Procesamiento en servidor (worker) | Quita la fricción de tener que dejar la pestaña abierta. Es el cambio de arquitectura pendiente. ~1 semana |
+| **Alta** | Probar la extensión en una reunión real | Reescrita pero sin verificar en vivo |
+| Media | Que los participantes vean la minuta sin ser el creador | Hoy la reunión es sólo del creador; limita el uso en equipo. ~2 días |
+| Media | Recordatorio de compromisos sin fecha | Cierra el círculo de "Por definir": avisar a los 2 días si nadie le puso fecha. ~1 día |
+| Media | Búsqueda full-text de minutas | Barata (`pg_trgm`) y muy útil cuando haya 50 reuniones. ~1 día |
+| Media | Plantillas por tipo de reunión | El prompt ya clasifica el tipo; dejar elegirlo a mano afinaría más la extracción. ~2 días |
+| Baja | Resumen semanal por correo | "Esto es lo que asumiste esta semana". Fideliza. ~2 días |
+| Baja | Exportar a Notion / Trello / Slack | Sólo cuando se sepa qué usa el equipo de verdad |
+| Baja | UI de búsqueda semántica (RAG) | El backend ya existe, falta la interfaz |
+
+---
+
+*Última actualización: 2026-07-31 — v1.10.0. Primera reunión procesada de extremo a extremo: arreglados el rechazo de .aac por Groq (re-mux a MP4 antes de subir), los modelos de Gemini retirados (descubrimiento en runtime) y el 413 de Groq. Prompt de minuta rediseñado con criterio editorial. Enlace de calendario en todos los compromisos, con "fecha por definir". Build ✅ · tsc ✅ · 119/119 tests ✅.*

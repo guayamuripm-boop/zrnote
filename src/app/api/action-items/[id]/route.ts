@@ -1,7 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 const patchSchema = z.object({
   status: z.enum(['pendiente', 'en_progreso', 'completado']),
@@ -27,10 +27,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'status inválido' }, { status: 400 });
   }
 
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-  );
+  const admin = getSupabaseAdmin();
 
   const { data: item } = await admin
     .from('action_items')

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 export interface ScopedActionItem {
   id: string;
@@ -57,10 +57,7 @@ export async function getUserActionItems(
   email: string,
   ownMeetingIds: string[],
 ): Promise<ScopedActionItem[]> {
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-  );
+  const admin = getSupabaseAdmin();
 
   const select = 'id, description, priority, due_date, status, kind, assignee_name, assignee_email, assignee_user_id, created_at, meetings!inner(id, title, created_at)';
 

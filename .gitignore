@@ -20,3 +20,11 @@ extension.crx
 
 # Respaldos locales (snapshots de codigo). No se versionan ni se suben.
 .backups/
+
+# Snapshots y worktrees locales de sesiones de trabajo.
+.backup/
+.claude/worktrees/
+.claude/settings.local.json
+
+# Estado local del CLI de Supabase (contiene el ref del proyecto enlazado).
+supabase/.temp/
