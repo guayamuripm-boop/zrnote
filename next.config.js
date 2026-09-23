@@ -6,7 +6,7 @@ const nextConfig = {
     NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || 'local',
   },
   // Renamed out of `experimental` in Next 15.
-  serverExternalPackages: ['@react-pdf/renderer'],
+  serverExternalPackages: ['@react-pdf/renderer', 'isomorphic-dompurify', 'jsdom'],
   // `@huggingface/transformers` (offline-transcribe.ts) is CLIENT-ONLY — a
   // dynamic `import()` inside a 'use client' module, used only for the
   // on-device transcription fallback. But Vercel's build-output file tracer
