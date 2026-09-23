@@ -197,14 +197,16 @@ export default function NewMeetingForm({
     }
   };
 
+  const [showStylePicker, setShowStylePicker] = useState(false);
+
   return (
-    <div className="max-w-lg mx-auto space-y-6">
+    <div className="max-w-lg mx-auto space-y-5">
       <div>
-        <Link href="/dashboard/meetings" className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition mb-4">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        <Link href="/dashboard/meetings" className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition mb-3">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-          Reuniones
+          Atrás
         </Link>
         <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Nueva Reunión</h1>
       </div>
@@ -215,156 +217,174 @@ export default function NewMeetingForm({
         </div>
       )}
 
-      {/* Estilo del acta — aplica tanto a "Grabar ahora" como al formulario de
-          abajo, por eso va antes de las dos vías, no dentro del <form>. */}
-      <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Estilo del acta
-          </label>
-          <button
-            type="button"
-            onClick={() => setShowNotes((v) => !v)}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            {showNotes ? 'Ocultar notas' : '+ Notas para esta acta'}
-          </button>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {MINUTE_STYLE_OPTIONS.map((style) => (
-            <button
-              key={style.value}
-              type="button"
-              onClick={() => setMinuteStyle(style.value)}
-              className={`text-left px-3 py-2.5 rounded-xl border transition-all ${
-                minuteStyle === style.value
-                  ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-600'
-                  : 'border-slate-200 dark:border-slate-700 hover:bg-white/60 dark:hover:bg-white/5'
-              }`}
-            >
-              <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                {style.emoji} {style.label}
-              </span>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{style.shortDescription}</p>
-            </button>
-          ))}
-        </div>
-        {/* Que el estilo "Clase" produce ademas apuntes de estudio no se
-            adivina del nombre, y es la razon principal para elegirlo. Se dice
-            aqui, en el momento de decidir, y no en una pagina de ayuda. */}
-        {getMinuteStyle(minuteStyle).producesStudyAids && (
-          <p className="text-xs text-violet-700 dark:text-violet-300 bg-violet-50/80 dark:bg-violet-900/20 rounded-lg px-3 py-2 leading-relaxed">
-            Ademas del acta, generara <strong>apuntes para estudiar</strong>: temario, glosario, ejemplos
-            resueltos, preguntas de repaso y tarjetas.
-          </p>
-        )}
-        {showNotes && (
-          <div>
-            <textarea
-              value={styleNotes}
-              onChange={(e) => setStyleNotes(e.target.value.slice(0, MAX_STYLE_NOTES_LENGTH))}
-              rows={2}
-              placeholder="Ej: Es Fisica de 2º de bachillerato, el profesor se llama Ramírez"
-              className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm resize-none"
-            />
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 text-right">
-              {styleNotes.length}/{MAX_STYLE_NOTES_LENGTH}
-            </p>
-          </div>
-        )}
-
-        {/* Nivel de detalle del resumen — eje aparte del estilo: el estilo
-            decide de qué habla, esto decide cuánto se extiende. */}
-        <div className="pt-1 border-t border-slate-200/70 dark:border-slate-700/50">
-          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mt-3 mb-2 uppercase tracking-wide">
-            Nivel de detalle del resumen
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            {SUMMARY_LENGTH_OPTIONS.map((level) => (
-              <button
-                key={level.value}
-                type="button"
-                onClick={() => setSummaryLength(level.value)}
-                className={`text-center px-2 py-2 rounded-xl border transition-all ${
-                  summaryLength === level.value
-                    ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-600'
-                    : 'border-slate-200 dark:border-slate-700 hover:bg-white/60 dark:hover:bg-white/5'
-                }`}
-                title={level.shortDescription}
-              >
-                <span className="text-sm font-medium text-slate-900 dark:text-slate-100 block">
-                  {level.emoji} {level.label}
-                </span>
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
-            {SUMMARY_LENGTH_OPTIONS.find((l) => l.value === summaryLength)?.shortDescription}
-          </p>
-        </div>
-      </div>
-
-      {/* Quick record — one tap, start recording now */}
+      {/* Quick record — primary action, one tap */}
       <button
         type="button"
         onClick={handleQuickRecord}
         disabled={quickLoading}
-        className="w-full glass-strong rounded-2xl p-5 flex items-center gap-4 text-left hover:shadow-elevated transition-all duration-300 border border-transparent hover:border-blue-400/40 disabled:opacity-60"
+        className="w-full glass-strong rounded-2xl p-5 flex items-center gap-4 text-left hover:shadow-elevated transition-all duration-300 border-2 border-blue-200/60 dark:border-blue-800/40 hover:border-blue-400 disabled:opacity-60 active:scale-[0.98]"
       >
-        <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center shrink-0">
+        <div className="w-14 h-14 rounded-full gradient-primary flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/20">
           {quickLoading ? (
-            <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+            <svg className="w-6 h-6 text-white animate-spin" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           ) : (
-            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+            <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
               <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
             </svg>
           )}
         </div>
-        <div className="min-w-0">
-          <p className="font-semibold text-slate-900 dark:text-slate-100">
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-lg text-slate-900 dark:text-slate-100">
             {quickLoading ? 'Preparando…' : 'Grabar ahora'}
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Empieza a grabar al instante. Mantén esta pestaña abierta y encendida.
+            Un toque y empieza la grabación
           </p>
         </div>
+        {!quickLoading && (
+          <svg className="w-5 h-5 text-slate-300 dark:text-slate-600 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        )}
       </button>
 
-      {/* Alternativa honesta a grabar dentro de la app: la grabadora del
-          teléfono sí sigue con la pantalla bloqueada, y este flujo sube
-          después el archivo aquí. La clase larga o la reunión de dos horas
-          se llevan mejor así. */}
+      {/* Upload audio */}
       <button
         type="button"
         onClick={handleUploadInstead}
         disabled={uploadLoading}
-        className="w-full glass rounded-2xl p-4 flex items-center gap-4 text-left hover:shadow-elevated transition-all duration-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-400/40 disabled:opacity-60"
+        className="w-full glass rounded-2xl p-4 flex items-center gap-4 text-left hover:shadow-elevated transition-all duration-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-400/40 disabled:opacity-60 active:scale-[0.98]"
       >
-        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shrink-0">
+        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shrink-0">
           {uploadLoading ? (
             <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           ) : (
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
           )}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="font-semibold text-slate-900 dark:text-slate-100">
-            {uploadLoading ? 'Creando reunión…' : 'Ya tengo el audio grabado'}
+            {uploadLoading ? 'Creando reunión…' : 'Subir audio'}
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Grábalo con la app del teléfono y súbelo aquí. Ideal si vas a bloquear el móvil o salir de la app.
+            Ideal para clases largas grabadas con el teléfono
           </p>
         </div>
+        {!uploadLoading && (
+          <svg className="w-5 h-5 text-slate-300 dark:text-slate-600 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        )}
       </button>
+
+      {/* Estilo del acta — colapsable para no estorbar la acción rápida */}
+      <button
+        type="button"
+        onClick={() => setShowStylePicker((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 glass rounded-2xl border border-slate-200 dark:border-slate-700 transition-all hover:border-blue-300 dark:hover:border-blue-700"
+      >
+        <span className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+          <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Estilo: <strong>{MINUTE_STYLE_OPTIONS.find((s) => s.value === minuteStyle)?.label}</strong>
+          {' · '}
+          {SUMMARY_LENGTH_OPTIONS.find((l) => l.value === summaryLength)?.label}
+        </span>
+        <svg className={`w-4 h-4 text-slate-400 transition-transform ${showStylePicker ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {showStylePicker && (
+        <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated space-y-3 animate-in">
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Estilo del acta
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowNotes((v) => !v)}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              {showNotes ? 'Ocultar notas' : '+ Notas'}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {MINUTE_STYLE_OPTIONS.map((style) => (
+              <button
+                key={style.value}
+                type="button"
+                onClick={() => setMinuteStyle(style.value)}
+                className={`text-left px-3 py-2.5 rounded-xl border transition-all ${
+                  minuteStyle === style.value
+                    ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-600'
+                    : 'border-slate-200 dark:border-slate-700 hover:bg-white/60 dark:hover:bg-white/5'
+                }`}
+              >
+                <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                  {style.emoji} {style.label}
+                </span>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{style.shortDescription}</p>
+              </button>
+            ))}
+          </div>
+          {getMinuteStyle(minuteStyle).producesStudyAids && (
+            <p className="text-xs text-violet-700 dark:text-violet-300 bg-violet-50/80 dark:bg-violet-900/20 rounded-lg px-3 py-2 leading-relaxed">
+              Genera <strong>apuntes de estudio</strong>: temario, glosario, ejemplos y tarjetas.
+            </p>
+          )}
+          {showNotes && (
+            <div>
+              <textarea
+                value={styleNotes}
+                onChange={(e) => setStyleNotes(e.target.value.slice(0, MAX_STYLE_NOTES_LENGTH))}
+                rows={2}
+                placeholder="Ej: Es Fisica de 2º de bachillerato"
+                className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-sm resize-none"
+              />
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 text-right">
+                {styleNotes.length}/{MAX_STYLE_NOTES_LENGTH}
+              </p>
+            </div>
+          )}
+
+          <div className="pt-1 border-t border-slate-200/70 dark:border-slate-700/50">
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mt-3 mb-2 uppercase tracking-wide">
+              Nivel de detalle
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {SUMMARY_LENGTH_OPTIONS.map((level) => (
+                <button
+                  key={level.value}
+                  type="button"
+                  onClick={() => setSummaryLength(level.value)}
+                  className={`text-center px-2 py-2 rounded-xl border transition-all ${
+                    summaryLength === level.value
+                      ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-600'
+                      : 'border-slate-200 dark:border-slate-700 hover:bg-white/60 dark:hover:bg-white/5'
+                  }`}
+                  title={level.shortDescription}
+                >
+                  <span className="text-sm font-medium text-slate-900 dark:text-slate-100 block">
+                    {level.emoji} {level.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center gap-3">
         <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />

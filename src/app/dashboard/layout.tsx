@@ -7,6 +7,7 @@ import { VersionLogger } from '@/components/VersionLogger';
 import { VERSION, COMMIT_SHA } from '@/lib/version';
 import TermsGate from '@/components/legal/TermsGate';
 import SignOutButton from '@/components/SignOutButton';
+import MobileNav from '@/components/MobileNav';
 
 export default async function DashboardLayout({
   children,
@@ -87,47 +88,7 @@ export default async function DashboardLayout({
         </div>
       </footer>
 
-      {/* Mobile Bottom Bar */}
-      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-200/50 dark:border-slate-700/50">
-        <div className="flex items-center justify-around h-16 px-2">
-          <Link href="/dashboard" className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-            </svg>
-            <span className="text-[10px] font-medium">Inicio</span>
-          </Link>
-          <Link href="/dashboard/meetings" className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-            </svg>
-            <span className="text-[10px] font-medium">Reuniones</span>
-          </Link>
-          <Link href="/dashboard/meetings/new" className="flex flex-col items-center gap-0.5 -mt-5">
-            <div className="w-12 h-12 gradient-primary rounded-full flex items-center justify-center shadow-lg shadow-blue-500/30">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </div>
-          </Link>
-          <Link href="/dashboard/action-items" className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
-            <span className="text-[10px] font-medium">Tareas</span>
-          </Link>
-          <Link href="/dashboard/profile" className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all">
-<div className="w-6 h-6 gradient-primary rounded-full flex items-center justify-center">
-              <span className="text-white text-[8px] font-bold">{user?.email?.charAt(0).toUpperCase() || '?'}</span>
-            </div>
-          </Link>
-          {/* Version badge mobile */}
-          <div className="flex items-center justify-center px-2">
-            <span className="px-2 py-0.5 text-[9px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded">
-              v{VERSION}
-            </span>
-          </div>
-        </div>
-      </nav>
+      <MobileNav userInitial={user?.email?.charAt(0).toUpperCase() || '?'} />
     </div>
   );
 }

@@ -1523,6 +1523,15 @@ function createChunks(minute: any, transcript: string): Array<{ index: number; s
     });
   }
 
+  for (const f of aids.key_formulas ?? []) {
+    chunks.push({
+      index: index++,
+      section: 'key_formulas',
+      text: `${f.formula}: ${f.meaning}${f.when_to_use ? ` (${f.when_to_use})` : ''}`,
+      speaker: 'system',
+    });
+  }
+
   for (const e of aids.worked_examples) {
     chunks.push({ index: index++, section: 'worked_examples', text: `${e.problem} -> ${e.approach}`, speaker: 'system' });
   }

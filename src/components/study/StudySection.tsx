@@ -3,35 +3,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { StudyAids } from '@/lib/study-aids';
 import {
-  pendingIndexes,
+  type LeitnerState,
+  type LeitnerBox,
+  emptyLeitnerState,
+  getBox,
+  getReps,
+  answerCard,
+  countByBox,
+  leitnerOrder,
+  shuffleOrder,
+  sanitizeLeitnerState,
   clampPosition,
   stepPosition,
-  positionAfterKnown,
-  shuffleOrder,
-  sanitizeKnown,
 } from '@/lib/flashcard-deck';
-
-// La sección de estudio de un acta de clase.
-//
-// POR QUÉ ES UN COMPONENTE DE CLIENTE Y NO HTML ESTÁTICO
-// Las dos partes que de verdad hacen que alguien aprenda —taparse la respuesta
-// antes de mirarla, y pasar tarjetas marcando lo que ya sabe— son inútiles si
-// todo está desplegado a la vez. Un temario y un glosario sí valen impresos;
-// un cuestionario con las respuestas visibles, no.
-//
-// POR QUÉ TRES PESTAÑAS Y NO UNA COLUMNA LARGA
-// Son tres actividades distintas y no se hacen a la vez: leer los apuntes
-// (antes), responder preguntas (después), pasar tarjetas (en el autobús). Todo
-// junto son nueve secciones en vertical que nadie recorre entera en el móvil.
 
 type Tab = 'apuntes' | 'repaso' | 'tarjetas';
 
-/** Qué pestañas tienen contenido. Una vacía no se muestra. */
 function availableTabs(aids: StudyAids): Tab[] {
   const tabs: Tab[] = [];
   if (
     aids.outline.length ||
     aids.key_concepts.length ||
+    (aids.key_formulas?.length ?? 0) ||
     aids.worked_examples.length ||
     aids.common_mistakes.length ||
     aids.exam_notes.length ||
@@ -46,49 +39,10 @@ function availableTabs(aids: StudyAids): Tab[] {
 }
 
 const TAB_LABEL: Record<Tab, string> = {
-  apuntes: 'Apuntes',
+  apuntes: 'Cuaderno',
   repaso: 'Repaso',
   tarjetas: 'Tarjetas',
 };
-
-/**
- * Lo que el estudiante ya se sabe, por acta.
- *
- * Vive en localStorage y no en la base de datos a propósito: es una ayuda
- * personal y efímera, no un dato del acta. Guardarlo en el servidor obligaría
- * a decidir de quién es el progreso cuando la clase se comparte con veinte
- * personas — y el enlace público no tiene sesión con la que responder a eso.
- * Cualquier fallo al leerlo o escribirlo se ignora: un navegador en modo
- * privado, o con el almacenamiento bloqueado, tiene que seguir funcionando.
- */
-function useKnownCards(storageKey: string, total: number) {
-  const [known, setKnown] = useState<Set<number>>(new Set());
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (raw) setKnown(sanitizeKnown(JSON.parse(raw), total));
-    } catch {
-      /* almacenamiento no disponible: se empieza de cero */
-    }
-    setLoaded(true);
-  }, [storageKey, total]);
-
-  const persist = useCallback(
-    (next: Set<number>) => {
-      setKnown(next);
-      try {
-        window.localStorage.setItem(storageKey, JSON.stringify([...next]));
-      } catch {
-        /* el progreso se pierde al recargar, pero la sesión sigue */
-      }
-    },
-    [storageKey],
-  );
-
-  return { known, persist, loaded };
-}
 
 function SectionHeading({ emoji, children }: { emoji: string; children: React.ReactNode }) {
   return (
@@ -98,9 +52,64 @@ function SectionHeading({ emoji, children }: { emoji: string; children: React.Re
   );
 }
 
+/* ───────────────── Notas propias (Feynman) ───────────────── */
+
+function usePersonalNotes(storageKey: string) {
+  const [notes, setNotes] = useState('');
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) setNotes(raw);
+    } catch { /* almacenamiento no disponible */ }
+    setLoaded(true);
+  }, [storageKey]);
+
+  const persist = useCallback(
+    (value: string) => {
+      setNotes(value);
+      try {
+        window.localStorage.setItem(storageKey, value);
+      } catch { /* se pierde al recargar, pero la sesión sigue */ }
+    },
+    [storageKey],
+  );
+
+  return { notes, persist, loaded };
+}
+
+function PersonalNotes({ storageKey }: { storageKey: string }) {
+  const { notes, persist, loaded } = usePersonalNotes(storageKey);
+
+  if (!loaded) return null;
+
+  return (
+    <div className="bg-yellow-50/60 dark:bg-yellow-900/10 border border-yellow-200/50 dark:border-yellow-800/30 rounded-xl p-4">
+      <SectionHeading emoji="✍️">Mis notas</SectionHeading>
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+        Escribe con tus palabras lo que entendiste. Explicarlo tú es la mejor forma de aprenderlo (técnica Feynman).
+      </p>
+      <textarea
+        value={notes}
+        onChange={(e) => persist(e.target.value)}
+        placeholder="Escribe aquí tus apuntes personales, dudas, conexiones con otras materias..."
+        className="w-full min-h-[8rem] p-3 text-sm rounded-lg border border-yellow-200/70 dark:border-yellow-800/40 bg-white/80 dark:bg-slate-800/60 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-y focus:outline-none focus:ring-2 focus:ring-yellow-400/50"
+      />
+      {notes.length > 0 && (
+        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 text-right">
+          {notes.length} caracteres — guardado en este navegador
+        </p>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────────────── Apuntes ─────────────────────────── */
 
-function Apuntes({ aids }: { aids: StudyAids }) {
+function Apuntes({ aids, minuteId }: { aids: StudyAids; minuteId: string }) {
+  const formulas = aids.key_formulas ?? [];
+
   return (
     <div className="space-y-6">
       {aids.exam_notes.length > 0 && (
@@ -156,6 +165,29 @@ function Apuntes({ aids }: { aids: StudyAids }) {
               </div>
             ))}
           </dl>
+        </div>
+      )}
+
+      {formulas.length > 0 && (
+        <div>
+          <SectionHeading emoji="🔢">
+            Fórmulas y datos clave <span className="font-normal text-slate-400 dark:text-slate-500">({formulas.length})</span>
+          </SectionHeading>
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {formulas.map((f, i) => (
+              <div key={i} className="rounded-xl p-3.5 bg-indigo-50/70 dark:bg-indigo-900/15 border border-indigo-200/60 dark:border-indigo-800/30">
+                <p className="font-mono text-sm font-semibold text-indigo-900 dark:text-indigo-200 break-words">
+                  {f.formula}
+                </p>
+                <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">{f.meaning}</p>
+                {f.when_to_use && (
+                  <p className="text-xs text-indigo-600/70 dark:text-indigo-400/70 mt-1 italic">
+                    Cuándo usarla: {f.when_to_use}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -219,6 +251,8 @@ function Apuntes({ aids }: { aids: StudyAids }) {
           </ul>
         </div>
       )}
+
+      <PersonalNotes storageKey={`zrnote:notes:${minuteId}`} />
     </div>
   );
 }
@@ -289,106 +323,164 @@ function Repaso({ aids }: { aids: StudyAids }) {
   );
 }
 
-/* ─────────────────────────── Tarjetas ─────────────────────────── */
+/* ─────────────────────────── Tarjetas (Leitner) ─────────────────────────── */
+
+const BOX_LABELS: Record<LeitnerBox, { label: string; color: string; bg: string }> = {
+  1: { label: 'Nueva', color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-100 dark:bg-rose-900/30' },
+  2: { label: 'Aprendiendo', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' },
+  3: { label: 'Dominada', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-900/30' },
+};
+
+function useLeitner(storageKey: string, total: number) {
+  const [state, setState] = useState<LeitnerState>(emptyLeitnerState());
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) setState(sanitizeLeitnerState(JSON.parse(raw), total));
+    } catch { /* almacenamiento no disponible */ }
+    setLoaded(true);
+  }, [storageKey, total]);
+
+  const persist = useCallback(
+    (next: LeitnerState) => {
+      setState(next);
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch { /* se pierde al recargar */ }
+    },
+    [storageKey],
+  );
+
+  return { state, persist, loaded };
+}
 
 function Tarjetas({ aids, storageKey }: { aids: StudyAids; storageKey: string }) {
   const total = aids.flashcards.length;
-  const { known, persist, loaded } = useKnownCards(storageKey, total);
-  const [order, setOrder] = useState<number[]>(() => aids.flashcards.map((_, i) => i));
+  const { state: leitner, persist, loaded } = useLeitner(storageKey, total);
+  const [baseOrder, setBaseOrder] = useState<number[]>(() => aids.flashcards.map((_, i) => i));
   const [position, setPosition] = useState(0);
   const [flipped, setFlipped] = useState(false);
 
-  // La baraja que queda por repasar. Recalcularla en vez de mutar `order` es lo
-  // que permite que "Me la sé" no descoloque la tarjeta que se está viendo.
-  const pending = useMemo(() => pendingIndexes(order, known), [order, known]);
+  const order = useMemo(() => leitnerOrder(baseOrder, leitner), [baseOrder, leitner]);
+  const counts = useMemo(() => countByBox(leitner, total), [leitner, total]);
 
-  // Al terminar la baraja el índice se sale del array; volver al principio es
-  // lo correcto (queda al menos una sin saber, o `pending` está vacío y se
-  // muestra la pantalla de "completado").
-  const safePosition = clampPosition(position, pending.length);
-  const cardIndex = pending[safePosition];
+  const safePosition = order.length > 0 ? clampPosition(position, order.length) : 0;
+  const cardIndex = order[safePosition];
   const card = cardIndex === undefined ? null : aids.flashcards[cardIndex];
+  const cardBox = cardIndex !== undefined ? getBox(leitner, cardIndex) : 1;
+  const cardReps = cardIndex !== undefined ? getReps(leitner, cardIndex) : 0;
 
-  // Siempre desde `safePosition`, nunca desde el `position` crudo: tras marcar
-  // tarjetas como sabidas el crudo puede haberse quedado fuera del mazo, y
-  // sumarle 1 saltaria a un sitio arbitrario en vez de a la siguiente.
   const advance = (delta: number) => {
     setFlipped(false);
-    setPosition(stepPosition(position, delta, pending.length));
+    setPosition(stepPosition(position, delta, order.length));
   };
 
-  const markKnown = () => {
+  const answer = (difficulty: 'hard' | 'ok' | 'easy') => {
     if (cardIndex === undefined) return;
-    const next = new Set(known);
-    next.add(cardIndex);
-    persist(next);
+    persist(answerCard(leitner, cardIndex, difficulty));
     setFlipped(false);
-    // No se avanza: al quitar esta tarjeta de `pending`, la siguiente ocupa
-    // esta misma posición. Sumar 1 además saltaría una. El módulo sólo
-    // recoloca el caso de haber marcado la última del mazo.
-    setPosition(positionAfterKnown(position, pending.length));
+    setPosition(stepPosition(safePosition, 1, order.length));
   };
 
   const reset = () => {
-    persist(new Set());
+    persist(emptyLeitnerState());
     setPosition(0);
     setFlipped(false);
   };
 
   const shuffle = () => {
-    setOrder(shuffleOrder(order));
+    setBaseOrder(shuffleOrder(baseOrder));
     setPosition(0);
     setFlipped(false);
   };
 
-  // Sin esto la primera pintada mostraría "0 de 20 dominadas" durante un
-  // instante aunque el estudiante ya llevara medio mazo hecho.
   if (!loaded) {
     return <div className="h-56 rounded-2xl bg-slate-100/60 dark:bg-slate-800/40 animate-pulse" />;
   }
 
+  const allMastered = counts[3] === total;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-            <span>{known.size} de {total} dominadas</span>
-            {pending.length > 0 && <span className="tabular-nums">{safePosition + 1}/{pending.length}</span>}
-          </div>
-          <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-            <div
-              className="h-full gradient-primary transition-all duration-500"
-              style={{ width: `${total > 0 ? (known.size / total) * 100 : 0}%` }}
-            />
-          </div>
+      {/* Barras de progreso por caja */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-slate-500 dark:text-slate-400">Progreso Leitner</span>
+          <button
+            type="button"
+            onClick={shuffle}
+            title="Barajar"
+            className="ml-auto text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 shrink-0 px-2 py-1"
+          >
+            🔀 Barajar
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={shuffle}
-          title="Barajar"
-          className="text-xs text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 shrink-0 px-2 py-1"
-        >
-          🔀 Barajar
-        </button>
+        <div className="flex gap-1 h-2 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700">
+          {counts[3] > 0 && (
+            <div
+              className="bg-emerald-500 transition-all duration-500"
+              style={{ width: `${(counts[3] / total) * 100}%` }}
+              title={`Dominadas: ${counts[3]}`}
+            />
+          )}
+          {counts[2] > 0 && (
+            <div
+              className="bg-amber-400 transition-all duration-500"
+              style={{ width: `${(counts[2] / total) * 100}%` }}
+              title={`Aprendiendo: ${counts[2]}`}
+            />
+          )}
+          {counts[1] > 0 && (
+            <div
+              className="bg-rose-400 transition-all duration-500"
+              style={{ width: `${(counts[1] / total) * 100}%` }}
+              title={`Nuevas: ${counts[1]}`}
+            />
+          )}
+        </div>
+        <div className="flex gap-3 text-[10px] text-slate-500 dark:text-slate-400">
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-rose-400 inline-block" /> Nuevas: {counts[1]}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Aprendiendo: {counts[2]}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Dominadas: {counts[3]}
+          </span>
+        </div>
       </div>
 
-      {card === null ? (
+      {allMastered ? (
         <div className="glass rounded-2xl p-8 text-center space-y-3">
           <p className="text-3xl" aria-hidden="true">🎉</p>
-          <p className="font-medium text-slate-800 dark:text-slate-100">Te sabes las {total}</p>
+          <p className="font-medium text-slate-800 dark:text-slate-100">Todas dominadas</p>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Vuelve dentro de un par de días: repasar espaciado es lo que fija la memoria.
+            Vuelve dentro de un par de días: repasar espaciado es lo que fija la memoria a largo plazo.
           </p>
           <button
             type="button"
             onClick={reset}
             className="gradient-primary text-white px-4 py-2 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all"
           >
-            Repasar otra vez
+            Reiniciar todas las cajas
           </button>
         </div>
-      ) : (
+      ) : card !== null ? (
         <>
+          {/* Indicador de posición y caja */}
+          <div className="flex items-center justify-between text-xs">
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${BOX_LABELS[cardBox].bg} ${BOX_LABELS[cardBox].color}`}>
+              {BOX_LABELS[cardBox].label}{cardReps > 0 ? ` · ${cardReps}x` : ''}
+            </span>
+            <span className="text-slate-400 dark:text-slate-500 tabular-nums">
+              {safePosition + 1} / {order.length}
+            </span>
+          </div>
+
+          {/* Tarjeta */}
           <button
             type="button"
             onClick={() => setFlipped((f) => !f)}
@@ -406,34 +498,65 @@ function Tarjetas({ aids, storageKey }: { aids: StudyAids; storageKey: string })
             )}
           </button>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => advance(-1)}
-              className="glass border border-slate-200 dark:border-slate-700 px-3 py-2.5 rounded-xl text-sm text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-white/5 transition"
-              aria-label="Tarjeta anterior"
-            >
-              ←
-            </button>
-            <button
-              type="button"
-              onClick={() => advance(1)}
-              className="flex-1 glass border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-white/70 dark:hover:bg-white/5 transition"
-            >
-              Repasarla luego
-            </button>
-            <button
-              type="button"
-              onClick={markKnown}
-              className="flex-1 gradient-success text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
-            >
-              Me la sé
-            </button>
-          </div>
+          {/* Controles */}
+          {flipped ? (
+            <div className="space-y-2">
+              <p className="text-xs text-center text-slate-500 dark:text-slate-400">¿Qué tan bien la sabías?</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => answer('hard')}
+                  className="flex-1 px-3 py-2.5 rounded-xl text-sm font-medium border border-rose-200 dark:border-rose-800/40 text-rose-700 dark:text-rose-300 bg-rose-50/50 dark:bg-rose-900/10 hover:bg-rose-100/70 dark:hover:bg-rose-900/20 transition"
+                >
+                  Difícil
+                </button>
+                <button
+                  type="button"
+                  onClick={() => answer('ok')}
+                  className="flex-1 px-3 py-2.5 rounded-xl text-sm font-medium border border-amber-200 dark:border-amber-800/40 text-amber-700 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10 hover:bg-amber-100/70 dark:hover:bg-amber-900/20 transition"
+                >
+                  Bien
+                </button>
+                <button
+                  type="button"
+                  onClick={() => answer('easy')}
+                  className="flex-1 px-3 py-2.5 rounded-xl text-sm font-medium gradient-success text-white hover:shadow-lg transition-all"
+                >
+                  Fácil
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => advance(-1)}
+                className="glass border border-slate-200 dark:border-slate-700 px-3 py-2.5 rounded-xl text-sm text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-white/5 transition"
+                aria-label="Tarjeta anterior"
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlipped(true)}
+                className="flex-1 glass border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-white/70 dark:hover:bg-white/5 transition"
+              >
+                Voltear tarjeta
+              </button>
+              <button
+                type="button"
+                onClick={() => advance(1)}
+                className="glass border border-slate-200 dark:border-slate-700 px-3 py-2.5 rounded-xl text-sm text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-white/5 transition"
+                aria-label="Siguiente tarjeta"
+              >
+                →
+              </button>
+            </div>
+          )}
         </>
-      )}
+      ) : null}
 
-      {known.size > 0 && card !== null && (
+      {(counts[2] > 0 || counts[3] > 0) && !allMastered && (
         <button
           type="button"
           onClick={reset}
@@ -453,7 +576,6 @@ export default function StudySection({
   minuteId,
 }: {
   aids: StudyAids;
-  /** Identifica el progreso de tarjetas de ESTA acta en localStorage. */
   minuteId: string;
 }) {
   const tabs = useMemo(() => availableTabs(aids), [aids]);
@@ -469,7 +591,7 @@ export default function StudySection({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
           </svg>
         </div>
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Estudiar esta clase</h2>
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Cuaderno digital</h2>
       </div>
 
       {tabs.length > 1 && (
@@ -495,12 +617,12 @@ export default function StudySection({
         </div>
       )}
 
-      {tab === 'apuntes' && <Apuntes aids={aids} />}
+      {tab === 'apuntes' && <Apuntes aids={aids} minuteId={minuteId} />}
       {tab === 'repaso' && <Repaso aids={aids} />}
-      {tab === 'tarjetas' && <Tarjetas aids={aids} storageKey={`zrnote:flashcards:${minuteId}`} />}
+      {tab === 'tarjetas' && <Tarjetas aids={aids} storageKey={`zrnote:leitner:${minuteId}`} />}
 
       <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-5 pt-4 border-t border-slate-200/60 dark:border-slate-700/50 leading-relaxed">
-        Apuntes generados automáticamente a partir del audio de la clase, usando <strong>únicamente</strong> lo que
+        Cuaderno generado automáticamente a partir del audio de la clase, usando <strong>únicamente</strong> lo que
         se dijo en ella. Pueden contener errores u omisiones: contrástalos con el material del docente antes de un examen.
       </p>
     </section>

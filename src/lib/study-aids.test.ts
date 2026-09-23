@@ -23,6 +23,7 @@ describe('normalizeStudyAids', () => {
 
     expect(aids.outline[0].points).toEqual(['V = I x R']);
     expect(aids.key_concepts[0].why).toBe('Limita la corriente');
+    expect(aids.key_formulas).toEqual([]);
     expect(countStudyAids(aids)).toBe(9);
     expect(isStudyAidsEmpty(aids)).toBe(false);
   });
@@ -99,6 +100,20 @@ describe('normalizeStudyAids', () => {
   it('admite una sección del temario como string suelto', () => {
     const aids = normalizeStudyAids({ outline: ['Repaso de la clase anterior', '  '] });
     expect(aids.outline).toEqual([{ section: 'Repaso de la clase anterior', points: [] }]);
+  });
+
+  it('normaliza fórmulas con los campos esperados y alternativos', () => {
+    const aids = normalizeStudyAids({
+      key_formulas: [
+        { formula: 'V = I × R', meaning: 'Ley de Ohm', when_to_use: 'Circuitos resistivos' },
+        { expression: 'P = V × I', description: 'Potencia eléctrica' },
+        { formula: 'Sin significado' },
+        { meaning: 'Sin fórmula' },
+      ],
+    });
+    expect(aids.key_formulas).toHaveLength(2);
+    expect(aids.key_formulas[0]).toEqual({ formula: 'V = I × R', meaning: 'Ley de Ohm', when_to_use: 'Circuitos resistivos' });
+    expect(aids.key_formulas[1]).toEqual({ formula: 'P = V × I', meaning: 'Potencia eléctrica' });
   });
 
   it('recorta un modelo que se entusiasma', () => {

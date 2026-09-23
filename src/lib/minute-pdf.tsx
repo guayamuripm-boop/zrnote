@@ -316,6 +316,19 @@ function StudyGuidePage({ aids, meeting }: { aids: StudyAids; meeting: MeetingDa
         </View>
       )}
 
+      {(aids.key_formulas?.length ?? 0) > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.studyTitle}>Formulas y datos clave</Text>
+          {aids.key_formulas!.map((f, i) => (
+            <View key={i} style={{ marginBottom: 6 }} wrap={false}>
+              <Text style={{ ...styles.term, fontFamily: 'Courier' }}>{f.formula}</Text>
+              <Text style={styles.text}>{f.meaning}</Text>
+              {f.when_to_use ? <Text style={{ ...styles.text, fontStyle: 'italic', color: '#6b7280' }}>Cuando usarla: {f.when_to_use}</Text> : null}
+            </View>
+          ))}
+        </View>
+      )}
+
       {aids.worked_examples.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.studyTitle}>Ejemplos resueltos</Text>

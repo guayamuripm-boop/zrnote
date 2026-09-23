@@ -81,6 +81,7 @@ Si la sesión no fue una clase —es un claustro, una reunión de coordinación,
 CÓMO LLENAR CADA PARTE
 - outline: el temario REAL de la sesión, en el orden en que se cubrió. Es el esqueleto de los apuntes. Cada sección con sus puntos, y cada punto una afirmación completa que se entienda sola ("La corriente es directamente proporcional al voltaje e inversamente proporcional a la resistencia"), no una etiqueta ("ley de Ohm"). Si la clase saltó de un tema a otro y volvió, agrupa: manda el orden lógico, no el cronológico.
 - key_concepts: los términos que un estudiante tendría que buscar si no los conociera. La definición, CON LAS PALABRAS CON QUE SE EXPLICÓ EN CLASE. Si un término se nombró pero nunca se explicó, no lo pongas — no lo definas tú.
+- key_formulas: fórmulas, leyes, teoremas, constantes, fechas clave o datos numéricos que en un cuaderno se enmarcarían o subrayarían. "formula" es el enunciado exacto (V = I × R, fecha de la Revolución Francesa: 1789, etc.); "meaning" qué calcula o qué representa; "when_to_use" cuándo se aplica — null si no se dijo. NO repitas aquí lo que ya está en key_concepts: si algo es un término conceptual va al glosario, si es una expresión cuantificable o un dato puntual va aquí.
 - worked_examples: los ejercicios, casos o demostraciones que se desarrollaron delante de la clase. "problem" es lo que se planteó; "approach" es cómo se resolvió, con los pasos que se dieron. Si no se resolvió ningún ejemplo, array vacío.
 - study_questions: preguntas de repaso cuya respuesta está EN LA CLASE. Cada respuesta tiene que poder señalarse en la transcripción. Que no sean todas de definición: pregunta también por el porqué, por la diferencia entre dos cosas, por cuándo se aplica una y cuándo la otra.
 - flashcards: memorización pura, cortas. Anverso: un término, una fórmula, una pregunta de una línea. Reverso: la respuesta, breve. No repitas literalmente las study_questions — la tarjeta es para el dato suelto, la pregunta es para el razonamiento.
@@ -90,12 +91,13 @@ CÓMO LLENAR CADA PARTE
 - open_questions: preguntas que se hicieron en clase y quedaron SIN responder, o algo que el docente dejó "para la próxima". Es lo que el estudiante tiene que preguntar.
 
 CANTIDAD
-Ajústala a lo que dio la clase, no a llenar el documento — pero por defecto, PECA DE MÁS, no de menos: estos apuntes tienen que poder sustituir el cuaderno de quien no pudo tomar los suyos, así que es mejor un concepto de más que uno que falte. Una clase densa de una hora: 15-25 conceptos, 10-18 preguntas, 20-30 tarjetas, y el outline con TODAS las secciones que se cubrieron, no un resumen de las principales. Una charla corta o una sesión de dudas: mucho menos, o nada. Un array vacío sigue siendo una respuesta correcta cuando de verdad no hay nada que poner — pero no recortes contenido real que sí se explicó sólo para que la lista quede corta.`,
+Ajústala a lo que dio la clase, no a llenar el documento — pero por defecto, PECA DE MÁS, no de menos: estos apuntes tienen que poder sustituir el cuaderno de quien no pudo tomar los suyos, así que es mejor un concepto de más que uno que falte. Una clase densa de una hora: 15-25 conceptos, 5-15 fórmulas/datos clave, 10-18 preguntas, 20-30 tarjetas, y el outline con TODAS las secciones que se cubrieron, no un resumen de las principales. Una charla corta o una sesión de dudas: mucho menos, o nada. Un array vacío sigue siendo una respuesta correcta cuando de verdad no hay nada que poner — pero no recortes contenido real que sí se explicó sólo para que la lista quede corta.`,
 
     extraSchema: `,
   "study_aids": {
     "outline": [ { "section": "Título de la parte de la clase", "points": ["Afirmación completa que se entiende sola", "..."] } ],
     "key_concepts": [ { "term": "El término", "definition": "Qué es, con las palabras con que se explicó en clase", "why": "Para qué sirve o dónde se usa — null si no se dijo" } ],
+    "key_formulas": [ { "formula": "V = I × R", "meaning": "El voltaje es el producto de la corriente por la resistencia", "when_to_use": "Para calcular voltaje en un circuito resistivo — null si no se dijo" } ],
     "worked_examples": [ { "problem": "El ejercicio o caso que se planteó", "approach": "Cómo se resolvió, con los pasos que se dieron" } ],
     "study_questions": [ { "question": "Pregunta de repaso", "answer": "La respuesta, tal como se explicó en clase" } ],
     "flashcards": [ { "front": "Término, fórmula o pregunta de una línea", "back": "La respuesta, breve" } ],

@@ -54,6 +54,16 @@ export interface StudyMistake {
   correction: string;
 }
 
+/** Fórmula, teorema, ley o dato clave que se escribiría enmarcado en un cuaderno. */
+export interface StudyFormula {
+  /** La fórmula, ley o dato tal como se enunció. */
+  formula: string;
+  /** Qué significa o qué calcula. */
+  meaning: string;
+  /** Cuándo se usa — null si no se dijo. */
+  when_to_use?: string;
+}
+
 /** Una sección del temario, con sus puntos. */
 export interface StudyOutlineSection {
   section: string;
@@ -65,6 +75,8 @@ export interface StudyAids {
   outline: StudyOutlineSection[];
   /** Glosario de términos nuevos. */
   key_concepts: StudyConcept[];
+  /** Fórmulas, leyes, teoremas y datos clave — lo que se enmarcaría en un cuaderno. */
+  key_formulas: StudyFormula[];
   /** Ejemplos que el docente resolvió delante de la clase. */
   worked_examples: StudyExample[];
   /** Preguntas de repaso con respuesta. */
@@ -93,6 +105,7 @@ const CAPS = {
   outlineSections: 20,
   outlinePoints: 16,
   concepts: 40,
+  formulas: 20,
   examples: 14,
   questions: 25,
   flashcards: 40,
@@ -119,6 +132,7 @@ export function emptyStudyAids(): StudyAids {
   return {
     outline: [],
     key_concepts: [],
+    key_formulas: [],
     worked_examples: [],
     study_questions: [],
     flashcards: [],
@@ -266,6 +280,21 @@ function normalizeFlashcards(value: unknown): StudyCard[] {
     .slice(0, CAPS.flashcards);
 }
 
+function normalizeFormulas(value: unknown): StudyFormula[] {
+  return list(value)
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const o = entry as Record<string, unknown>;
+      const formula = text(o.formula ?? o.expression ?? o.law ?? o.theorem, CAPS.longText);
+      const meaning = text(o.meaning ?? o.description ?? o.definition ?? o.what, CAPS.longText);
+      if (!formula || !meaning) return null;
+      const when_to_use = text(o.when_to_use ?? o.usage ?? o.when ?? o.applies, CAPS.longText);
+      return when_to_use ? { formula, meaning, when_to_use } : { formula, meaning };
+    })
+    .filter((f): f is StudyFormula => f !== null)
+    .slice(0, CAPS.formulas);
+}
+
 function normalizeMistakes(value: unknown): StudyMistake[] {
   return list(value)
     .map((entry) => {
@@ -295,6 +324,7 @@ export function normalizeStudyAids(raw: unknown): StudyAids {
   return {
     outline: normalizeOutline(o.outline),
     key_concepts: normalizeConcepts(o.key_concepts),
+    key_formulas: normalizeFormulas(o.key_formulas),
     worked_examples: normalizeExamples(o.worked_examples),
     study_questions: normalizeQuestions(o.study_questions),
     flashcards: normalizeFlashcards(o.flashcards),
@@ -310,6 +340,7 @@ export function isStudyAidsEmpty(aids: StudyAids | null | undefined): boolean {
   return (
     aids.outline.length === 0 &&
     aids.key_concepts.length === 0 &&
+    (aids.key_formulas?.length ?? 0) === 0 &&
     aids.worked_examples.length === 0 &&
     aids.study_questions.length === 0 &&
     aids.flashcards.length === 0 &&
@@ -352,6 +383,7 @@ export function countStudyAids(aids: StudyAids): number {
   return (
     aids.outline.length +
     aids.key_concepts.length +
+    (aids.key_formulas?.length ?? 0) +
     aids.worked_examples.length +
     aids.study_questions.length +
     aids.flashcards.length +

@@ -117,16 +117,13 @@ export function startBackgroundKeepAlive(options: {
   onResume?: () => void;
 }): () => void {
   let audio: HTMLAudioElement | null = null;
+  let lockAbort: AbortController | null = null;
 
   try {
     audio = new Audio(silentWavDataUri());
     audio.loop = true;
-    // Not 0: some browsers treat a fully muted element as "not playing media"
-    // and skip the media session entirely, which defeats the whole point.
     audio.volume = 0.001;
     audio.setAttribute('playsinline', 'true');
-    // Play must be triggered from the user gesture that started the recording;
-    // if it is not, the promise rejects harmlessly and we just lose keep-alive.
     void audio.play().catch(() => {});
   } catch {
     audio = null;
@@ -147,6 +144,22 @@ export function startBackgroundKeepAlive(options: {
     /* MediaSession is best-effort */
   }
 
+  // Web Locks: holding one tells the browser this tab is doing important work,
+  // which raises its priority when deciding what to freeze. The lock itself
+  // does nothing — it is never contended; the value is in holding it.
+  try {
+    if ('locks' in navigator) {
+      lockAbort = new AbortController();
+      void navigator.locks.request(
+        `zrnote-recording-${Date.now()}`,
+        { signal: lockAbort.signal },
+        () => new Promise<void>(() => {}),
+      ).catch(() => {});
+    }
+  } catch {
+    /* Web Locks unsupported or denied */
+  }
+
   return () => {
     try {
       if (audio) {
@@ -154,6 +167,12 @@ export function startBackgroundKeepAlive(options: {
         audio.src = '';
         audio = null;
       }
+    } catch {
+      /* ignore */
+    }
+    try {
+      lockAbort?.abort();
+      lockAbort = null;
     } catch {
       /* ignore */
     }

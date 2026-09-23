@@ -6,6 +6,13 @@ import {
   positionAfterKnown,
   shuffleOrder,
   sanitizeKnown,
+  emptyLeitnerState,
+  getBox,
+  getReps,
+  answerCard,
+  countByBox,
+  leitnerOrder,
+  sanitizeLeitnerState,
 } from './flashcard-deck';
 
 describe('pendingIndexes', () => {
@@ -124,5 +131,67 @@ describe('sanitizeKnown', () => {
     expect(sanitizeKnown('no soy un array', 5).size).toBe(0);
     expect(sanitizeKnown(null, 5).size).toBe(0);
     expect([...sanitizeKnown(['1', 1.5, -1, NaN, 2], 5)]).toEqual([2]);
+  });
+});
+
+describe('Leitner', () => {
+  it('las tarjetas empiezan en caja 1', () => {
+    const state = emptyLeitnerState();
+    expect(getBox(state, 0)).toBe(1);
+    expect(getBox(state, 99)).toBe(1);
+    expect(getReps(state, 0)).toBe(0);
+  });
+
+  it('"ok" sube una caja, "easy" sube directo a 3, "hard" baja a 1', () => {
+    let state = emptyLeitnerState();
+    state = answerCard(state, 0, 'ok');
+    expect(getBox(state, 0)).toBe(2);
+    expect(getReps(state, 0)).toBe(1);
+
+    state = answerCard(state, 0, 'ok');
+    expect(getBox(state, 0)).toBe(3);
+
+    state = answerCard(state, 0, 'ok');
+    expect(getBox(state, 0)).toBe(3);
+
+    state = answerCard(state, 0, 'hard');
+    expect(getBox(state, 0)).toBe(1);
+
+    state = answerCard(state, 1, 'easy');
+    expect(getBox(state, 1)).toBe(3);
+  });
+
+  it('countByBox cuenta bien', () => {
+    let state = emptyLeitnerState();
+    state = answerCard(state, 0, 'easy');
+    state = answerCard(state, 1, 'ok');
+    const counts = countByBox(state, 5);
+    expect(counts).toEqual({ 1: 3, 2: 1, 3: 1 });
+  });
+
+  it('leitnerOrder prioriza caja 1 sobre 2 sobre 3', () => {
+    let state = emptyLeitnerState();
+    state = answerCard(state, 0, 'easy');
+    state = answerCard(state, 2, 'ok');
+    const order = leitnerOrder([0, 1, 2, 3, 4], state);
+    expect(order[0]).not.toBe(0);
+    expect(order[order.length - 1]).toBe(0);
+  });
+
+  it('sanitizeLeitnerState descarta índices fuera de rango y cajas inválidas', () => {
+    const state = sanitizeLeitnerState(
+      { boxes: { 0: 2, 1: 5, 99: 3 }, reps: { 0: 3, 1: -1 } },
+      5,
+    );
+    expect(getBox(state, 0)).toBe(2);
+    expect(getBox(state, 1)).toBe(1);
+    expect(getReps(state, 0)).toBe(3);
+    expect(getReps(state, 1)).toBe(0);
+  });
+
+  it('sanitizeLeitnerState acepta basura sin lanzar', () => {
+    expect(sanitizeLeitnerState(null, 5)).toEqual(emptyLeitnerState());
+    expect(sanitizeLeitnerState('texto', 5)).toEqual(emptyLeitnerState());
+    expect(sanitizeLeitnerState(42, 5)).toEqual(emptyLeitnerState());
   });
 });

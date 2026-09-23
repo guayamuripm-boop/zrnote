@@ -47,15 +47,21 @@ export default async function DashboardHome() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">Bienvenido, {user?.email}</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">
+            Hola, {user?.email?.split('@')[0] || 'ahí'}
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">
+            {totalMeetings === 0
+              ? 'Empieza grabando tu primera reunión'
+              : `${totalMeetings} reunión${totalMeetings !== 1 ? 'es' : ''} · ${pendingCount} tarea${pendingCount !== 1 ? 's' : ''} pendiente${pendingCount !== 1 ? 's' : ''}`}
+          </p>
         </div>
         <Link
           href="/dashboard/meetings/new"
           className="gradient-primary text-white px-4 sm:px-5 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 hover:-translate-y-0.5 hidden sm:inline-flex items-center gap-2"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Nueva Reunión
         </Link>
@@ -65,43 +71,23 @@ export default async function DashboardHome() {
       <MeetingSearch />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
-          <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center mb-3">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-            </svg>
+      <div className="grid grid-cols-4 gap-2 sm:gap-4">
+        {[
+          { n: totalMeetings, label: 'Reuniones', gradient: 'gradient-primary', icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z' },
+          { n: pendingCount, label: 'Pendientes', gradient: 'bg-gradient-to-br from-amber-500 to-orange-500', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
+          { n: completedCount, label: 'Listas', gradient: 'bg-gradient-to-br from-emerald-500 to-teal-500', icon: 'M5 13l4 4L19 7' },
+          { n: processingCount, label: 'Procesando', gradient: 'bg-gradient-to-br from-violet-500 to-purple-500', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+        ].map((stat) => (
+          <div key={stat.label} className="glass-strong rounded-2xl p-3 sm:p-5 shadow-elevated text-center">
+            <div className={`w-9 h-9 sm:w-10 sm:h-10 ${stat.gradient} rounded-xl flex items-center justify-center mx-auto mb-2`}>
+              <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d={stat.icon} />
+              </svg>
+            </div>
+            <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100">{stat.n}</p>
+            <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">{stat.label}</p>
           </div>
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{totalMeetings}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Reuniones</p>
-        </div>
-        <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
-          <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl flex items-center justify-center mb-3">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          </div>
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{pendingCount}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Tareas pendientes</p>
-        </div>
-        <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
-          <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center mb-3">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{completedCount}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Completadas</p>
-        </div>
-        <div className="glass-strong rounded-2xl p-4 sm:p-5 shadow-elevated">
-          <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-500 rounded-xl flex items-center justify-center mb-3">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{processingCount}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Procesando</p>
-        </div>
+        ))}
       </div>
 
       {/* Recent Meetings */}
