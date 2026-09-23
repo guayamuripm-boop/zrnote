@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { sanitizeHtml } from '@/lib/safe-html';
+import DOMPurify from 'dompurify';
+import { PURIFY_CONFIG } from '@/lib/safe-html';
 
 export const LEGAL_VERSION = '2.0';
 
@@ -147,7 +148,7 @@ export default function TermsModal({
               </p>
             </div>
           ) : (
-            <div className="legal-doc" dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }} />
+            <div className="legal-doc" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content, PURIFY_CONFIG) }} />
           )}
         </div>
 

@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { createServerSupabase } from '@/lib/supabase/server';
-import { sanitizeHtml } from '@/lib/safe-html';
+import SafeHtmlContent from '@/components/legal/SafeHtmlContent';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +74,7 @@ export default async function LegalDocumentPage({ params }: { params: Promise<{ 
       <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12">
         <div className="glass-strong rounded-2xl p-6 sm:p-8 shadow-elevated">
           {doc ? (
-            <div className="legal-doc" dangerouslySetInnerHTML={{ __html: sanitizeHtml(doc.content) }} />
+            <SafeHtmlContent html={doc.content} className="legal-doc" />
           ) : (
             <div className="space-y-3 text-slate-600 dark:text-slate-300">
               <p className="font-medium text-slate-900 dark:text-slate-100">
