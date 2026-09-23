@@ -27,7 +27,7 @@
 // v6: se intercepta el POST del share sheet a /share-target (Web Share Target)
 // — sin bump de VERSION el sistema operativo seguiría llamando al SW anterior
 // y ese POST no llegaría a ninguna parte.
-const VERSION = 'zrnote-v6';
+const VERSION = 'zrnote-v7';
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = '/offline.html';
 // La única navegación de /dashboard que este SW puede cachear con seguridad.
@@ -142,6 +142,72 @@ async function handleShareTarget(request) {
   // historial (el usuario no verá "confirmar reenvío" al pulsar atrás).
   return Response.redirect('/share-target', 303);
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Background Sync: retry pending segment uploads when connectivity returns.
+// The main thread registers a 'segment-upload' sync tag when an upload fails
+// due to network issues. The browser fires this event when it detects a
+// usable connection, even if the tab is closed.
+// ────────────────────────────────────────────────────────────────────────────
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'segment-upload') {
+    event.waitUntil(notifyClientsToRetryUploads());
+  }
+});
+
+async function notifyClientsToRetryUploads() {
+  const clients = await self.clients.matchAll({ type: 'window' });
+  for (const client of clients) {
+    client.postMessage({ type: 'retry-uploads' });
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Push Notifications: show a notification when the server sends a push event
+// (e.g. pipeline completed, new action item assigned).
+// ────────────────────────────────────────────────────────────────────────────
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+  try {
+    const payload = event.data.json();
+    const title = payload.title || 'ZRNote';
+    const options = {
+      body: payload.body || '',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: payload.tag || 'zrnote-notification',
+      data: { url: payload.url || '/dashboard' },
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch {
+    /* malformed push — ignore */
+  }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/dashboard';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window' }).then((clients) => {
+      for (const client of clients) {
+        if (client.url.includes(url) && 'focus' in client) return client.focus();
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Badging: the main thread sends a message with the pending-task count and
+// the SW sets the app badge accordingly (works on installed PWAs).
+// ────────────────────────────────────────────────────────────────────────────
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'set-badge' && 'setAppBadge' in navigator) {
+    const count = event.data.count || 0;
+    if (count > 0) navigator.setAppBadge(count).catch(() => {});
+    else navigator.clearAppBadge().catch(() => {});
+  }
+});
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
 import DeleteAccountSection from '@/components/DeleteAccountSection';
 import InstallAppButton from '@/components/InstallAppButton';
+import NotificationToggle from '@/components/NotificationToggle';
 
 export default async function ProfilePage() {
   const supabase = await createServerSupabase();
@@ -41,6 +42,10 @@ export default async function ProfilePage() {
         </div>
 
         <InstallAppButton variant="section" />
+
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+          <NotificationToggle />
+        </div>
 
         <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
           <Link

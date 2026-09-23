@@ -50,6 +50,17 @@
       "url": "/dashboard/action-items"
     }
   ],
+  "file_handlers": [
+    {
+      "action": "/share-target",
+      "name": "Abrir audio",
+      "accept": {
+        "audio/*": [".mp3", ".m4a", ".wav", ".aac", ".ogg", ".webm", ".opus", ".flac"],
+        "video/mp4": [".mp4"],
+        "video/quicktime": [".mov"]
+      }
+    }
+  ],
   "share_target": {
     "action": "/share-target",
     "method": "POST",

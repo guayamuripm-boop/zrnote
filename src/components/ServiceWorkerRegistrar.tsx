@@ -29,6 +29,14 @@ export default function ServiceWorkerRegistrar() {
     // Wait for load so registration never competes with the first paint.
     if (document.readyState === 'complete') register();
     else window.addEventListener('load', register, { once: true });
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'retry-uploads') {
+        window.dispatchEvent(new CustomEvent('zrnote:retry-uploads'));
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
   }, []);
 
   return null;

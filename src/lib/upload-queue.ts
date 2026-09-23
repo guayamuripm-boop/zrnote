@@ -29,6 +29,7 @@ import {
 import { maybeCompressAudio } from '@/lib/audio-compression';
 import { ensureMeetingSynced } from '@/lib/meeting-queue';
 import { MAX_UPLOAD_ATTEMPTS, backoffMs, isPermanentHttpFailure } from '@/lib/retry-backoff';
+import { registerBackgroundSync } from '@/lib/background-sync';
 
 export interface QueueStatus {
   /** Segments captured but not yet confirmed by the server. */
@@ -172,6 +173,7 @@ export class SegmentUploader {
 
         await updateSegment(seg.id, { state: 'pending', attempts: attempt, lastError: message });
         this.emit();
+        void registerBackgroundSync();
         await sleep(backoffMs(attempt));
       }
     }
