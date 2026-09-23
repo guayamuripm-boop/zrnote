@@ -1,4 +1,4 @@
-import { escapeHtml, escapeHtmlOrEmpty } from '@/lib/safe-html';
+import { escapeHtml, escapeHtmlOrEmpty } from '@/lib/escape-html';
 import { generateGoogleCalendarUrl } from '@/lib/google-calendar';
 
 import { appUrl } from '@/lib/app-url';

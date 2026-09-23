@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escapeHtml, escapeHtmlOrEmpty } from '@/lib/safe-html';
+import { escapeHtml, escapeHtmlOrEmpty } from '@/lib/escape-html';
 
 describe('escapeHtml — XSS protection for LLM-derived email content', () => {
   it('escapes the five dangerous HTML characters', () => {

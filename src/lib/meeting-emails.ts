@@ -10,7 +10,7 @@
 import { logger } from '@/lib/logger';
 import { sendMail, unsubscribeHeaders } from '@/lib/smtp';
 import { generateICS, icsToBuffer, CalendarEvent } from '@/lib/ics';
-import { escapeHtml } from '@/lib/safe-html';
+import { escapeHtml } from '@/lib/escape-html';
 import {
   claimEmailJobs,
   markEmailSent,

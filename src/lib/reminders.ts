@@ -1,5 +1,5 @@
 import { logger } from '@/lib/logger';
-import { escapeHtml } from '@/lib/safe-html';
+import { escapeHtml } from '@/lib/escape-html';
 import { sendMail, isEmailConfigured, EMAIL_NOT_CONFIGURED, unsubscribeHeaders } from '@/lib/smtp';
 import {
   claimEmailJobs,
