@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import DOMPurify from 'dompurify';
 import { PURIFY_CONFIG } from '@/lib/safe-html';
 
 export const LEGAL_VERSION = '2.0';
@@ -50,9 +49,10 @@ export default function TermsModal({
         if (!res.ok) throw new Error('not found');
         return res.json();
       })
-      .then((doc) => {
+      .then(async (doc) => {
         if (cancelled) return;
-        setContent(doc.content || '');
+        const { default: DOMPurify } = await import('dompurify');
+        setContent(DOMPurify.sanitize(doc.content || '', PURIFY_CONFIG));
       })
       .catch(() => !cancelled && setLoadError(true))
       .finally(() => !cancelled && setLoading(false));
@@ -148,7 +148,7 @@ export default function TermsModal({
               </p>
             </div>
           ) : (
-            <div className="legal-doc" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content, PURIFY_CONFIG) }} />
+            <div className="legal-doc" dangerouslySetInnerHTML={{ __html: content }} />
           )}
         </div>
 

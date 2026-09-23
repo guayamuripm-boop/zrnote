@@ -1,7 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
-import DOMPurify from 'dompurify';
+import { useEffect, useState } from 'react';
 import { PURIFY_CONFIG } from '@/lib/safe-html';
 
 export default function SafeHtmlContent({
@@ -11,6 +10,18 @@ export default function SafeHtmlContent({
   html: string;
   className?: string;
 }) {
-  const clean = useMemo(() => DOMPurify.sanitize(html, PURIFY_CONFIG), [html]);
+  const [clean, setClean] = useState('');
+
+  useEffect(() => {
+    import('dompurify').then((mod) => {
+      const DOMPurify = mod.default;
+      setClean(DOMPurify.sanitize(html, PURIFY_CONFIG));
+    });
+  }, [html]);
+
+  if (!clean) {
+    return <div className={className} aria-busy="true" />;
+  }
+
   return <div className={className} dangerouslySetInnerHTML={{ __html: clean }} />;
 }
