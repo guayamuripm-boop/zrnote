@@ -28,3 +28,10 @@ extension.crx
 
 # Estado local del CLI de Supabase (contiene el ref del proyecto enlazado).
 supabase/.temp/
+
+# TWA build artifacts (keystores, signed APKs, Gradle cache).
+twa/*.jks
+twa/*.apk
+twa/build/
+twa/.gradle/
+twa/app/

@@ -1,0 +1,72 @@
+{
+  "packageId": "com.zrnote.app",
+  "host": "zrnote.vercel.app",
+  "name": "ZRNote — Minutas Inteligentes",
+  "launcherName": "ZRNote",
+  "display": "standalone",
+  "themeColor": "#2563eb",
+  "themeColorDark": "#1e3a5f",
+  "navigationColor": "#f8fafc",
+  "navigationColorDark": "#0f172a",
+  "navigationDividerColor": "#e2e8f0",
+  "navigationDividerColorDark": "#334155",
+  "backgroundColor": "#f8fafc",
+  "enableNotifications": true,
+  "startUrl": "/dashboard",
+  "iconUrl": "https://zrnote.vercel.app/icon-512.png",
+  "maskableIconUrl": "https://zrnote.vercel.app/icon-maskable-512.png",
+  "shortcuts": [
+    {
+      "name": "Grabar ahora",
+      "short_name": "Grabar",
+      "url": "/dashboard/meetings/new",
+      "icons": [
+        {
+          "src": "https://zrnote.vercel.app/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Mis compromisos",
+      "short_name": "Compromisos",
+      "url": "/dashboard/action-items",
+      "icons": [
+        {
+          "src": "https://zrnote.vercel.app/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://zrnote.vercel.app/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": false
+    },
+    "playBilling": {
+      "enabled": false
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://zrnote.vercel.app/",
+  "minSdkVersion": 23,
+  "orientation": "any",
+  "fingerprints": [],
+  "serviceAccountJsonFile": "",
+  "signing": {
+    "keystore": "./zrnote-keystore.jks",
+    "alias": "zrnote"
+  },
+  "appVersionName": "1.27.0",
+  "appVersionCode": 127,
+  "signingMode": "new",
+  "resizeOnKeyboard": true
+}
