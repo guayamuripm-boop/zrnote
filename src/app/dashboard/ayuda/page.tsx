@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import InstallAppButton from '@/components/InstallAppButton';
+import ResetTourButton from '@/components/ResetTourButton';
 
 export const metadata = {
   title: 'Cómo usar ZRNote',
@@ -247,7 +248,7 @@ export default function AyudaPage() {
         ))}
       </div>
 
-      <div className="glass-strong rounded-2xl p-5 text-center">
+      <div className="glass-strong rounded-2xl p-5 text-center space-y-2">
         <p className="text-sm text-slate-600 dark:text-slate-300">¿Algo no funcionó como esperabas?</p>
         <Link
           href="/dashboard/diagnostico"
@@ -255,6 +256,7 @@ export default function AyudaPage() {
         >
           Revisa el diagnóstico del sistema
         </Link>
+        <ResetTourButton />
       </div>
     </div>
   );

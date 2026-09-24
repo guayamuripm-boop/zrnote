@@ -1448,6 +1448,23 @@ export async function markMeetingCompleted(meetingId: string): Promise<{ success
     .update({ status: 'completed', error_message: null })
     .eq('id', meetingId);
   if (error) return { success: false, error: error.message };
+
+  // Fire-and-forget push notification to the meeting creator
+  const { sendPushToUser } = await import('@/lib/push-sender');
+  const { data: meeting } = await supabase
+    .from('meetings')
+    .select('created_by, title')
+    .eq('id', meetingId)
+    .single();
+  if (meeting?.created_by) {
+    sendPushToUser(meeting.created_by, {
+      title: 'Tu minuta está lista',
+      body: meeting.title || 'Reunión sin título',
+      tag: `minute-ready-${meetingId}`,
+      url: `/dashboard/meetings/${meetingId}`,
+    }).catch(() => {});
+  }
+
   return { success: true };
 }
 

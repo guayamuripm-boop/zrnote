@@ -26,10 +26,35 @@ export default function NotificationToggle() {
     setLoading(true);
     try {
       if (enabled) {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await fetch('/api/push/subscribe', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          });
+        }
         await unsubscribeFromPush();
         setPermission('default');
       } else {
         const sub = await subscribeToPush();
+        if (sub) {
+          const json = sub.toJSON();
+          const res = await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              endpoint: sub.endpoint,
+              keys: { p256dh: json.keys!.p256dh, auth: json.keys!.auth },
+            }),
+          });
+          if (!res.ok) {
+            await sub.unsubscribe();
+            setPermission('default');
+            return;
+          }
+        }
         setPermission(sub ? 'granted' : 'denied');
       }
     } finally {

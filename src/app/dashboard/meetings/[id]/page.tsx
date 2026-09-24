@@ -19,6 +19,7 @@ import { normalizeMinuteSections } from '@/lib/minute-text';
 import StudySection from '@/components/study/StudySection';
 import CacheMinuteForOffline from '@/components/CacheMinuteForOffline';
 import CopyMinuteButton from '@/components/CopyMinuteButton';
+import TagAssigner from '@/components/TagAssigner';
 
 export default async function MeetingDetailPage({
   params,
@@ -120,6 +121,9 @@ export default async function MeetingDetailPage({
               {meeting.coordination && `${meeting.coordination} · `}
               {new Date(meeting.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
+            <div className="mt-1.5">
+              <TagAssigner meetingId={meeting.id} />
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 sm:justify-end">
             <StatusBadge status={meeting.status} />

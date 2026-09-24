@@ -2,8 +2,18 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/StatusBadge';
 import PendingMeetingsBanner from '@/components/PendingMeetingsBanner';
+import TagFilter from '@/components/TagFilter';
+import TagPill from '@/components/TagPill';
+import MeetingsTagManager from '@/components/MeetingsTagManager';
 
-export default async function MeetingsPage() {
+export default async function MeetingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const resolvedParams = await searchParams;
+  const activeTagId = typeof resolvedParams.tag === 'string' ? resolvedParams.tag : null;
+
   const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -23,6 +33,34 @@ export default async function MeetingsPage() {
     : { data: [] as { id: string; kept: boolean }[] };
   const keptById = new Map((keptRows || []).map((r) => [r.id, r.kept]));
 
+  // Tags — fetched defensively (migration 034 may not be applied yet)
+  const { data: allTags } = await supabase
+    .from('tags')
+    .select('id, name, color')
+    .order('name')
+    .then((r) => r, () => ({ data: [] as any[] }));
+  const tags = (allTags || []) as Array<{ id: string; name: string; color: string }>;
+
+  let meetingTagMap = new Map<string, Array<{ id: string; name: string; color: string }>>();
+  if (meetingIds.length && tags.length) {
+    const { data: mtRows } = await supabase
+      .from('meeting_tags')
+      .select('meeting_id, tag_id')
+      .in('meeting_id', meetingIds);
+    const tagById = new Map(tags.map((t) => [t.id, t]));
+    for (const row of mtRows || []) {
+      const tag = tagById.get(row.tag_id);
+      if (!tag) continue;
+      const arr = meetingTagMap.get(row.meeting_id) || [];
+      arr.push(tag);
+      meetingTagMap.set(row.meeting_id, arr);
+    }
+  }
+
+  const filteredMeetings = activeTagId
+    ? (meetings || []).filter((m) => (meetingTagMap.get(m.id) || []).some((t) => t.id === activeTagId))
+    : meetings;
+
   return (
     <div className="space-y-6">
       <PendingMeetingsBanner />
@@ -37,20 +75,25 @@ export default async function MeetingsPage() {
             </Link>
           </p>
         </div>
-        <Link
-          href="/dashboard/meetings/new"
-          className="gradient-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 inline-flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Nueva
-        </Link>
+        <div className="flex items-center gap-2">
+          <MeetingsTagManager initialTags={tags} />
+          <Link
+            href="/dashboard/meetings/new"
+            className="gradient-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 inline-flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Nueva
+          </Link>
+        </div>
       </div>
 
-      {meetings && meetings.length > 0 ? (
+      {tags.length > 0 && <TagFilter tags={tags} />}
+
+      {filteredMeetings && filteredMeetings.length > 0 ? (
         <div className="space-y-3">
-          {meetings.map((meeting) => (
+          {filteredMeetings.map((meeting) => (
             <Link
               key={meeting.id}
               href={`/dashboard/meetings/${meeting.id}`}
@@ -63,6 +106,9 @@ export default async function MeetingsPage() {
                     {meeting.coordination && (
                       <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full">{meeting.coordination}</span>
                     )}
+                    {(meetingTagMap.get(meeting.id) || []).map((tag) => (
+                      <TagPill key={tag.id} tag={tag} />
+                    ))}
                     <span className="text-xs text-slate-400 dark:text-slate-500">
                       {new Date(meeting.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </span>

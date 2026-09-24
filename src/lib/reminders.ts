@@ -127,5 +127,41 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
   }
 
   logger.info('reminders sent', { sent, failed, recipients: byEmail.size });
+
+  // Push notifications — complementary to email, never a replacement.
+  // Group items by the meeting creator (who has a ZRNote account and potential
+  // push subscription). External assignees only get email above.
+  try {
+    const { sendPushToUser } = await import('@/lib/push-sender');
+
+    const meetingIds = [...new Set(items.map((it) => it.meeting_id))];
+    const { data: meetings } = await supabase
+      .from('meetings')
+      .select('id, created_by')
+      .in('id', meetingIds);
+
+    if (meetings?.length) {
+      const creatorItems = new Map<string, number>();
+      const creatorById = new Map(meetings.map((m) => [m.id, m.created_by]));
+
+      for (const it of items) {
+        const creatorId = creatorById.get(it.meeting_id);
+        if (!creatorId) continue;
+        creatorItems.set(creatorId, (creatorItems.get(creatorId) || 0) + 1);
+      }
+
+      for (const [userId, count] of creatorItems) {
+        sendPushToUser(userId, {
+          title: 'Tareas para mañana',
+          body: `Tienes ${count} ${count === 1 ? 'tarea que vence' : 'tareas que vencen'} mañana`,
+          tag: 'reminder-daily',
+          url: '/dashboard/action-items',
+        }).catch(() => {});
+      }
+    }
+  } catch {
+    // Push is best-effort
+  }
+
   return { sent, failed };
 }
