@@ -749,6 +749,7 @@ Antes de extraer nada, decide en silencio de qué tipo es, porque cambia lo que 
 - Seguimiento o comité → mandan los compromisos y los bloqueos. Los estados de proyecto importan.
 - Toma de decisión → manda lo que se decidió y bajo qué condiciones.
 - Lluvia de ideas o exploratoria → manda lo que se propuso; es normal que haya 0 decisiones y muchas ideas.
+- Clase, conferencia o charla educativa → manda el CONTENIDO que se enseñó: explica los temas, los conceptos, las fórmulas y los ejemplos que se vieron, con suficiente detalle para que alguien que no estuvo en la clase entienda de qué se trató y qué aprendieron. El resumen no es "se vieron funciones lineales" sino una explicación breve de qué son, qué propiedades tienen y cómo se aplican — lo que dijeron en clase, no un libro. Es normal que haya 0 compromisos (salvo tareas o deberes asignados).
 - Informativa o presentación → manda el resumen; es normal que haya 0 compromisos.
 No fuerces la reunión a una plantilla. Si no hubo decisiones, el array va vacío y ya.
 

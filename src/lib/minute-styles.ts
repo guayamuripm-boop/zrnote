@@ -69,7 +69,7 @@ export const MINUTE_STYLES: Record<string, MinuteStyleDef> = {
     commitmentExamples:
       '"para la próxima clase traigan…", "queda de tarea…", "revisen el capítulo…", "entreguen el…", "van a preparar…", "esto entra en el examen"',
     contentFocus:
-      'De qué trató la clase y qué hay que llevarse de ella: primero el tema y cómo encaja con lo anterior, después las ideas principales que se explicaron y, si las hubo, lo que queda pendiente de entregar o estudiar. Escribe sobre el CONTENIDO ("la clase cubrió la ley de Ohm y su aplicación a circuitos en serie"), no sobre la sesión ("el profesor habló de…", "se discutió el tema de…").',
+      'Explica el contenido que se enseñó como si fueras un compañero que le cuenta a otro qué vieron en clase. No listes los temas: DESARRÓLLALOS. Para cada concepto importante, di qué es, cómo funciona y para qué sirve, con las palabras con que se explicó en clase. Si se vieron fórmulas, escríbelas y explica qué calcula cada una. Si se hicieron ejercicios, describe el planteamiento y la solución. Que alguien que no estuvo pueda leer este resumen y ENTENDER la clase, no solo saber de qué habló. Nunca digas "se vio", "se habló de", "el profesor explicó" — ve directo al contenido ("La ley de Ohm establece que V = I × R, donde…"). Al final, si quedaron tareas o deberes, menciónalos.',
 
     extraRules: `APUNTES DE CLASE: EL BLOQUE "study_aids"
 Además del acta, esta sesión es una CLASE, así que produces también material de estudio. Es la parte que más se va a usar, así que trátala con el mismo cuidado que los compromisos.
