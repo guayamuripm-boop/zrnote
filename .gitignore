@@ -32,6 +32,9 @@ supabase/.temp/
 # TWA build artifacts (keystores, signed APKs, Gradle cache).
 twa/*.jks
 twa/*.apk
+twa/*.aab
+twa/*.keystore
 twa/build/
 twa/.gradle/
 twa/app/
+twa/package/
