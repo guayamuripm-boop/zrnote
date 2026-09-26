@@ -27,7 +27,7 @@
 // uploaded anywhere — it only ever leaves a trace in this browser's own
 // storage until the real pipeline replaces it.
 
-const MODEL_ID = 'Xenova/whisper-tiny';
+const MODEL_ID = 'onnx-community/whisper-tiny';
 
 export interface OfflineModelStatus {
   /** The model's weights are already cached by the browser and ready to use offline. */
@@ -54,7 +54,7 @@ export async function offlineModelStatus(): Promise<OfflineModelStatus> {
     for (const key of keys) {
       const cache = await caches.open(key);
       const requests = await cache.keys();
-      if (requests.some((r) => r.url.includes(MODEL_ID.replace('/', '/')))) {
+      if (requests.some((r) => r.url.includes('whisper-tiny'))) {
         return { ready: true, approxSizeMb };
       }
     }
@@ -78,6 +78,7 @@ export async function downloadOfflineModel(onProgress?: (pct: number, label: str
 
   onProgress?.(0, 'Iniciando descarga…');
   await pipeline('automatic-speech-recognition', MODEL_ID, {
+    dtype: 'q8',
     progress_callback: (p: any) => {
       if (p?.status === 'progress' && typeof p.progress === 'number') {
         onProgress?.(Math.round(p.progress), p.file || 'Descargando…');
@@ -124,7 +125,7 @@ export async function transcribeOffline(blob: Blob): Promise<{ text: string; err
     if (!pipelinePromise) {
       const { pipeline, env } = await import('@huggingface/transformers');
       env.allowLocalModels = false;
-      pipelinePromise = pipeline('automatic-speech-recognition', MODEL_ID);
+      pipelinePromise = pipeline('automatic-speech-recognition', MODEL_ID, { dtype: 'q8' });
     }
     const transcriber = await pipelinePromise;
 
