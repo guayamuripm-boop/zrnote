@@ -42,6 +42,49 @@ export async function subscribeToPush(): Promise<PushSubscription | null> {
   }
 }
 
+/** Guarda (upsert) la suscripción en el servidor. Sin esto el aviso nunca sale. */
+export async function registerSubscriptionOnServer(sub: PushSubscription): Promise<boolean> {
+  const json = sub.toJSON();
+  if (!json.keys?.p256dh || !json.keys?.auth) return false;
+  try {
+    const res = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh: json.keys.p256dh, auth: json.keys.auth } }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Pide permiso, suscribe y registra en el servidor. */
+export async function enablePush(): Promise<'granted' | 'denied' | 'default' | 'error'> {
+  const sub = await subscribeToPush();
+  if (!sub) return (await getPushPermission()) === 'denied' ? 'denied' : 'error';
+  if (!(await registerSubscriptionOnServer(sub))) {
+    await sub.unsubscribe().catch(() => {});
+    return 'error';
+  }
+  return 'granted';
+}
+
+/**
+ * Si ya dio permiso, asegura que la suscripción del navegador exista Y esté en
+ * el servidor. Las suscripciones caducan o se rotan, y antes nada las volvía a
+ * registrar: el interruptor decía «activado» y los avisos no llegaban.
+ * Silenciosa: nunca pide permiso.
+ */
+export async function resyncPushSubscription(): Promise<void> {
+  try {
+    if (!(await isPushSupported()) || Notification.permission !== 'granted') return;
+    const sub = await subscribeToPush();
+    if (sub) await registerSubscriptionOnServer(sub);
+  } catch {
+    /* best-effort */
+  }
+}
+
 export async function unsubscribeFromPush(): Promise<boolean> {
   try {
     const reg = await navigator.serviceWorker.ready;

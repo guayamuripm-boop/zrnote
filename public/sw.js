@@ -187,12 +187,18 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = event.notification.data?.url || '/dashboard';
+  // Antes se comparaba `client.url.includes('/dashboard/...')` y, si no
+  // coincidía, se abría una pestaña NUEVA cada vez. Ahora se reutiliza la
+  // ventana de la app que ya esté abierta y se navega a la minuta.
   event.waitUntil(
-    self.clients.matchAll({ type: 'window' }).then((clients) => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      const target = new URL(url, self.location.origin).href;
       for (const client of clients) {
-        if (client.url.includes(url) && 'focus' in client) return client.focus();
+        if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+          return client.focus().then((c) => (c && 'navigate' in c ? c.navigate(target) : undefined));
+        }
       }
-      return self.clients.openWindow(url);
+      return self.clients.openWindow(target);
     }),
   );
 });

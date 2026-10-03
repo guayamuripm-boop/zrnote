@@ -9,6 +9,7 @@ import TermsGate from '@/components/legal/TermsGate';
 import SignOutButton from '@/components/SignOutButton';
 import MobileNav from '@/components/MobileNav';
 import OnboardingTour from '@/components/OnboardingTour';
+import PushSync from '@/components/PushSync';
 
 export default async function DashboardLayout({
   children,
@@ -22,6 +23,7 @@ export default async function DashboardLayout({
     <div className="min-h-screen gradient-mesh">
       <VersionLogger version={`ZRNote v${VERSION}`} commitSha={COMMIT_SHA} />
       <TermsGate />
+      <PushSync />
       {user && <OnboardingTour userId={user.id} />}
       {/* Desktop Nav */}
       <nav className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl sticky top-0 z-50 border-b border-slate-200/50 dark:border-slate-700/50 hidden sm:block">

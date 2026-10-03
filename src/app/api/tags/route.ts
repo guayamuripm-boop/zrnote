@@ -37,8 +37,9 @@ export async function POST(request: NextRequest) {
   const auth = await getAuthedUser(request);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const limited = await checkRateLimit(`tags-create:${auth.user.id}`, { max: 20 });
-  if (limited) return NextResponse.json({ error: 'Demasiados intentos.' }, { status: 429 });
+  // Ver push/subscribe: `limited` era un objeto, siempre verdadero → 429 siempre.
+  const { allowed } = await checkRateLimit(`tags-create:${auth.user.id}`, { max: 20 });
+  if (!allowed) return NextResponse.json({ error: 'Demasiados intentos.' }, { status: 429 });
 
   let body: unknown;
   try { body = await request.json(); } catch {

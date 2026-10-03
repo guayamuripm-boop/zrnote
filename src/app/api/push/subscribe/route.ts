@@ -21,8 +21,10 @@ export async function POST(request: NextRequest) {
   const auth = await getAuthedUser(request);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const limited = await checkRateLimit(`push-subscribe:${auth.user.id}`, { max: 10 });
-  if (limited) return NextResponse.json({ error: 'Demasiados intentos.' }, { status: 429 });
+  // checkRateLimit devuelve `{ allowed }`, un objeto siempre «truthy»: antes
+  // `if (limited)` respondía 429 SIEMPRE y nadie pudo suscribirse a push jamás.
+  const { allowed } = await checkRateLimit(`push-subscribe:${auth.user.id}`, { max: 10 });
+  if (!allowed) return NextResponse.json({ error: 'Demasiados intentos.' }, { status: 429 });
 
   let body: unknown;
   try { body = await request.json(); } catch {

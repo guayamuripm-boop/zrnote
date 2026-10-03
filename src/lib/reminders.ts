@@ -150,14 +150,17 @@ export async function sendDueReminders(): Promise<{ sent: number; failed: number
         creatorItems.set(creatorId, (creatorItems.get(creatorId) || 0) + 1);
       }
 
-      for (const [userId, count] of creatorItems) {
-        sendPushToUser(userId, {
-          title: 'Tareas para mañana',
-          body: `Tienes ${count} ${count === 1 ? 'tarea que vence' : 'tareas que vencen'} mañana`,
-          tag: 'reminder-daily',
-          url: '/dashboard/action-items',
-        }).catch(() => {});
-      }
+      // Se esperan todos: en serverless, lo no esperado se pierde al responder.
+      await Promise.allSettled(
+        [...creatorItems].map(([userId, count]) =>
+          sendPushToUser(userId, {
+            title: 'Tareas para mañana',
+            body: `Tienes ${count} ${count === 1 ? 'tarea que vence' : 'tareas que vencen'} mañana`,
+            tag: 'reminder-daily',
+            url: '/dashboard/action-items',
+          }),
+        ),
+      );
     }
   } catch {
     // Push is best-effort

@@ -473,7 +473,13 @@ export default function LandingPage() {
               <span className="font-bold text-slate-900 dark:text-slate-100 text-sm">ZRNote</span>
             </Link>
 
-            <div className="flex items-center gap-4 text-sm">
+            <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
+              <Link href="/minutas-de-reunion-con-ia" className="text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition">
+                Minutas con IA
+              </Link>
+              <Link href="/apuntes-de-clase-con-ia" className="text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition">
+                Apuntes de clase
+              </Link>
               <Link href="/legal/terminos" className="text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition">
                 Condiciones
               </Link>

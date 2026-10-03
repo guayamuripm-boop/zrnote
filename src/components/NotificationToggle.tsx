@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   isPushSupported,
   getPushPermission,
-  subscribeToPush,
+  enablePush,
   unsubscribeFromPush,
 } from '@/lib/push-notifications';
 
@@ -38,24 +38,8 @@ export default function NotificationToggle() {
         await unsubscribeFromPush();
         setPermission('default');
       } else {
-        const sub = await subscribeToPush();
-        if (sub) {
-          const json = sub.toJSON();
-          const res = await fetch('/api/push/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              endpoint: sub.endpoint,
-              keys: { p256dh: json.keys!.p256dh, auth: json.keys!.auth },
-            }),
-          });
-          if (!res.ok) {
-            await sub.unsubscribe();
-            setPermission('default');
-            return;
-          }
-        }
-        setPermission(sub ? 'granted' : 'denied');
+        const result = await enablePush();
+        setPermission(result === 'granted' ? 'granted' : result === 'denied' ? 'denied' : 'default');
       }
     } finally {
       setLoading(false);

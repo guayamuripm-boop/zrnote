@@ -12,7 +12,7 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: '*',
-      allow: ['/', '/legal', '/legal/', '/login', '/signup'],
+      allow: ['/', '/legal', '/legal/', '/login', '/signup', '/minutas-de-reunion-con-ia', '/apuntes-de-clase-con-ia'],
       disallow: ['/dashboard', '/api', '/minuta', '/baja'],
     },
     sitemap: `${siteUrl}/sitemap.xml`,

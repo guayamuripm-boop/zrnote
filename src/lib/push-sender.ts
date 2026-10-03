@@ -55,6 +55,9 @@ export async function sendPushToUser(
             keys: { p256dh: sub.keys_p256dh, auth: sub.keys_auth },
           },
           body,
+          // «Tu minuta está lista» caduca: pasadas 24 h no aporta nada. Con
+          // urgencia alta se entrega aunque el móvil esté en ahorro de batería.
+          { TTL: 60 * 60 * 24, urgency: 'high' },
         );
         sent++;
       } catch (err: any) {

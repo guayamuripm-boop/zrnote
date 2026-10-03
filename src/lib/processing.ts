@@ -1458,15 +1458,29 @@ export async function markMeetingCompleted(meetingId: string): Promise<{ success
     .eq('id', meetingId)
     .single();
   if (meeting?.created_by) {
-    sendPushToUser(meeting.created_by, {
-      title: 'Tu minuta está lista',
-      body: meeting.title || 'Reunión sin título',
-      tag: `minute-ready-${meetingId}`,
-      url: `/dashboard/meetings/${meetingId}`,
-    }).catch(() => {});
+    // Se ESPERA (con tope): en Vercel la función se congela al responder, y un
+    // envío «fire-and-forget» muere a medias — el aviso no llegaba casi nunca.
+    await withTimeout(
+      sendPushToUser(meeting.created_by, {
+        title: 'Tu minuta está lista',
+        body: meeting.title || 'Reunión sin título',
+        tag: `minute-ready-${meetingId}`,
+        url: `/dashboard/meetings/${meetingId}`,
+      }),
+      5000,
+    );
   }
 
   return { success: true };
+}
+
+/** Espera la promesa como mucho `ms`; nunca lanza (el push es un extra). */
+async function withTimeout(p: Promise<unknown>, ms: number): Promise<void> {
+  try {
+    await Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+  } catch {
+    /* best-effort */
+  }
 }
 
 export async function markMeetingFailed(meetingId: string, errorMsg: string): Promise<void> {

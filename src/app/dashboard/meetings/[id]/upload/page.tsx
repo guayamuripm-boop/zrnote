@@ -11,6 +11,7 @@ import { runMeetingPipeline } from '@/lib/pipeline-client';
 import RecordingConsentGate from '@/components/legal/RecordingConsentGate';
 import { MAX_UPLOAD_ATTEMPTS, backoffMs, isPermanentHttpFailure } from '@/lib/retry-backoff';
 import { readSharedAudio, clearSharedAudio } from '@/lib/share-stash';
+import PushPrompt from '@/components/PushPrompt';
 
 interface UploadedFile {
   _id: string;
@@ -421,6 +422,19 @@ export default function UploadAudioPage() {
     setUploading(false);
   };
 
+  // Subida automática: en cuanto todos los fragmentos están preparados, se
+  // suben sin pedir confirmación. El usuario ya confirmó al elegir el archivo;
+  // lo único que debe decidir después es «Generar la minuta». Sólo se dispara
+  // por fragmentos 'pending': los que fallaron quedan a la espera del botón
+  // «Reintentar», así que un error no puede crear un bucle de subidas.
+  useEffect(() => {
+    if (!consentGiven || uploading || processing) return;
+    const hasPending = files.some((f) => f.status === 'pending');
+    const stillPreparing = files.some((f) => f.status === 'preparing');
+    if (hasPending && !stillPreparing) void handleUpload();
+    // handleUpload se recrea en cada render y lee `files` de este mismo render.
+  }, [files, consentGiven, uploading, processing]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /** Kick off transcription → minute → e-mails for whatever is already uploaded. */
   const startProcessing = async () => {
     setProcessing(true);
@@ -477,7 +491,7 @@ export default function UploadAudioPage() {
         <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Subir Audio</h1>
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
           MP3, M4A, WAV, OGG, WebM, AAC — incluso grabaciones de varias horas. Se divide y
-          sube automáticamente.
+          sube solo; tú sólo confirmas «Generar la minuta».
         </p>
       </div>
 
@@ -621,26 +635,26 @@ export default function UploadAudioPage() {
             {errorCount > 0 && ` · ${errorCount} con error`}
           </p>
 
-          {canUpload && (
+          {/* La subida es automática; este botón sólo existe para reintentar
+              lo que falló. */}
+          {canUpload && errorCount > 0 && pendingCount === 0 && (
             <button
               onClick={handleUpload}
               className="w-full gradient-primary text-white py-3.5 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300"
             >
-              {errorCount > 0 && pendingCount === 0
-                ? `Reintentar ${errorCount} archivo(s)`
-                : `Subir ${pendingCount + errorCount} archivo(s)`}
+              {`Reintentar ${errorCount} archivo(s)`}
             </button>
           )}
 
-          {(uploading || preparingCount > 0) && (
+          {(uploading || preparingCount > 0 || pendingCount > 0) && (
             <button disabled className="w-full gradient-primary text-white py-3.5 rounded-xl font-medium opacity-50">
-              {preparingCount > 0 ? 'Preparando…' : 'Subiendo…'}
+              {preparingCount > 0 ? 'Preparando el audio…' : 'Subiendo…'}
             </button>
           )}
 
           {/* Partial success must not be a dead end: as long as SOMETHING got
               uploaded, let the user generate the minute with what there is. */}
-          {doneCount > 0 && !uploading && preparingCount === 0 && (
+          {doneCount > 0 && !uploading && preparingCount === 0 && pendingCount === 0 && (
             <button
               onClick={startProcessing}
               className={`w-full py-3.5 rounded-xl font-medium transition-all duration-300 ${
@@ -671,6 +685,7 @@ export default function UploadAudioPage() {
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
             Puede tardar unos minutos. No cierres esta pantalla.
           </p>
+          <PushPrompt />
         </div>
       )}
 
