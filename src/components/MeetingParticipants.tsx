@@ -39,15 +39,15 @@ export default function MeetingParticipants({
   const add = () => {
     const n = name.trim();
     const e = email.trim();
-    if (!n || !e.includes('@')) {
-      setMessage({ kind: 'error', text: 'Escribe un nombre y un correo válido.' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
+      setMessage({ kind: 'error', text: 'Escribe un correo válido.' });
       return;
     }
     if (participants.some((p) => p.email.toLowerCase() === e.toLowerCase())) {
       setMessage({ kind: 'error', text: 'Esa persona ya está en la lista.' });
       return;
     }
-    setParticipants([...participants, { name: n, email: e }]);
+    setParticipants([...participants, { name: n || e.split('@')[0], email: e }]);
     setName('');
     setEmail('');
     setMessage(null);
@@ -60,15 +60,32 @@ export default function MeetingParticipants({
     setSaving(true);
     setMessage(null);
     try {
+      // Un correo escrito pero sin «+ Agregar» también se guarda: antes se
+      // perdía en silencio y esa persona no recibía la minuta.
+      const typed = email.trim();
+      let toSave = guests;
+      if (typed) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed)) {
+          setMessage({ kind: 'error', text: 'El correo escrito no es válido.' });
+          setSaving(false);
+          return;
+        }
+        if (!guests.some((p) => p.email.toLowerCase() === typed.toLowerCase())) {
+          toSave = [...guests, { name: name.trim() || typed.split('@')[0], email: typed }];
+        }
+      }
       const res = await fetch(`/api/meetings/${meetingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participants: guests }),
+        body: JSON.stringify({ participants: toSave }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'No se pudo guardar');
       }
+      setParticipants(toSave);
+      setName('');
+      setEmail('');
       setMessage({ kind: 'ok', text: 'Participantes guardados.' });
       router.refresh();
     } catch (e: any) {

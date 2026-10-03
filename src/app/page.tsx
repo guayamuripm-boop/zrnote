@@ -177,6 +177,9 @@ export default function LandingPage() {
       '@context': 'https://schema.org',
       '@type': 'SoftwareApplication',
       name: 'ZRNote',
+      // La gente lo busca con espacio: «zr note». Se declara como nombre
+      // alternativo para que el buscador entienda que es la misma marca.
+      alternateName: ['ZR Note', 'ZR Note app', 'ZRNote app'],
       applicationCategory: 'BusinessApplication',
       operatingSystem: 'Web',
       url: siteUrl,
@@ -186,6 +189,14 @@ export default function LandingPage() {
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
       creator: { '@type': 'Organization', name: 'ZR Tech Solutions' },
       author: { '@type': 'Person', name: 'Pedro Mejías' },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'ZRNote',
+      alternateName: ['ZR Note'],
+      url: siteUrl,
+      inLanguage: 'es',
     },
     {
       '@context': 'https://schema.org',

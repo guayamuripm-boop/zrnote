@@ -3,6 +3,7 @@ import { generateGoogleCalendarUrl } from '@/lib/google-calendar';
 
 import { appUrl } from '@/lib/app-url';
 import { toParagraphs } from '@/lib/readable-text';
+import { readStudyAids, isStudyAidsEmpty, type StudyAids } from '@/lib/study-aids';
 
 /**
  * Enlace de acción para un compromiso: "Añadir a Calendar" o "Marcar en
@@ -67,6 +68,68 @@ function nextMorning(): Date {
  * Construye el HTML de una minuta con TODOS los campos LLM-derived escapados.
  * Esto previene XSS cuando una transcripción contiene <script>, <img onerror>, etc.
  */
+const H2 = 'color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px';
+const UL = 'color:#333;line-height:1.6;margin:0 0 8px';
+
+function esc(s: unknown): string {
+  return escapeHtml(String(s ?? ''));
+}
+
+export function buildStudyAidsHtml(aids: StudyAids): string {
+  if (isStudyAidsEmpty(aids)) return '';
+  let html = '';
+
+  if (aids.outline.length > 0) {
+    html += `<h2 style="${H2}">🗂️ Temario</h2>`;
+    for (const s of aids.outline) {
+      html += `<p style="margin:10px 0 2px;font-weight:600">${esc(s.section)}</p><ul style="${UL}">${s.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>`;
+    }
+  }
+  if (aids.key_concepts.length > 0) {
+    html += `<h2 style="${H2}">📖 Conceptos clave</h2><ul style="${UL}">${aids.key_concepts
+      .map((c) => `<li><strong>${esc(c.term)}:</strong> ${esc(c.definition)}${c.why ? ` <span style="color:#6b7280">(${esc(c.why)})</span>` : ''}</li>`)
+      .join('')}</ul>`;
+  }
+  if (aids.key_formulas.length > 0) {
+    html += `<h2 style="${H2}">🧮 Fórmulas y datos clave</h2>${aids.key_formulas
+      .map(
+        (f) =>
+          `<div style="background:#f3f4f6;border-radius:8px;padding:10px 12px;margin-bottom:8px"><code style="font-size:15px;font-weight:600">${esc(f.formula)}</code><p style="margin:4px 0 0;color:#555;font-size:14px">${esc(f.meaning)}${f.when_to_use ? ` <em>Cuándo: ${esc(f.when_to_use)}</em>` : ''}</p></div>`,
+      )
+      .join('')}`;
+  }
+  if (aids.worked_examples.length > 0) {
+    html += `<h2 style="${H2}">✏️ Ejemplos resueltos</h2>${aids.worked_examples
+      .map((e) => `<div style="border-left:3px solid #3b82f6;padding-left:12px;margin-bottom:12px"><strong>${esc(e.problem)}</strong><p style="margin:4px 0 0;color:#555;font-size:14px;line-height:1.5">${esc(e.approach)}</p></div>`)
+      .join('')}`;
+  }
+  if (aids.common_mistakes.length > 0) {
+    html += `<h2 style="${H2}">⚠️ Errores frecuentes</h2><ul style="${UL}">${aids.common_mistakes
+      .map((m) => `<li>${esc(m.mistake)} → <strong>${esc(m.correction)}</strong></li>`)
+      .join('')}</ul>`;
+  }
+  if (aids.exam_notes.length > 0) {
+    html += `<h2 style="${H2}">🎯 Sobre el examen</h2><ul style="${UL}">${aids.exam_notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`;
+  }
+  if (aids.study_questions.length > 0) {
+    html += `<h2 style="${H2}">❓ Preguntas de repaso</h2><ol style="${UL}">${aids.study_questions
+      .map((q) => `<li>${esc(q.question)}<br/><span style="color:#555">→ ${esc(q.answer)}</span></li>`)
+      .join('')}</ol>`;
+  }
+  if (aids.flashcards.length > 0) {
+    html += `<h2 style="${H2}">🃏 Tarjetas</h2><ul style="${UL}">${aids.flashcards
+      .map((c) => `<li><strong>${esc(c.front)}</strong> → ${esc(c.back)}</li>`)
+      .join('')}</ul>`;
+  }
+  if (aids.resources.length > 0) {
+    html += `<h2 style="${H2}">📚 Recursos</h2><ul style="${UL}">${aids.resources.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>`;
+  }
+  if (aids.open_questions.length > 0) {
+    html += `<h2 style="${H2}">🤔 Dudas abiertas</h2><ul style="${UL}">${aids.open_questions.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>`;
+  }
+  return html;
+}
+
 export function buildMinuteHtml(minute: any): string {
   if (!minute) return '<p>Minuta no disponible.</p>';
   let html = '';
@@ -80,6 +143,10 @@ export function buildMinuteHtml(minute: any): string {
           .join('')
       : `<p style="color:#333;line-height:1.6">No disponible</p>`;
   html += `<h2 style="color:#1a1a2e;font-size:18px;margin-bottom:8px">Resumen</h2>${summaryHtml}`;
+
+  // Modo Clase: los apuntes van ENTEROS en el correo. Es lo que el compañero
+  // que no pudo asistir necesita para estudiar.
+  html += buildStudyAidsHtml(readStudyAids(minute));
 
   if (Array.isArray(minute.discussion) && minute.discussion.length > 0) {
     html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">Temas Discutidos</h2>`;

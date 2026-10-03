@@ -52,7 +52,17 @@ export const metadata: Metadata = {
     'seguimiento de compromisos y tareas',
     'software de actas para juntas directivas',
     'ZRNote',
+    'ZR Note',
+    'ZR Note app',
+    'apuntes de clase con IA',
+    'transcribir clases y reuniones',
   ],
+  // Verificación de propiedad para Search Console y Bing Webmaster: se rellenan
+  // con variables de entorno (ver docs). Sin ellas no se emite nada.
+  verification: {
+    google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
+    other: process.env.BING_SITE_VERIFICATION ? { 'msvalidate.01': process.env.BING_SITE_VERIFICATION } : undefined,
+  },
   icons: {
     // The .ico carries 16/32/48 for browsers and Windows that still want it;
     // the SVG is what modern browsers pick and stays crisp at any zoom.

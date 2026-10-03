@@ -219,18 +219,26 @@ export default async function MeetingDetailPage({
                       they build plain text from the same fields the page
                       renders, so the same wrong shapes would land as
                       "[object Object]" in a WhatsApp message or a pasted acta. */}
+                  {/* WhatsApp lleva el acta ENTERA, apuntes de clase incluidos:
+                      sólo el resumen es corto de por sí; lo demás no se recorta. */}
                   <ShareWhatsApp
                     title={meeting.title}
-                    date={meeting.created_at}
+                    createdAt={meeting.created_at}
+                    coordination={meeting.coordination}
                     minute={{
                       summary: sections.summary,
                       decisions: sections.decisions,
                       blockers: sections.blockers,
+                      project_statuses: sections.projectStatuses,
                       next_steps: sections.nextSteps,
+                      discussion: sections.discussion,
+                      ideas: sections.ideas,
                     }}
+                    studyAids={isStudyAidsEmpty(studyAids) ? null : studyAids}
                     actionItems={(actionItems as any[]) || []}
                   />
                   <ShareLinkButton meetingId={meeting.id} title={meeting.title} />
+                  <ShareLinkButton meetingId={meeting.id} title={meeting.title} mode="notebook" />
                   <CopyMinuteButton
                     title={meeting.title}
                     createdAt={meeting.created_at}
@@ -244,6 +252,7 @@ export default async function MeetingDetailPage({
                       discussion: sections.discussion,
                       ideas: sections.ideas,
                     }}
+                    studyAids={isStudyAidsEmpty(studyAids) ? null : studyAids}
                     actionItems={(actionItems as any[]) || []}
                     participants={participants}
                   />

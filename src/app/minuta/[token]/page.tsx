@@ -207,6 +207,75 @@ export default async function MinutaPublicaPage({
           </section>
         )}
 
+        {sections.discussion.length > 0 && (
+          <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Temas discutidos</h2>
+            <div className="space-y-3">
+              {sections.discussion.map((d, i) => (
+                <div key={i}>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                    {d.topic}
+                    {d.speaker && <span className="font-normal text-slate-400"> ({d.speaker})</span>}
+                  </p>
+                  {d.details && <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">{d.details}</p>}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {sections.projectStatuses.length > 0 && (
+          <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Estado de proyectos</h2>
+            <ul className="space-y-2">
+              {sections.projectStatuses.map((p, i) => (
+                <li key={i} className="text-sm text-slate-700 dark:text-slate-200">
+                  <strong>{p.project}</strong>
+                  {p.status && <span className="text-slate-500"> — {p.status}</span>}
+                  {p.details && <span className="block text-slate-500 dark:text-slate-400">{p.details}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {sections.blockers.length > 0 && (
+          <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Bloqueos</h2>
+            <ul className="space-y-2">
+              {sections.blockers.map((b, i) => (
+                <li key={i} className="text-sm text-slate-700 dark:text-slate-200">
+                  {b.issue}
+                  {b.impact && <span className="text-slate-500"> — Impacto: {b.impact}</span>}
+                  {b.owner && <span className="text-slate-400"> (responsable: {b.owner})</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {sections.ideas.length > 0 && (
+          <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Ideas</h2>
+            <ul className="space-y-2">
+              {sections.ideas.map((t, i) => (
+                <li key={i} className="text-sm text-slate-700 dark:text-slate-200">• {t}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {sections.nextSteps.length > 0 && (
+          <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Próximos pasos</h2>
+            <ul className="space-y-2">
+              {sections.nextSteps.map((t, i) => (
+                <li key={i} className="text-sm text-slate-700 dark:text-slate-200">• {t}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {otherItems.length > 0 && (
           <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">
@@ -239,6 +308,10 @@ export default async function MinutaPublicaPage({
             <Link href="/legal/privacidad" className="text-slate-400 dark:text-slate-500 hover:text-blue-600">
               Privacidad
             </Link>
+            <span className="text-slate-300 dark:text-slate-600">·</span>
+            <a href={`/minuta/${token}/texto`} className="text-slate-400 dark:text-slate-500 hover:text-blue-600">
+              Ver como texto
+            </a>
             {/* No tiene sentido en un enlace público: no llegó por correo, así
                 que no hay suscripción de la que darse de baja. */}
             {!isPublicLink && (

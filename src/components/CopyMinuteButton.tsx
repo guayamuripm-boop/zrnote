@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { formatMinuteForCopy, type CopyMinute, type CopyActionItem } from '@/lib/minute-copy-format';
+import type { StudyAids } from '@/lib/study-aids';
 
 interface Props {
   title: string;
@@ -10,6 +11,7 @@ interface Props {
   minute: CopyMinute;
   actionItems?: CopyActionItem[];
   participants?: { name: string; email: string }[];
+  studyAids?: StudyAids | null;
 }
 
 /** Copies the complete acta as structured plain text — see minute-copy-format.ts. */
@@ -17,10 +19,9 @@ export default function CopyMinuteButton(props: Props) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
-    const text = formatMinuteForCopy({
-      ...props,
-      url: typeof window !== 'undefined' ? window.location.href : undefined,
-    });
+    // Sin enlace: el del panel pide cuenta y el texto ya va completo (útil
+    // para pegarlo tal cual en NotebookLM).
+    const text = formatMinuteForCopy({ ...props });
     try {
       await navigator.clipboard.writeText(text);
     } catch {

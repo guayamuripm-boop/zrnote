@@ -11,7 +11,16 @@ import { useState } from 'react';
  * enlace. Donde no existe (la mayoría de navegadores de escritorio), cae a
  * copiar el enlace al portapapeles — misma idea que CopyMinuteButton.
  */
-export default function ShareLinkButton({ meetingId, title }: { meetingId: string; title: string }) {
+export default function ShareLinkButton({
+  meetingId,
+  title,
+  mode = 'link',
+}: {
+  meetingId: string;
+  title: string;
+  /** `notebook`: copia el enlace a la versión en texto completo, para NotebookLM. */
+  mode?: 'link' | 'notebook';
+}) {
   const [state, setState] = useState<'idle' | 'loading' | 'copied' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -27,9 +36,9 @@ export default function ShareLinkButton({ meetingId, title }: { meetingId: strin
         setTimeout(() => setState('idle'), 3000);
         return;
       }
-      const url: string = data.url;
+      const url: string = mode === 'notebook' ? data.textUrl || data.url : data.url;
 
-      if (typeof navigator !== 'undefined' && navigator.share) {
+      if (mode === 'link' && typeof navigator !== 'undefined' && navigator.share) {
         try {
           await navigator.share({ title: `Minuta: ${title}`, url });
           setState('idle');
@@ -70,7 +79,11 @@ export default function ShareLinkButton({ meetingId, title }: { meetingId: strin
       onClick={share}
       disabled={state === 'loading'}
       className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-white bg-blue-100 dark:bg-blue-900/20 hover:bg-blue-500 dark:hover:bg-blue-600 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
-      title="Genera un enlace público para compartir esta minuta donde quieras"
+      title={
+        mode === 'notebook'
+          ? 'Copia un enlace con la minuta completa en texto, para añadirlo como fuente en NotebookLM'
+          : 'Genera un enlace público para compartir esta minuta donde quieras'
+      }
     >
       {state === 'copied' ? (
         <>
@@ -91,7 +104,7 @@ export default function ShareLinkButton({ meetingId, title }: { meetingId: strin
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342a3 3 0 100-2.684m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
           </svg>
-          {state === 'loading' ? 'Generando…' : 'Compartir'}
+          {state === 'loading' ? 'Generando…' : mode === 'notebook' ? 'NotebookLM' : 'Compartir'}
         </>
       )}
     </button>

@@ -1,4 +1,5 @@
 import { toParagraphs } from '@/lib/readable-text';
+import type { StudyAids } from '@/lib/study-aids';
 
 // One plain-text rendering of the acta, complete and structured with emoji
 // section markers, meant to be pasted anywhere that isn't WhatsApp — a chat
@@ -42,8 +43,72 @@ export interface FormatMinuteOptions {
   minute: CopyMinute;
   actionItems?: CopyActionItem[];
   participants?: { name: string; email: string }[];
+  /** Apuntes de clase (modo Clase). Se incluyen ÍNTEGROS: son lo que se estudia. */
+  studyAids?: StudyAids | null;
   /** Appended at the end so whoever receives the pasted text can open the real thing. */
   url?: string;
+  /** `whatsapp` pone los encabezados en *negrita* de WhatsApp; `plain` en MAYÚSCULAS. */
+  style?: 'plain' | 'whatsapp';
+}
+
+function formatStudyAids(aids: StudyAids, h: (emoji: string, label: string) => string): string[] {
+  const out: string[] = [];
+
+  if (aids.outline.length > 0) {
+    out.push(
+      `\n${h('🗂️', 'TEMARIO')}\n` +
+        aids.outline
+          .map((s) => `▪️ ${s.section}\n${s.points.map((p) => `   • ${p}`).join('\n')}`)
+          .join('\n'),
+    );
+  }
+  if (aids.key_concepts.length > 0) {
+    out.push(
+      `\n${h('📖', 'CONCEPTOS CLAVE')}\n` +
+        aids.key_concepts.map((c) => `• ${c.term}: ${c.definition}${c.why ? ` (${c.why})` : ''}`).join('\n'),
+    );
+  }
+  if (aids.key_formulas.length > 0) {
+    out.push(
+      `\n${h('🧮', 'FÓRMULAS Y DATOS CLAVE')}\n` +
+        aids.key_formulas
+          .map((f) => `• ${f.formula} — ${f.meaning}${f.when_to_use ? ` (cuándo: ${f.when_to_use})` : ''}`)
+          .join('\n'),
+    );
+  }
+  if (aids.worked_examples.length > 0) {
+    out.push(
+      `\n${h('✏️', 'EJEMPLOS RESUELTOS')}\n` +
+        aids.worked_examples.map((e, i) => `${i + 1}. ${e.problem}\n   ➜ ${e.approach}`).join('\n'),
+    );
+  }
+  if (aids.common_mistakes.length > 0) {
+    out.push(
+      `\n${h('⚠️', 'ERRORES FRECUENTES')}\n` +
+        aids.common_mistakes.map((m) => `• ${m.mistake} ➜ ${m.correction}`).join('\n'),
+    );
+  }
+  if (aids.exam_notes.length > 0) {
+    out.push(`\n${h('🎯', 'SOBRE EL EXAMEN')}\n${aids.exam_notes.map((n) => `• ${n}`).join('\n')}`);
+  }
+  if (aids.study_questions.length > 0) {
+    out.push(
+      `\n${h('❓', 'PREGUNTAS DE REPASO')}\n` +
+        aids.study_questions.map((q, i) => `${i + 1}. ${q.question}\n   ➜ ${q.answer}`).join('\n'),
+    );
+  }
+  if (aids.flashcards.length > 0) {
+    out.push(
+      `\n${h('🃏', 'TARJETAS')}\n` + aids.flashcards.map((c) => `• ${c.front} ➜ ${c.back}`).join('\n'),
+    );
+  }
+  if (aids.resources.length > 0) {
+    out.push(`\n${h('📚', 'RECURSOS')}\n${aids.resources.map((r) => `• ${r}`).join('\n')}`);
+  }
+  if (aids.open_questions.length > 0) {
+    out.push(`\n${h('🤔', 'DUDAS ABIERTAS')}\n${aids.open_questions.map((q) => `• ${q}`).join('\n')}`);
+  }
+  return out;
 }
 
 function formatDueDate(d?: string | null): string {
@@ -57,8 +122,10 @@ function formatDueDate(d?: string | null): string {
 export function formatMinuteForCopy(opts: FormatMinuteOptions): string {
   const { minute } = opts;
   const parts: string[] = [];
+  const wa = opts.style === 'whatsapp';
+  const h = (emoji: string, label: string) => (wa ? `${emoji} *${label}*` : `${emoji} ${label}`);
 
-  parts.push(`📋 ${opts.title}`);
+  parts.push(wa ? `📋 *${opts.title}*` : `📋 ${opts.title}`);
   const meta: string[] = [];
   if (opts.coordination) meta.push(opts.coordination);
   if (opts.createdAt) {
@@ -76,12 +143,15 @@ export function formatMinuteForCopy(opts: FormatMinuteOptions): string {
 
   const summaryParagraphs = toParagraphs(minute.summary);
   if (summaryParagraphs.length > 0) {
-    parts.push(`\n📝 RESUMEN\n${summaryParagraphs.join('\n\n')}`);
+    parts.push(`\n${h('📝', 'RESUMEN')}\n${summaryParagraphs.join('\n\n')}`);
   }
+
+  // Los apuntes de clase van justo tras el resumen: es lo que se estudia.
+  if (opts.studyAids) parts.push(...formatStudyAids(opts.studyAids, h));
 
   const decisions = minute.decisions || [];
   if (decisions.length > 0) {
-    parts.push(`\n✅ DECISIONES\n${decisions.map((d) => `• ${d}`).join('\n')}`);
+    parts.push(`\n${h('✅', 'DECISIONES')}\n${decisions.map((d) => `• ${d}`).join('\n')}`);
   }
 
   const items = opts.actionItems || [];
@@ -94,7 +164,7 @@ export function formatMinuteForCopy(opts: FormatMinuteOptions): string {
       const who = t.assignee_name ? ` — ${t.assignee_name}` : '';
       return `${emoji} ${t.description}${who}${formatDueDate(t.due_date)}`;
     });
-    parts.push(`\n📌 COMPROMISOS (${items.length})\n${lines.join('\n')}`);
+    parts.push(`\n${h('📌', `COMPROMISOS (${items.length})`)}\n${lines.join('\n')}`);
   }
 
   const blockers = minute.blockers || [];
@@ -104,18 +174,18 @@ export function formatMinuteForCopy(opts: FormatMinuteOptions): string {
       const owner = b.owner ? ` (responsable: ${b.owner})` : '';
       return `🚧 ${b.issue}${impact}${owner}`;
     });
-    parts.push(`\n⚠️ BLOQUEOS\n${lines.join('\n')}`);
+    parts.push(`\n${h('⚠️', 'BLOQUEOS')}\n${lines.join('\n')}`);
   }
 
   const projectStatuses = minute.project_statuses || [];
   if (projectStatuses.length > 0) {
     const lines = projectStatuses.map((p) => `📊 ${p.project} — ${p.status}${p.details ? `: ${p.details}` : ''}`);
-    parts.push(`\n📊 ESTADO DE PROYECTOS\n${lines.join('\n')}`);
+    parts.push(`\n${h('📊', 'ESTADO DE PROYECTOS')}\n${lines.join('\n')}`);
   }
 
   const nextSteps = minute.next_steps || [];
   if (nextSteps.length > 0) {
-    parts.push(`\n➡️ PRÓXIMOS PASOS\n${nextSteps.map((n) => `• ${n}`).join('\n')}`);
+    parts.push(`\n${h('➡️', 'PRÓXIMOS PASOS')}\n${nextSteps.map((n) => `• ${n}`).join('\n')}`);
   }
 
   const discussion = minute.discussion || [];
@@ -124,12 +194,12 @@ export function formatMinuteForCopy(opts: FormatMinuteOptions): string {
       const speaker = d.speaker ? ` (${d.speaker})` : '';
       return `💬 ${d.topic}${speaker}${d.details ? `\n   ${d.details}` : ''}`;
     });
-    parts.push(`\n💬 TEMAS DISCUTIDOS\n${lines.join('\n')}`);
+    parts.push(`\n${h('💬', 'TEMAS DISCUTIDOS')}\n${lines.join('\n')}`);
   }
 
   const ideas = minute.ideas || [];
   if (ideas.length > 0) {
-    parts.push(`\n💡 IDEAS\n${ideas.map((i) => `• ${i}`).join('\n')}`);
+    parts.push(`\n${h('💡', 'IDEAS')}\n${ideas.map((i) => `• ${i}`).join('\n')}`);
   }
 
   if (opts.url) parts.push(`\n📄 Acta completa: ${opts.url}`);

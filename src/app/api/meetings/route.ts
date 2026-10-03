@@ -7,6 +7,7 @@ import { normalizeSummaryLength } from '@/lib/summary-length';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { checkRateLimit } from '@/lib/rate-limiter';
 import { serverError } from '@/lib/api-errors';
+import { logger } from '@/lib/logger';
 
 const createMeetingSchema = z.object({
   // Present only when the meeting was created OFFLINE (see meeting-queue.ts):
@@ -214,8 +215,22 @@ export async function POST(request: Request) {
   }
 
   if (participantsToInsert.length > 0) {
-    await supabase.from('meeting_participants').insert(participantsToInsert);
+    const { error: partError } = await supabase.from('meeting_participants').insert(participantsToInsert);
+    if (partError) {
+      // Antes este error se ignoraba: la reunión se creaba sin invitados y la
+      // minuta sólo le llegaba al organizador, sin que nadie supiera por qué.
+      // Se reintenta con el cliente de servicio (la propiedad ya está
+      // comprobada: la reunión la acabamos de crear nosotros).
+      const { error: retryError } = await getSupabaseAdmin().from('meeting_participants').insert(participantsToInsert);
+      if (retryError) {
+        logger.error('meetings: no se pudieron guardar los participantes', {
+          meetingId: meeting.id,
+          error: retryError.message,
+        });
+        return NextResponse.json({ id: meeting.id, participantsSaved: false }, { status: 201 });
+      }
+    }
   }
 
-  return NextResponse.json({ id: meeting.id }, { status: 201 });
+  return NextResponse.json({ id: meeting.id, participantsSaved: true }, { status: 201 });
 }

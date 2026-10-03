@@ -154,12 +154,19 @@ export default function NewMeetingForm({
     // initialStyle / initialSummaryLength.
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const addParticipant = () => {
-    const name = nameInput.trim();
+  /** El nombre es opcional: si falta, se usa la parte local del correo. */
+  const pendingParticipant = (): Participant | null => {
     const email = emailInput.trim();
-    if (!name || !email || !email.includes('@')) return;
-    if (participants.some((p) => p.email.toLowerCase() === email.toLowerCase())) return;
-    setParticipants([...participants, { name, email }]);
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+    const name = nameInput.trim() || email.split('@')[0];
+    if (participants.some((p) => p.email.toLowerCase() === email.toLowerCase())) return null;
+    return { name, email };
+  };
+
+  const addParticipant = () => {
+    const p = pendingParticipant();
+    if (!p) return;
+    setParticipants([...participants, p]);
     setNameInput('');
     setEmailInput('');
   };
@@ -173,6 +180,11 @@ export default function NewMeetingForm({
     setLoading(true);
     setError(null);
 
+    // Si dejó un correo escrito sin pulsar «Agregar», cuenta igualmente: antes
+    // se descartaba en silencio y esa persona nunca recibía la minuta.
+    const pending = pendingParticipant();
+    const allParticipants = pending ? [...participants, pending] : participants;
+
     const response = await fetch('/api/meetings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -180,7 +192,7 @@ export default function NewMeetingForm({
         title,
         coordination,
         type,
-        participants,
+        participants: allParticipants,
         minuteStyle,
         styleNotes: styleNotes.trim() || undefined,
         summaryLength,

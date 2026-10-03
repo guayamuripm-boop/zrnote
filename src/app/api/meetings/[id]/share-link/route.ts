@@ -46,5 +46,7 @@ export async function GET(
   // el propio organizador para guardarlo como apunte de consulta —para
   // NotebookLM, para repasar antes de un examen— y no para que alguien lo
   // abra una vez y ya. Un año es de sobra sin ser "para siempre".
-  return NextResponse.json({ url: minuteUrl(resolvedParams.id, '', 365) });
+  const url = minuteUrl(resolvedParams.id, '', 365);
+  // `textUrl`: la misma minuta, COMPLETA y en texto plano, para NotebookLM.
+  return NextResponse.json({ url, textUrl: `${url}/texto` });
 }

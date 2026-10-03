@@ -1,5 +1,7 @@
 # ZRNote
 
+> También escrito «ZR Note». Es la misma aplicación.
+
 > ZRNote graba reuniones — presenciales o virtuales — y produce automáticamente
 > el acta y los compromisos de cada participante, en español, sin que nadie
 > tenga que tomar notas. Cada asistente recibe por correo únicamente lo suyo,
@@ -23,6 +25,9 @@ y en uso, no son un plan a futuro.
 - Envía un correo personalizado a cada participante con SUS compromisos
   primero y el resto de la reunión después — sin que necesite crear una
   cuenta para leerlo, mediante un enlace firmado.
+- Modo Clase: además del acta genera apuntes de estudio — temario, conceptos,
+  fórmulas, ejemplos resueltos, preguntas de repaso y tarjetas — que se pueden
+  compartir completos por correo, WhatsApp o NotebookLM.
 - Manda un recordatorio automático el día antes de que venza un compromiso.
 - Permite buscar en reuniones anteriores con lenguaje natural (recuperación
   semántica sobre el histórico de reuniones de la organización).
