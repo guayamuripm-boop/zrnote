@@ -5,6 +5,8 @@ import { sortActionItems } from '@/lib/action-items';
 import { toParagraphs } from '@/lib/readable-text';
 import { normalizeMinuteSections } from '@/lib/minute-text';
 import { readStudyAids, isStudyAidsEmpty } from '@/lib/study-aids';
+import { readChapters } from '@/lib/chapters';
+import ChaptersSection from '@/components/ChaptersSection';
 import StudySection from '@/components/study/StudySection';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import ZRLogo from '@/components/ZRLogo';
@@ -96,6 +98,7 @@ export default async function MinutaPublicaPage({
   // report it. Same normalisation as the meeting page, for the same reason.
   const sections = normalizeMinuteSections(minute);
   const studyAids = readStudyAids(minute);
+  const chapters = readChapters(minute);
   const allItems = sortActionItems(itemsResult.data || []);
 
   // Nombre del destinatario según los participantes, para saludarle y para
@@ -192,6 +195,8 @@ export default async function MinutaPublicaPage({
         {/* Apuntes de clase. Quien recibe el enlace por correo es justo el
             estudiante que falto o que quiere repasar: es la parte de la
             minuta compartida que mas se va a usar. */}
+        <ChaptersSection chapters={chapters} />
+
         {!isStudyAidsEmpty(studyAids) && <StudySection aids={studyAids} minuteId={minute!.id} />}
 
         {sections.decisions.length > 0 && (

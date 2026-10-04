@@ -42,6 +42,14 @@ export interface MinuteStyleDef {
    * muestra la sección de estudio) y el aviso del selector.
    */
   producesStudyAids?: boolean;
+  /** Si este estilo produce el bloque `chapters` (línea de tiempo por momentos). */
+  producesChapters?: boolean;
+  /**
+   * Estilo opcional: no aparece para nadie hasta que la persona lo activa en su
+   * perfil (`users.content_mode_enabled`). Existe para no llenar el selector de
+   * opciones que casi nadie necesita.
+   */
+  optIn?: boolean;
 }
 
 export const DEFAULT_MINUTE_STYLE = 'ejecutiva';
@@ -56,7 +64,7 @@ export const MINUTE_STYLES: Record<string, MinuteStyleDef> = {
       'Eres un jefe de gabinete con veinte años levantando actas. Tu trabajo no es resumir lo que se habló: es dejar por escrito lo que hay que hacer y lo que quedó decidido, para que alguien que NO estuvo en la reunión pueda actuar mañana sin preguntar nada.',
     commitmentExamples: '"yo me encargo", "quedamos en que…", "necesito que…", "para el viernes tengo…", "lo hago yo"',
     contentFocus:
-      'Primero para qué se reunieron y qué se resolvió, después qué queda pendiente. Cuenta resultados, no narres la conversación ni digas "se habló de". Si la reunión no llegó a nada concreto, dilo con esas palabras.',
+      'Primero qué se resolvió o decidió (con cifras, fechas y nombres exactos), después qué queda pendiente y quién lo tiene. Cuenta resultados, no narres la conversación ni digas "se habló de". Si la reunión no llegó a nada concreto, dilo con esas palabras.',
   },
   educativa: {
     value: 'educativa',
@@ -107,7 +115,60 @@ Ajústala a lo que dio la clase, no a llenar el documento — pero por defecto, 
     "open_questions": ["Pregunta que quedó sin responder en clase"]
   }`,
   },
+  contenido: {
+    value: 'contenido',
+    label: 'Contenido',
+    emoji: '🎙️',
+    shortDescription: 'Podcasts, conferencias y videos — por capítulos',
+    producesChapters: true,
+    optIn: true,
+    roleFraming:
+      'Eres un editor que prepara la guía de un podcast, una conferencia o un video para quien no lo va a ver entero. Tu trabajo no es opinar ni adornar: es dejar por escrito, en orden cronológico, qué se dijo en cada momento, para que alguien pueda entender el contenido completo o saltar justo al tramo que le interesa.',
+    commitmentExamples:
+      '"les dejo de tarea…", "les pido que…", "escriban a…", "inscríbanse en…", "descarguen…" — sólo si quien habla pide algo concreto a la audiencia. En un contenido normal NO hay compromisos: array vacío',
+    contentFocus:
+      'Di de qué trata el contenido y cuáles son las 3 a 5 ideas o conclusiones más importantes de principio a fin, sin adornos, sin elogios y sin "en este episodio se habló de". Ve directo a las afirmaciones: qué se sostiene, qué se concluye, qué se recomienda. Si hay una tesis central, dila en la primera frase.',
+    extraRules: `CONTENIDO POR CAPÍTULOS: EL BLOQUE "chapters"
+Esta sesión es un CONTENIDO (podcast, conferencia, charla o video), no una reunión de trabajo. Además del resumen produces una guía cronológica por capítulos o momentos.
+
+CÓMO DIVIDIR
+- Cada capítulo es un tramo con un tema propio: cuando cambia el tema, empieza otro capítulo. No cortes por minutos fijos ni por número.
+- Contenido de una hora: 6 a 12 capítulos. Charla corta: 3 a 5. Que cada capítulo cubra unos minutos de contenido, no una frase suelta ni media hora.
+- El orden es SIEMPRE el de la grabación. Si el orador vuelve a un tema anterior, va dentro del capítulo donde ocurre, no se reordena.
+- Cubre la grabación ENTERA, hasta el final. Los últimos capítulos son los que más se olvidan.
+
+TIEMPOS
+- La transcripción puede traer marcas como [12:30] al inicio de cada bloque. "time" es la marca del bloque donde EMPIEZA el capítulo, copiada tal cual. Nunca inventes una hora ni la calcules: si no hay marcas en el texto, "time" es null.
+
+QUÉ ESCRIBIR EN CADA CAPÍTULO
+- title: 3 a 8 palabras que digan DE QUÉ trata el tramo ("Por qué fallan los cohetes reutilizables"), no etiquetas vacías como "Introducción" salvo que de verdad lo sea.
+- summary: 2 a 4 frases con lo que se dijo en ese tramo, en el orden en que se dijo. Directo al contenido: nada de "el orador explica que" ni "se habla de". Sin adjetivos de relleno.
+- key_points: hasta 4 datos concretos de ese tramo — cifras, nombres propios, fechas, recomendaciones, afirmaciones que alguien querría citar. Sólo lo que se dijo. Si no hay nada concreto, array vacío.
+
+REGLA QUE MANDA: todo sale de la transcripción. No añadas contexto, datos ni correcciones de tu conocimiento aunque sepas que el orador se equivocó. Un invitado no es un compromiso: los nombres de quienes hablan sólo se usan si se pronuncian con claridad.
+Los demás campos (decisions, blockers, project_statuses…) casi siempre van vacíos en un contenido: no los rellenes por rellenar. "discussion" también va vacío: la guía cronológica son los capítulos.`,
+    extraSchema: `,
+  "chapters": [ { "time": "Marca [mm:ss] del bloque donde empieza este tramo, o null si el texto no trae marcas", "title": "3 a 8 palabras que digan de qué trata el tramo", "summary": "2 a 4 frases, en orden cronológico, directo al contenido", "key_points": ["Dato, cifra o afirmación concreta de este tramo"] } ]`,
+  },
 };
+
+/**
+ * Estilos que esta persona puede elegir: los de siempre más los opcionales
+ * que activó en su perfil.
+ */
+export function availableMinuteStyles(contentModeEnabled: boolean): MinuteStyleDef[] {
+  return MINUTE_STYLE_OPTIONS.filter((s) => !s.optIn || contentModeEnabled);
+}
+
+/**
+ * Valida un estilo contra lo que la persona tiene activado. Un estilo opcional
+ * que no ha activado (o que desactivó después de guardarlo como favorito) cae
+ * al valor por defecto, igual que un valor desconocido.
+ */
+export function resolveMinuteStyle(value: unknown, contentModeEnabled: boolean): string {
+  const key = normalizeMinuteStyle(value);
+  return MINUTE_STYLES[key].optIn && !contentModeEnabled ? DEFAULT_MINUTE_STYLE : key;
+}
 
 /**
  * Cualquier valor que no se reconozca cae a 'ejecutiva' — el comportamiento

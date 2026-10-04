@@ -2,7 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthedUser } from '@/lib/api-auth';
-import { normalizeMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
+import { resolveMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
 import { normalizeSummaryLength } from '@/lib/summary-length';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { checkRateLimit } from '@/lib/rate-limiter';
@@ -114,6 +114,17 @@ export async function POST(request: Request) {
     orgId = upserted?.org_id || null;
   }
 
+  // Estilos opcionales (Contenido): se aplican sólo si la persona los activó en
+  // su perfil. Se comprueba aquí y no sólo en la interfaz porque este POST
+  // también lo usa la extensión. Si la columna no existe aún (migración 035),
+  // la lectura falla y se trata como "no activado".
+  const { data: prefs } = await supabase
+    .from('users')
+    .select('content_mode_enabled')
+    .eq('id', user.id)
+    .maybeSingle();
+  const minuteStyle = resolveMinuteStyle(parsed.data.minuteStyle, Boolean(prefs?.content_mode_enabled));
+
   const insertPayload: Record<string, unknown> = {
     title: parsed.data.title,
     coordination: parsed.data.coordination,
@@ -122,7 +133,7 @@ export async function POST(request: Request) {
     org_id: orgId,
     status: 'scheduled',
     title_is_auto: parsed.data.autoTitle,
-    minute_style: normalizeMinuteStyle(parsed.data.minuteStyle),
+    minute_style: minuteStyle,
     style_notes: parsed.data.styleNotes?.trim() || null,
     summary_length: normalizeSummaryLength(parsed.data.summaryLength),
   };
@@ -171,7 +182,7 @@ export async function POST(request: Request) {
   if (parsed.data.minuteStyle) {
     await supabase
       .from('users')
-      .update({ default_minute_style: normalizeMinuteStyle(parsed.data.minuteStyle) })
+      .update({ default_minute_style: minuteStyle })
       .eq('id', user.id);
   }
   if (parsed.data.summaryLength) {

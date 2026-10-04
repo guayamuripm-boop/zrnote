@@ -4,6 +4,7 @@ import { generateGoogleCalendarUrl } from '@/lib/google-calendar';
 import { appUrl } from '@/lib/app-url';
 import { toParagraphs } from '@/lib/readable-text';
 import { readStudyAids, isStudyAidsEmpty, type StudyAids } from '@/lib/study-aids';
+import { readChapters } from '@/lib/chapters';
 
 /**
  * Enlace de acción para un compromiso: "Añadir a Calendar" o "Marcar en
@@ -147,6 +148,21 @@ export function buildMinuteHtml(minute: any): string {
   // Modo Clase: los apuntes van ENTEROS en el correo. Es lo que el compañero
   // que no pudo asistir necesita para estudiar.
   html += buildStudyAidsHtml(readStudyAids(minute));
+
+  // Modo Contenido: la guía por capítulos, con la hora de cada tramo.
+  const chapters = readChapters(minute);
+  if (chapters.length > 0) {
+    html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">🎙️ Capítulos</h2>`;
+    for (const c of chapters) {
+      html += `<div style="border-left:3px solid #8b5cf6;padding-left:12px;margin-bottom:14px">`;
+      html += `<h3 style="margin:0;font-weight:600">${c.time ? `<span style="color:#7c3aed;font-family:monospace">[${escapeHtml(c.time)}]</span> ` : ''}${escapeHtml(c.title)}</h3>`;
+      if (c.summary) html += `<p style="margin:4px 0;color:#555;font-size:14px;line-height:1.5">${escapeHtml(c.summary)}</p>`;
+      if (c.key_points.length > 0) {
+        html += `<ul style="margin:4px 0;color:#666;font-size:13px">${c.key_points.map((k) => `<li>${escapeHtml(k)}</li>`).join('')}</ul>`;
+      }
+      html += `</div>`;
+    }
+  }
 
   if (Array.isArray(minute.discussion) && minute.discussion.length > 0) {
     html += `<h2 style="color:#1a1a2e;font-size:18px;margin-top:24px;margin-bottom:8px">Temas Discutidos</h2>`;

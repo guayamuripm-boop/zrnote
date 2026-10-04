@@ -15,6 +15,8 @@ import ResendEmailsButton from '@/components/ResendEmailsButton';
 import { sortActionItems } from '@/lib/action-items';
 import { toParagraphs } from '@/lib/readable-text';
 import { readStudyAids, isStudyAidsEmpty } from '@/lib/study-aids';
+import { readChapters } from '@/lib/chapters';
+import ChaptersSection from '@/components/ChaptersSection';
 import { normalizeMinuteSections } from '@/lib/minute-text';
 import StudySection from '@/components/study/StudySection';
 import CacheMinuteForOffline from '@/components/CacheMinuteForOffline';
@@ -57,6 +59,7 @@ export default async function MeetingDetailPage({
   // Apuntes de clase. Solo los produce el estilo "Clase", asi que en un acta
   // ejecutiva vienen vacios y la seccion entera no se pinta.
   const studyAids = readStudyAids(minute);
+  const chapters = readChapters(minute);
   // Ordering by the `priority` column alphabetically put "baja" above "media".
   const actionItems = sortActionItems(actionItemsResult.data || []);
   const participantsRaw = participantsResult.data;
@@ -235,6 +238,7 @@ export default async function MeetingDetailPage({
                       ideas: sections.ideas,
                     }}
                     studyAids={isStudyAidsEmpty(studyAids) ? null : studyAids}
+                    chapters={chapters}
                     actionItems={(actionItems as any[]) || []}
                   />
                   <ShareLinkButton meetingId={meeting.id} title={meeting.title} />
@@ -253,6 +257,7 @@ export default async function MeetingDetailPage({
                       ideas: sections.ideas,
                     }}
                     studyAids={isStudyAidsEmpty(studyAids) ? null : studyAids}
+                    chapters={chapters}
                     actionItems={(actionItems as any[]) || []}
                     participants={participants}
                   />
@@ -285,6 +290,8 @@ export default async function MeetingDetailPage({
           {/* Estudiar esta clase — va inmediatamente despues del resumen y
               ANTES de los compromisos porque, en una clase, esto es lo que la
               persona vuelve a abrir: las tareas ya le llegaron por correo. */}
+          <ChaptersSection chapters={chapters} />
+
           {!isStudyAidsEmpty(studyAids) && <StudySection aids={studyAids} minuteId={minute.id} />}
 
           {/* Action Items — the most important part of the minute, promoted right

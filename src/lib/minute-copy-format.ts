@@ -1,5 +1,6 @@
 import { toParagraphs } from '@/lib/readable-text';
 import type { StudyAids } from '@/lib/study-aids';
+import type { Chapter } from '@/lib/chapters';
 
 // One plain-text rendering of the acta, complete and structured with emoji
 // section markers, meant to be pasted anywhere that isn't WhatsApp — a chat
@@ -45,6 +46,8 @@ export interface FormatMinuteOptions {
   participants?: { name: string; email: string }[];
   /** Apuntes de clase (modo Clase). Se incluyen ÍNTEGROS: son lo que se estudia. */
   studyAids?: StudyAids | null;
+  /** Capítulos del estilo Contenido (podcast, conferencia, video). */
+  chapters?: Chapter[] | null;
   /** Appended at the end so whoever receives the pasted text can open the real thing. */
   url?: string;
   /** `whatsapp` pone los encabezados en *negrita* de WhatsApp; `plain` en MAYÚSCULAS. */
@@ -144,6 +147,16 @@ export function formatMinuteForCopy(opts: FormatMinuteOptions): string {
   const summaryParagraphs = toParagraphs(minute.summary);
   if (summaryParagraphs.length > 0) {
     parts.push(`\n${h('📝', 'RESUMEN')}\n${summaryParagraphs.join('\n\n')}`);
+  }
+
+  // Capítulos (estilo Contenido): la guía cronológica va justo tras el resumen.
+  if (opts.chapters && opts.chapters.length > 0) {
+    const lines = opts.chapters.map((c, i) => {
+      const head = `${c.time ? `[${c.time}]` : `${i + 1}.`} ${c.title}`;
+      const points = c.key_points.map((p) => `   • ${p}`).join('\n');
+      return [head, c.summary ? `   ${c.summary}` : '', points].filter(Boolean).join('\n');
+    });
+    parts.push(`\n${h('🎙️', 'CAPÍTULOS')}\n${lines.join('\n\n')}`);
   }
 
   // Los apuntes de clase van justo tras el resumen: es lo que se estudia.

@@ -2,6 +2,7 @@
 
 import { formatMinuteForCopy, type CopyMinute, type CopyActionItem } from '@/lib/minute-copy-format';
 import type { StudyAids } from '@/lib/study-aids';
+import type { Chapter } from '@/lib/chapters';
 
 // Compartir por WhatsApp, gratis, con el acta COMPLETA.
 //
@@ -29,6 +30,7 @@ export default function ShareWhatsApp({
   minute,
   actionItems,
   studyAids,
+  chapters,
 }: {
   title: string;
   createdAt?: string | null;
@@ -36,6 +38,7 @@ export default function ShareWhatsApp({
   minute: CopyMinute;
   actionItems?: CopyActionItem[];
   studyAids?: StudyAids | null;
+  chapters?: Chapter[] | null;
 }) {
   const share = async () => {
     const text = formatMinuteForCopy({
@@ -45,6 +48,7 @@ export default function ShareWhatsApp({
       minute,
       actionItems,
       studyAids,
+      chapters,
       // Sin enlace: el del panel pide cuenta y el texto ya va completo.
       style: 'whatsapp',
     });

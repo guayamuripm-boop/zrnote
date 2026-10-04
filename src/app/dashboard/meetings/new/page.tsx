@@ -1,5 +1,5 @@
 import { createServerSupabase } from '@/lib/supabase/server';
-import { normalizeMinuteStyle } from '@/lib/minute-styles';
+import { resolveMinuteStyle } from '@/lib/minute-styles';
 import { normalizeSummaryLength } from '@/lib/summary-length';
 import NewMeetingForm from '@/components/NewMeetingForm';
 
@@ -16,10 +16,18 @@ export default async function NewMeetingPage() {
     ? await supabase.from('users').select('default_minute_style, default_summary_length').eq('id', user.id).maybeSingle()
     : { data: null };
 
+  // Aparte, a propósito: la columna la crea la migración 035. Metida en el
+  // select de arriba, su ausencia haría fallar también el estilo y el nivel.
+  const { data: prefs } = user
+    ? await supabase.from('users').select('content_mode_enabled').eq('id', user.id).maybeSingle()
+    : { data: null };
+  const contentModeEnabled = Boolean(prefs?.content_mode_enabled);
+
   return (
     <NewMeetingForm
-      initialStyle={normalizeMinuteStyle(profile?.default_minute_style)}
+      initialStyle={resolveMinuteStyle(profile?.default_minute_style, contentModeEnabled)}
       initialSummaryLength={normalizeSummaryLength(profile?.default_summary_length)}
+      contentModeEnabled={contentModeEnabled}
     />
   );
 }

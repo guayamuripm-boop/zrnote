@@ -1,6 +1,7 @@
 import { verifyMinuteToken } from '@/lib/minute-links';
 import { normalizeMinuteSections } from '@/lib/minute-text';
 import { readStudyAids, isStudyAidsEmpty } from '@/lib/study-aids';
+import { readChapters } from '@/lib/chapters';
 import { formatMinuteForCopy } from '@/lib/minute-copy-format';
 import { sortActionItems } from '@/lib/action-items';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
@@ -54,6 +55,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
     },
     actionItems: sortActionItems(itemsResult.data || []),
     studyAids: isStudyAidsEmpty(aids) ? null : aids,
+    chapters: readChapters(minuteResult.data),
   });
 
   return new Response(text, {

@@ -71,4 +71,18 @@ describe('formatMinuteForCopy', () => {
     expect(text).not.toContain('BLOQUEOS');
     expect(text).not.toContain('PRÓXIMOS PASOS');
   });
+  it('renders chapters in order, with their time, when present', () => {
+    const text = formatMinuteForCopy({
+      title: 'Podcast',
+      minute: { summary: 'Tesis central.' },
+      chapters: [
+        { time: '0:00', title: 'Apertura', summary: 'Presenta al invitado.', key_points: [] },
+        { time: '12:30', title: 'El problema', summary: 'Explica la falla.', key_points: ['Costó 3 millones'] },
+      ],
+    });
+    expect(text).toContain('CAPÍTULOS');
+    expect(text).toContain('[0:00] Apertura');
+    expect(text).toContain('Costó 3 millones');
+    expect(text.indexOf('[0:00]')).toBeLessThan(text.indexOf('[12:30]'));
+  });
 });

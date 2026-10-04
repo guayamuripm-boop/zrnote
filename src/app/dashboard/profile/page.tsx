@@ -4,10 +4,17 @@ import ThemeToggle from '@/components/ThemeToggle';
 import DeleteAccountSection from '@/components/DeleteAccountSection';
 import InstallAppButton from '@/components/InstallAppButton';
 import NotificationToggle from '@/components/NotificationToggle';
+import ContentModeToggle from '@/components/ContentModeToggle';
 
 export default async function ProfilePage() {
   const supabase = await createServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
+
+  // Si la migración 035 aún no está aplicada la lectura falla y queda en «no
+  // activado»; el interruptor avisará al intentar guardar.
+  const { data: prefs } = user
+    ? await supabase.from('users').select('content_mode_enabled').eq('id', user.id).maybeSingle()
+    : { data: null };
 
   return (
     <div className="max-w-lg mx-auto space-y-6">
@@ -45,6 +52,10 @@ export default async function ProfilePage() {
 
         <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
           <NotificationToggle />
+        </div>
+
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+          <ContentModeToggle initialEnabled={Boolean(prefs?.content_mode_enabled)} />
         </div>
 
         <div className="border-t border-slate-200 dark:border-slate-700 pt-4">

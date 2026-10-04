@@ -5,6 +5,7 @@ import { buildMeetingEmailJobs, dispatchEmailJobs } from '@/lib/meeting-emails';
 import { isEmailConfigured, EMAIL_NOT_CONFIGURED } from '@/lib/smtp';
 import { cleanWhisperResult } from '@/lib/whisper-quality';
 import { getMinuteStyle, MAX_STYLE_NOTES_LENGTH } from '@/lib/minute-styles';
+import { formatTimestamp, startOffsetsSeconds, readChapters } from '@/lib/chapters';
 import { getSummaryLength } from '@/lib/summary-length';
 import { normalizeStudyAids, isStudyAidsEmpty, countStudyAids, readStudyAids } from '@/lib/study-aids';
 import { toText, toTextList, toBlockers, toProjectStatuses, toDiscussion } from '@/lib/minute-text';
@@ -416,7 +417,7 @@ export async function transcribeMeeting(
 
   const { data: meeting, error: meetingError } = await supabase
     .from('meetings')
-    .select('audio_segments, transcript_raw, segments_transcribed_offset')
+    .select('audio_segments, transcript_raw, segments_transcribed_offset, minute_style')
     .eq('id', meetingId)
     .single();
 
@@ -539,7 +540,18 @@ export async function transcribeMeeting(
   const cut = transcribeCutoff(outcomes);
 
   const kept = outcomes.slice(0, cut);
-  const newTranscriptions = kept.map((o) => o.text).filter((t): t is string => Boolean(t));
+  // El estilo "Contenido" necesita saber CUÁNDO se dijo cada cosa para poder
+  // armar capítulos con su hora. Se marca cada fragmento con [mm:ss] sumando
+  // las duraciones reales de los trozos anteriores; sin duraciones conocidas
+  // no se pone ninguna marca (mejor sin hora que con una inventada).
+  const stamps = getMinuteStyle(meeting.minute_style).producesChapters ? startOffsetsSeconds(segments) : null;
+  const newTranscriptions = kept
+    .map((o, i) => {
+      if (!o.text) return null;
+      const start = stamps?.get(Number(batch[i]?.segment_index ?? 0));
+      return start === undefined ? o.text : `[${formatTimestamp(start)}] ${o.text}`;
+    })
+    .filter((t): t is string => Boolean(t));
   const segErrors = outcomes.map((o) => o.error).filter((e): e is string => Boolean(e));
   const processed = newTranscriptions.length;
   const finalOffset = advanceTranscribedIndex(batch, cut, offset);
@@ -685,6 +697,13 @@ export async function transcribeMeeting(
  *     Hence the explicit sweep instruction and the "later overrides earlier"
  *     rule — in real meetings the end is where things get decided.
  */
+// El resumen se leía como una crónica pulida: introducciones, adjetivos y
+// cierres que no dicen nada, con lo importante enterrado a mitad de párrafo.
+// Esta regla va para TODOS los estilos y niveles de detalle: cambia cómo se
+// escribe, no cuánto.
+const SUMMARY_DIRECTNESS =
+  'ESCRIBE DIRECTO: lo más importante va en la primera frase. Cada frase tiene que aportar un dato, una decisión, una cifra, un plazo o un pendiente; si se puede borrar sin perder información, bórrala. Nada de introducciones ("en la reunión se…"), adjetivos de relleno ("importante", "interesante", "fructífero"), ni frases de cierre. Conserva las cifras, fechas y nombres exactos tal como se dijeron. Si quedaron pendientes importantes, termina con ellos.';
+
 const MINUTE_PROMPT = (
   transcript: string,
   opts: {
@@ -708,7 +727,7 @@ const MINUTE_PROMPT = (
   // formato; el contenido después, porque es la de fondo.
   const summaryInstruction =
     `${lengthDef.lengthInstruction} ${styleDef.contentFocus ??
-      'Primero para qué se reunieron y qué se resolvió, después qué queda pendiente. Cuenta resultados, no narres la conversación ni digas "se habló de". Si la reunión no llegó a nada concreto, dilo con esas palabras.'}`;
+      'Primero para qué se reunieron y qué se resolvió, después qué queda pendiente. Cuenta resultados, no narres la conversación ni digas "se habló de". Si la reunión no llegó a nada concreto, dilo con esas palabras.'} ${SUMMARY_DIRECTNESS}`;
 
   // Notas cortas del organizador para ESTA acta. Van como el último bloque de
   // contexto, antes del formato de respuesta, y explícitamente marcadas como
@@ -750,6 +769,7 @@ Antes de extraer nada, decide en silencio de qué tipo es, porque cambia lo que 
 - Toma de decisión → manda lo que se decidió y bajo qué condiciones.
 - Lluvia de ideas o exploratoria → manda lo que se propuso; es normal que haya 0 decisiones y muchas ideas.
 - Clase, conferencia o charla educativa → manda el CONTENIDO que se enseñó: explica los temas, los conceptos, las fórmulas y los ejemplos que se vieron, con suficiente detalle para que alguien que no estuvo en la clase entienda de qué se trató y qué aprendieron. El resumen no es "se vieron funciones lineales" sino una explicación breve de qué son, qué propiedades tienen y cómo se aplican — lo que dijeron en clase, no un libro. Es normal que haya 0 compromisos (salvo tareas o deberes asignados).
+- Podcast, conferencia o video → manda el contenido en orden cronológico; es normal que haya 0 compromisos y 0 decisiones.
 - Informativa o presentación → manda el resumen; es normal que haya 0 compromisos.
 No fuerces la reunión a una plantilla. Si no hubo decisiones, el array va vacío y ya.
 
@@ -774,11 +794,14 @@ CÓMO LEER UNA REUNIÓN LARGA
 - Si el mismo asunto vuelve varias veces, únelo en un solo punto; no lo repitas por cada vez que se mencionó.
 - Cuando haya mucho material, sacrifica primero discussion e ideas. Nunca sacrifiques compromisos, decisiones ni bloqueos.
 
-LOS COMPROMISOS SON LO MÁS IMPORTANTE DEL DOCUMENTO
-Es lo único que hace que alguien vuelva a abrir esta minuta. Trátalos con cuidado:
-- Un compromiso es alguien asumiendo algo concreto. Señales: ${styleDef.commitmentExamples}.
-- NO es un compromiso: "habría que…", "estaría bueno…", "en algún momento…", "hay que ver si…" sin que nadie lo tome. Eso es una idea.
-- Ante la duda entre compromiso e idea → es idea. Un compromiso falso hace perder la confianza en toda la minuta.
+LOS COMPROMISOS Y PENDIENTES SON LO MÁS IMPORTANTE DEL DOCUMENTO
+Es lo único que hace que alguien vuelva a abrir esta minuta, y lo que más se pierde si no lo buscas a propósito. "action_items" recoge TODO lo que quedó por hacer, tenga dueño o no:
+- Compromiso con dueño: alguien asume algo concreto. Señales: ${styleDef.commitmentExamples}.
+- Petición dirigida: "Pedro, ¿me mandas el contrato?" / "necesito que Ana revise esto" → es una tarea de Pedro / de Ana, salvo que se negaran.
+- Pendiente SIN dueño: algo que hay que hacer y nadie dijo "yo": "hay que confirmar la fecha", "falta mandar la cotización", "queda pendiente el contrato", "tenemos que revisar el presupuesto", "todavía no se ha hecho X". Va en action_items con assignee_name null. Es un pendiente real aunque nadie lo haya tomado; omitirlo es perder trabajo.
+- Seguimientos y fechas: "lo vemos el jueves", "para la próxima revisamos X", "quedamos en retomar esto" → pendiente (o evento si tiene hora y lugar).
+- NO es un pendiente: una sugerencia opcional — "estaría bueno…", "podríamos…", "en algún momento…", "habría que pensar si…". Eso es una idea. La prueba: ¿se dijo como algo que HAY que hacer, o como algo que SERÍA BUENO hacer? Lo primero va en action_items; lo segundo, en ideas.
+- Ante la duda por el tono de necesidad (lo dijeron como obligación, como bloqueo, como algo que falta) → pendiente. Ante la duda porque nadie lo dijo en serio → idea.
 - Redacta cada tarea empezando por un verbo, y que se entienda sola: "Enviar la cotización de tuberías al cliente", no "lo de la cotización".
 - Si una tarea la asumen dos personas, escribe un compromiso por cada una.
 - Si alguien asumió varias cosas distintas, sepáralas. Una tarea = una acción.
@@ -824,10 +847,12 @@ RESPONDE ÚNICAMENTE CON ESTE JSON (sin markdown, sin texto antes ni después):
 }
 
 ANTES DE RESPONDER, REVISA
-- ¿Algún compromiso es en realidad una idea que nadie asumió? Muévelo.
+- BARRIDO DE PENDIENTES: vuelve a recorrer la transcripción buscando "hay que", "tenemos que", "falta", "queda pendiente", "todavía no", "me mandas", "necesito que", "quedamos en", "para el…", "la próxima", "recuérdame", "seguimiento". ¿Cada uno que se dijo en serio está en action_items? Si falta alguno, añádelo (con assignee_name null si nadie lo tomó).
+- ¿Algún "compromiso" es en realidad una sugerencia opcional que nadie dijo en serio? Muévelo a ideas. Lo contrario también cuenta: ¿hay algo en ideas que se dijo como obligación? Súbelo a action_items.
 - ¿Algún responsable te lo inventaste porque "encajaba"? Ponlo en null.
 - ¿Repetiste en next_steps algo que ya está en action_items? Bórralo de next_steps.
-- ¿El resumen cuenta resultados, o narra la conversación? Reescríbelo si narra.
+- ¿El resumen cuenta resultados, o narra la conversación? ¿Lo más importante está en la primera frase? Reescríbelo si narra o si lo importante quedó enterrado.
+- ¿Hay en el resumen frases de relleno, adjetivos o introducciones? Bórralas.
 - ¿Alguna tarea se entiende solo si estuviste en la reunión? Reescríbela.
 ${styleDef.producesStudyAids ? `- ¿Alguna definición, ejemplo o respuesta de study_aids la sabes TÚ pero no se dijo en clase? Bórrala. Es el error más grave que puedes cometer aquí.
 - ¿Hay conceptos en el glosario que solo se NOMBRARON, sin explicarse? Quítalos.
@@ -1578,6 +1603,14 @@ function createChunks(minute: any, transcript: string): Array<{ index: number; s
 
   for (const note of aids.exam_notes) {
     chunks.push({ index: index++, section: 'exam_notes', text: note, speaker: 'system' });
+  }
+
+  // Capítulos (estilo Contenido): así el agente puede responder "qué se dijo
+  // sobre X" y señalar el momento.
+  for (const ch of readChapters(minute)) {
+    const when = ch.time ? `[${ch.time}] ` : '';
+    const points = ch.key_points.length > 0 ? ` ${ch.key_points.join('. ')}` : '';
+    chunks.push({ index: index++, section: 'chapters', text: `${when}${ch.title}: ${ch.summary}${points}`, speaker: 'system' });
   }
 
   // Transcript in ~500 char chunks

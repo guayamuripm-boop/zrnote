@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeMinuteStyle, getMinuteStyle, MINUTE_STYLE_OPTIONS, DEFAULT_MINUTE_STYLE } from './minute-styles';
+import {
+  normalizeMinuteStyle,
+  getMinuteStyle,
+  MINUTE_STYLE_OPTIONS,
+  DEFAULT_MINUTE_STYLE,
+  availableMinuteStyles,
+  resolveMinuteStyle,
+} from './minute-styles';
 
 describe('normalizeMinuteStyle', () => {
   it('reconoce los estilos válidos', () => {
@@ -40,9 +47,9 @@ describe('getMinuteStyle', () => {
 });
 
 describe('MINUTE_STYLE_OPTIONS', () => {
-  it('incluye ambos estilos, cada uno con lo que la interfaz necesita', () => {
+  it('incluye todos los estilos, cada uno con lo que la interfaz necesita', () => {
     const values = MINUTE_STYLE_OPTIONS.map((s) => s.value);
-    expect(values).toEqual(['ejecutiva', 'educativa']);
+    expect(values).toEqual(['ejecutiva', 'educativa', 'contenido']);
     for (const style of MINUTE_STYLE_OPTIONS) {
       expect(style.label).toBeTruthy();
       expect(style.shortDescription).toBeTruthy();
@@ -62,5 +69,26 @@ describe('MINUTE_STYLE_OPTIONS', () => {
 
     expect(getMinuteStyle('ejecutiva').producesStudyAids).toBeFalsy();
     expect(getMinuteStyle('ejecutiva').extraSchema).toBeUndefined();
+  });
+});
+
+describe('estilo Contenido (opcional)', () => {
+  it('no se ofrece hasta que la persona lo activa', () => {
+    expect(availableMinuteStyles(false).map((s) => s.value)).toEqual(['ejecutiva', 'educativa']);
+    expect(availableMinuteStyles(true).map((s) => s.value)).toEqual(['ejecutiva', 'educativa', 'contenido']);
+  });
+
+  it('un estilo opcional no activado cae al valor por defecto', () => {
+    expect(resolveMinuteStyle('contenido', false)).toBe('ejecutiva');
+    expect(resolveMinuteStyle('contenido', true)).toBe('contenido');
+    expect(resolveMinuteStyle('educativa', false)).toBe('educativa');
+    expect(resolveMinuteStyle('lo-que-sea', true)).toBe('ejecutiva');
+  });
+
+  it('pide capítulos y trae el prompt para producirlos', () => {
+    const c = getMinuteStyle('contenido');
+    expect(c.producesChapters).toBe(true);
+    expect(c.extraSchema).toContain('chapters');
+    expect(c.extraRules).toContain('chapters');
   });
 });

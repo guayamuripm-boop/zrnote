@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { formatMinuteForCopy, type CopyMinute, type CopyActionItem } from '@/lib/minute-copy-format';
 import type { StudyAids } from '@/lib/study-aids';
+import type { Chapter } from '@/lib/chapters';
 
 interface Props {
   title: string;
@@ -12,6 +13,7 @@ interface Props {
   actionItems?: CopyActionItem[];
   participants?: { name: string; email: string }[];
   studyAids?: StudyAids | null;
+  chapters?: Chapter[] | null;
 }
 
 /** Copies the complete acta as structured plain text — see minute-copy-format.ts. */
