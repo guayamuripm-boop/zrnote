@@ -1,4 +1,4 @@
-# Runbook 07 — Estilo del acta (Ejecutiva / Educativa)
+# Runbook 07 — Estilo del acta (Ejecutiva / Clase / Contenido)
 
 > **Versión:** v1.16 · **Archivos:** `src/lib/minute-styles.ts` · `src/lib/processing.ts` (MINUTE_PROMPT) · `src/components/NewMeetingForm.tsx` · `src/app/api/meetings/route.ts`
 
@@ -26,7 +26,7 @@ formales, obra— es añadir **una entrada ahí**, no tocar la base de datos ni
 buscar por el código los sitios donde hay que actualizarlo.
 
 ```
-MINUTE_STYLES = { ejecutiva: {...}, educativa: {...} }
+MINUTE_STYLES = { ejecutiva: {...}, educativa: {...}, contenido: {...} }
         │
         ├─→ MINUTE_STYLE_OPTIONS  → selector en NewMeetingForm.tsx
         │
@@ -35,6 +35,12 @@ MINUTE_STYLES = { ejecutiva: {...}, educativa: {...} }
                   ├─→ roleFraming         → frase de apertura del prompt
                   └─→ commitmentExamples  → "señales de compromiso" del prompt
 ```
+
+**Estilos opt-in.** `contenido` tiene `optIn: true`: no aparece en el
+selector hasta que la persona lo activa en su perfil (`users.content_mode_enabled`,
+migración 035). `availableMinuteStyles(enabled)` filtra; `resolveMinuteStyle()`
+degrada un estilo opt-in no activado a `ejecutiva`. Sin la migración 035 el
+toggle muestra un error amable y el estilo no se ofrece.
 
 **Por qué no hay `CHECK (minute_style IN (...))` en la base de datos.** A
 propósito — ver migración `025`. La validación vive en

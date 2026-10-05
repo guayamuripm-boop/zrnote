@@ -66,7 +66,7 @@ subir fragmentos ──► transcribir ──► analizar ──► correos     
 |---|---|
 | **Pipeline** | `processing`, `pipeline-client`, `retry-backoff`, `segment-selection`, `whisper-quality`, `llm-fallback`(test), `gemini-models`(test) |
 | **Audio** | `audio-compression`, `audio-conversion`, `audio-mixer`, `audio-segments`, `audio-split`, `audio-wav`, `background-audio`, `mic-health`, `recording-store`, `upload-queue`, `offline-transcribe` |
-| **Minuta** | `minute-text`, `minute-styles`, `minute-copy-format`, `minute-cache`, `minute-pdf`, `summary-length`, `study-aids`, `flashcard-deck`, `readable-text`, `auto-title` |
+| **Minuta** | `minute-text`, `minute-styles`, `minute-copy-format`, `minute-cache`, `minute-pdf`, `summary-length`, `study-aids`, `chapters`, `flashcard-deck`, `readable-text`, `auto-title` |
 | **Correo** | `smtp`, `email-service`, `email-outbox`, `meeting-emails`, `reminders`, `ics`, `google-calendar` |
 | **Reuniones** | `meeting-lifecycle`, `meeting-queue`, `action-items`, `share-stash` |
 | **Seguridad** | `api-auth`, `cron-auth`, `cors`, `rate-limiter`, `minute-links`, `safe-html`, `validators` |
@@ -78,7 +78,7 @@ Agrupados por dominio cuando hay varios: `recorder/`, `minutes/`, `study/`, `leg
 
 ## Base de datos
 
-31 migraciones + `032_atomic_rate_limit`. RLS activo en todas las tablas, con funciones `SECURITY DEFINER` para evitar la recursión de políticas (historia en las migraciones 007, 017 y 018). Las migraciones llevan su reversión comentada al final. El SQL que **no** es una migración vive en [`supabase/scripts`](../../supabase/scripts).
+35 migraciones (001–035). RLS activo en todas las tablas, con funciones `SECURITY DEFINER` para evitar la recursión de políticas (historia en las migraciones 007, 017 y 018). Las migraciones llevan su reversión comentada al final. El SQL que **no** es una migración vive en [`supabase/scripts`](../../supabase/scripts).
 
 ## Deuda conocida
 

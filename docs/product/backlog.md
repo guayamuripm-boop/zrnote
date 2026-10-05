@@ -1,17 +1,20 @@
 # BACKLOG — ZRNote
 
-> Lista priorizada de tareas pendientes, bugs conocidos, mejoras y deuda técnica.  
-> **Orden: Alta → Media → Baja**. Actualizar al final de cada sesión.
+> Lista priorizada de tareas pendientes, bugs conocidos, mejoras y deuda tecnica.  
+> **Orden: Alta → Media → Baja**. Actualizar al final de cada sesion.
 
 ---
 
-## 🔴 CRÍTICO (Bloquea funcionalidad core)
+## 🔴 CRITICO (Bloquea funcionalidad core)
 
 | # | Tarea | Detalle | Esfuerzo | Due |
 |---|-------|---------|----------|-----|
-| 1 | **Emails no llegan en producción** | `GMAIL_USER` y `GMAIL_APP_PASSWORD` están en Vercel, pero no hay confirmación de que funcionen. Revisar `email_logs` tabla + logs Vercel tras procesar reunión real. Si fallan: validar App Password (2FA obligatoria en cuenta Gmail) y `transporter.verify()` en `/api/health` o endpoint dedicado. | 1h | Inmediato |
-| 2 | **Migración RLS 018 NO aplicada en Supabase** | El archivo está en repo (`supabase/migrations/018_rls_reset_no_recursion.sql`) pero **no se ha ejecutado en SQL Editor**. Sin ella: `infinite recursion detected in policy for relation "meetings"` al crear reuniones. **Pegar completo en Supabase → SQL Editor → Run.** | 5 min | Inmediato |
-| 3 | **Timeout Vercel 60s en reuniones >45 min** | Pipeline `transcribe` usa batch de 3 segmentos y `more: true`, pero si hay muchos segmentos (>180) el loop de polling en UI puede exceder 60s. Edge Function `process-meeting` ya no tiene límite, pero el flujo **frontend-driven** (polling `/process`) sí. Mover transcripción completa a `processing_queue` + worker o aumentar `maxDuration` en `vercel.json` (máx 300s Pro, 60s Hobby). | 2-4h | Sprint actual |
+| 1 | **~~Emails no llegan en produccion~~** | ✅ Resuelto en v1.10.0+. Email-outbox con idempotencia, retry con backoff, dedup por hash. Tabla `email_logs` confirma entregas. | — | Cerrado |
+| 2 | **~~Migracion RLS 018 NO aplicada~~** | ✅ Aplicada en produccion. RLS sin recursion activa. | — | Cerrado |
+| 3 | **Timeout Vercel 60s en reuniones largas** | Mitigado: transcripcion batch con rate limiting (20 RPM Groq), Gemini 1M context para analisis, audio persistido localmente antes de subir. Aun aplica el limite de 60s en Hobby; reuniones muy largas pueden necesitar plan Pro o mover a queue. | 2-4h | Backlog |
+| 4 | **Rotar `extension.pem`** | La clave privada de la Chrome Extension esta en el repo. Generar nueva, actualizar ID de extension, re-publicar. | 1h | Inmediato |
+| 5 | **Aplicar migracion 032 (atomic rate limit)** | `supabase/migrations/032_atomic_rate_limit.sql` pendiente en produccion. Necesaria para rate limiting correcto del pipeline. Pegar en Supabase → SQL Editor → Run. | 5 min | Inmediato |
+| 6 | **Aplicar migracion 035 (content mode)** | `supabase/migrations/035_content_mode.sql` pendiente en produccion. Habilita modo Contenido (capitulos para podcasts/conferencias). Pegar en Supabase → SQL Editor → Run. | 5 min | Inmediato |
 
 ---
 
@@ -19,12 +22,16 @@
 
 | # | Tarea | Detalle | Esfuerzo | Due |
 |---|-------|---------|----------|-----|
-| 4 | **Recall.ai bot para Meet/Zoom automático** | Integración oficial Recall.ai (gratis 100h/mes) → bot entra a reunión, graba, devuelve audio → elimina necesidad de PWA grabando desde el móvil. | 1 semana | Próximo sprint |
-| 5 | **Notificaciones realtime (Supabase Realtime)** | Suscribir a `minutes`, `action_items`, `meetings` → toast/badge en dashboard cuando cambie estado. | 3 días | Próximo sprint |
-| 6 | **Búsqueda full-text minutas (pg_trgm)** | `CREATE EXTENSION pg_trgm; CREATE INDEX ... ON minutes USING gin (summary gin_trgm_ops);` + endpoint `/api/search`. | 1 día | Próximo sprint |
-| 7 | **Google Calendar OAuth + crear eventos** | Completar `google-calendar.ts` con token refresh, endpoint callback, UI "Conectar Calendar" en settings. Crear evento follow-up al finalizar minuta. | 3 días | Próximo sprint |
-| 8 | **Tests de integración reales (Playwright/Cypress)** | E2E: login → crear reunión → grabar 2 min → procesar → ver minuta → asignar tarea → email. Hoy solo unit tests. | 2 días | Próximo sprint |
-| 9 | **Subida directa >25MB (chunked upload a Storage)** | `direct-upload` hoy usa signed URL simple (límite 25MB Whisper). Para archivos >25MB: multipart upload a Supabase Storage (chunks 5MB) → concatenar en servidor → enviar a Whisper por partes. | 1 semana | Backlog |
+| 7 | **Recall.ai bot para Meet/Zoom automatico** | Integracion oficial Recall.ai (gratis 100h/mes) → bot entra a reunion, graba, devuelve audio → elimina necesidad de PWA grabando desde el movil. | 1 semana | Proximo sprint |
+| 8 | **Notificaciones realtime (Supabase Realtime)** | Push notifications ya implementadas (TWA + service worker), pero no Supabase Realtime. Suscribir a `minutes`, `action_items`, `meetings` → toast/badge en dashboard cuando cambie estado. | 3 dias | Proximo sprint |
+| 9 | **Busqueda full-text minutas (pg_trgm)** | `CREATE EXTENSION pg_trgm; CREATE INDEX ... ON minutes USING gin (summary gin_trgm_ops);` + endpoint `/api/search`. | 1 dia | Proximo sprint |
+| 10 | **Google Calendar OAuth + crear eventos** | Hoy se usa enfoque por URL (link directo a Calendar). Completar OAuth con token refresh, endpoint callback, UI "Conectar Calendar" en settings. Crear evento follow-up al finalizar minuta. | 3 dias | Proximo sprint |
+| 11 | **Tests E2E (Playwright/Cypress)** | E2E: login → crear reunion → grabar 2 min → procesar → ver minuta → asignar tarea → email. Hoy hay 361 tests unitarios/integracion en 36 archivos, pero cero E2E. | 2 dias | Proximo sprint |
+| 12 | **Subida directa >25MB (chunked upload a Storage)** | `direct-upload` hoy usa signed URL simple (limite 25MB Whisper). Para archivos >25MB: multipart upload a Supabase Storage (chunks 5MB) → concatenar en servidor → enviar a Whisper por partes. | 1 semana | Backlog |
+| 13 | **Editar minuta/acuerdos a mano** | Post-generacion, el usuario no puede editar el texto de la minuta ni los action items. Agregar edicion inline con guardado. | 2-3 dias | Proximo sprint |
+| 14 | **Poner fecha desde la app** | Hoy la fecha de la reunion solo se puede establecer via link de Calendar. Agregar date picker nativo en la creacion/edicion de reunion. | 1 dia | Proximo sprint |
+| 15 | **Supabase quota (storage/transfer)** | El plan gratuito esta al limite de storage y transfer. Evaluar upgrade, limpiar archivos antiguos, o implementar politica de retencion mas agresiva. | 1 dia | Sprint actual |
+| 16 | **Dividir `processing.ts` (~1600 lineas)** | Archivo monolitico con pipeline completo. Separar en modulos: `transcription.ts`, `analysis.ts`, `vectorization.ts`, `email-pipeline.ts`. | 1 dia | Proximo sprint |
 
 ---
 
@@ -32,54 +39,61 @@
 
 | # | Tarea | Detalle | Esfuerzo |
 |---|-------|---------|----------|
-| 10 | **Notion / Linear / Slack integrations** | Webhooks salientes al crear action_item. Un webhook genérico + config por org. | 1 semana c/u |
-| 11 | **Multi-tenant SaaS (Stripe + onboarding)** | `organizations` ya existe; falta billing, planes, trial, portal cliente. | 2 semanas |
-| 12 | **Dashboard analytics (uso, minutos, coste Groq)** | Página `/dashboard/analytics` con gráficos Recharts. | 3 días |
-| 13 | **Idiomas (i18n)** | Next.js `next-intl` o `i18next`. Español/Inglés mínimo. | 2 días |
-| 14 | **Speaker diarization real (pyannote/WhisperX)** | Hoy "Speaker 1/2/3" es dummy. Integrar WhisperX (GPU) o pyannote.audio (HuggingFace) para diarización real. | 1 semana |
-| 15 | **Offline-first PWA (Service Worker + IndexedDB)** | Grabar sin red → cola local → sync al reconectar. Workbox. | 1 semana |
-| 16 | **Audio player en minuta con timestamps** | Click en párrafo → salta al audio en ese segundo. Requiere `transcript_raw` con timestamps por palabra (Whisper `verbose_json`). | 3 días |
+| 17 | **Notion / Linear / Slack integrations** | Webhooks salientes al crear action_item. Un webhook generico + config por org. | 1 semana c/u |
+| 18 | **Multi-tenant SaaS (Stripe + onboarding)** | `organizations` ya existe; falta billing, planes, trial, portal cliente. | 2 semanas |
+| 19 | **Dashboard analytics (uso, minutos, coste Groq)** | Pagina `/dashboard/analytics` con graficos Recharts. | 3 dias |
+| 20 | **Idiomas (i18n)** | Next.js `next-intl` o `i18next`. Espanol/Ingles minimo. | 2 dias |
+| 21 | **Speaker diarization real (pyannote/WhisperX)** | Hoy "Speaker 1/2/3" viene del modelo. Integrar WhisperX (GPU) o pyannote.audio (HuggingFace) para diarizacion real. | 1 semana |
+| 22 | **Offline-first PWA (Service Worker + IndexedDB)** | Grabar sin red → cola local → sync al reconectar. Workbox. Parcialmente implementado (audio se persiste en dispositivo). | 1 semana |
+| 23 | **Audio player en minuta con timestamps** | Click en parrafo → salta al audio en ese segundo. Requiere `transcript_raw` con timestamps por palabra (Whisper `verbose_json`). | 3 dias |
 
 ---
 
-## 🟢 BAJA (Deuda técnica / Limpieza)
+## 🟢 BAJA (Deuda tecnica / Limpieza)
 
 | # | Tarea | Detalle |
 |---|-------|---------|
-| 17 | **Migrar `processing.test.ts` a tests reales** | Hoy solo `typeof transcribeMeeting === 'function'`. Mockear Groq + Supabase y probar flujo completo. |
-| 18 | **Eliminar `console.error` override en `processing.ts`** | Parche temporal para bug `RangeError: %Z` de nodemailer. Mejor: fixear nodemailer o usar `pino` logger. |
-| 19 | **Unificar `safe-html.ts` (app + edge function)** | Hoy hay 2 copias. Crear package `@zrnote/safe-html` o importar desde shared. |
-| 20 | **TypeScript strict: `noUncheckedIndexedAccess`** | Activar en `tsconfig.json` y fixear warnings. |
-| 21 | **Bundle analyzer** | `npm run analyze` → identificar chunks pesados (FFmpeg ~2MB carga on-demand, OK). |
-| 22 | **Storybook para componentes UI** | Documentar `RecordButton`, `UploadDropzone`, `AssignActionItems`, etc. |
-| 23 | **Pre-commit hooks (husky + lint-staged)** | Evitar commits con `any`, `console.log`, tests rotos. |
+| 24 | **Unificar `safe-html.ts` (app + edge function)** | Hoy hay 2 copias. Crear package `@zrnote/safe-html` o importar desde shared. |
+| 25 | **TypeScript strict: `noUncheckedIndexedAccess`** | Activar en `tsconfig.json` y fixear warnings. |
+| 26 | **Bundle analyzer** | `npm run analyze` → identificar chunks pesados (FFmpeg ~2MB carga on-demand, OK). |
+| 27 | **Storybook para componentes UI** | Documentar `RecordButton`, `UploadDropzone`, `AssignActionItems`, etc. |
+| 28 | **Pre-commit hooks (husky + lint-staged)** | Evitar commits con `any`, `console.log`, tests rotos. |
 
 ---
 
 ## 📝 HISTORIAL DE VERSIONES
 
-| Versión | Fecha | Cambios clave |
+| Version | Fecha | Cambios clave |
 |---------|-------|---------------|
-| **1.0.3** | 2026-07-22 | FFmpeg.wasm para conversión .aac/.amr/.3gp → MP3 64kbps en navegador; botón "Convertir y comprimir" en subida; 26 tests |
+| **1.28.0** | 2026-10-03 | Modo Contenido (capitulos para podcasts/conferencias/videos), pendientes sin dueno, resumenes mas directos |
+| **1.27.0** | 2026-09-20 | Security audit, repo reorganization (docs movidos a `docs/`), migracion 032 atomic rate limit |
+| **1.20.0+** | 2026-09 | Audio persistido en dispositivo antes de subir, upload queue, push notifications, TWA (Android wrapper), 2 bugs de perdida de audio cerrados |
+| **1.18.0–1.19.0** | 2026-08 | Modo Estudio (flashcards Leitner 3 cajas, notas Feynman), cuaderno digital |
+| **1.17.0** | 2026-08 | Estilos de minuta (ejecutiva/educativa) |
+| **1.15.0–1.16.0** | 2026-08 | Boton instalar PWA, pagina de ayuda, distincion eventos vs tareas |
+| **1.14.0** | 2026-08 | Filtro alucinaciones Whisper, upgrade Next 15, security audit |
+| **1.12.0** | 2026-08 | Email dedup, links publicos de minutas, fix matching participantes |
+| **1.10.0** | 2026-07-31 | Primer pipeline end-to-end completo, AAC re-mux, Gemini model discovery, Groq 413 handling |
+| **1.0.3** | 2026-07-22 | FFmpeg.wasm para conversion .aac/.amr/.3gp → MP3 64kbps en navegador; boton "Convertir y comprimir" en subida; 26 tests |
 | **1.0.2** | 2026-07-21 | Subida directa .aac a Storage (signed URL), RLS reset (mig 018), tests emails (12), XSS fix |
-| **1.0.1** | 2026-07-21 | Rotación real grabadora (stop/restart), fix escapeHtml (XSS), version system (`/api/version`), badge navbar |
-| **1.0.0** | 2026-07-18 | MVP completo: auth, CRUD, grabación, transcripción, minuta, action items, emails, RAG, Chrome Ext, PDF, RGPD, cron |
+| **1.0.1** | 2026-07-21 | Rotacion real grabadora (stop/restart), fix escapeHtml (XSS), version system (`/api/version`), badge navbar |
+| **1.0.0** | 2026-07-18 | MVP completo: auth, CRUD, grabacion, transcripcion, minuta, action items, emails, RAG, Chrome Ext, PDF, RGPD, cron |
 
 ---
 
-## 🛠️ COMANDOS ÚTILES
+## 🛠️ COMANDOS UTILES
 
 ```bash
 # Desarrollo
 npm run dev                    # Next.js dev server
-npx vitest run                 # Tests unitarios
-npm run build                  # Build producción (verifica tipos + lint)
+npx vitest run                 # 361 tests en 36 archivos
+npm run build                  # Build produccion (verifica tipos + lint)
 
 # Deploy
 git add -A && git commit -m "msg" && git push origin main  # Vercel auto-deploy
 npx vercel deploy --prod --force                           # Deploy manual
 
-# Debug producción
+# Debug produccion
 npx vercel logs --level error --limit 20 --no-branch --expand
 npx vercel inspect <deployment-url>
 curl https://zrnote.vercel.app/api/version
@@ -93,39 +107,45 @@ curl https://zrnote.vercel.app/api/version
 
 ## 🔑 SECRETOS EN VERCEL (Settings → Environment Variables)
 
-| Variable | Requerida | Dónde |
+| Variable | Requerida | Donde |
 |----------|-----------|-------|
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Vercel + `.env.local` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | Vercel + `.env.local` |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Solo Vercel (Server) |
 | `GROQ_API_KEY` | ✅ | Solo Vercel |
+| `GEMINI_API_KEY` | ✅ | Solo Vercel |
 | `JINA_API_KEY` | ✅ | Solo Vercel |
 | `GMAIL_USER` | ✅ | Solo Vercel |
-| `GMAIL_APP_PASSWORD` | ✅ | Solo Vercel (App Password 16 dígitos, 2FA on) |
+| `GMAIL_APP_PASSWORD` | ✅ | Solo Vercel (App Password 16 digitos, 2FA on) |
+| `CRON_SECRET` | ✅ | Solo Vercel (protege endpoints cron) |
 | `NEXT_PUBLIC_APP_URL` | ✅ | Vercel (`https://zrnote.vercel.app`) |
+| `MINUTE_LINK_SECRET` | Opcional | Solo Vercel (firma links publicos de minutas) |
 | `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` | Auto | Inyectado por Vercel en build |
 | `VERCEL_GIT_COMMIT_SHA` | Auto | Inyectado por Vercel en build |
 
-> **Nota:** `.env.local` local es un stub (valores vacíos). Los secretos reales **solo están en Vercel**.
+> **Nota:** `.env.local` local es un stub (valores vacios). Los secretos reales **solo estan en Vercel**.
 
 ---
 
-## 📂 ARCHIVOS CLAVE (para auditoría rápida)
+## 📂 ARCHIVOS CLAVE (para auditoria rapida)
 
-| Archivo | Qué hace |
+| Archivo | Que hace |
 |---------|----------|
-| `src/components/recorder/RecordButton.tsx` | **Motor de grabación** — rotación stop/restart 30s, wake lock, media session, subidas serializadas |
-| `src/lib/processing.ts` | Pipeline core: `transcribeMeeting`, `analyzeMeeting`, `vectorizeMeeting`, `sendMeetingEmails` |
+| `src/components/recorder/RecordButton.tsx` | **Motor de grabacion** — rotacion stop/restart 30s, wake lock, media session, subidas serializadas |
+| `src/lib/processing.ts` | Pipeline core (~1600 lineas): `transcribeMeeting`, `analyzeMeeting`, `vectorizeMeeting`, `sendMeetingEmails` |
+| `src/lib/pipeline-client.ts` | Cliente frontend del pipeline: polling, retry, estado UI |
+| `src/lib/minute-styles.ts` | Estilos de minuta: ejecutiva, educativa, modo contenido |
+| `src/lib/study-aids.ts` | Generacion de ayudas de estudio: flashcards, notas Feynman |
+| `src/lib/chapters.ts` | Deteccion de capitulos/secciones para modo Contenido |
+| `src/lib/flashcard-deck.ts` | Motor de flashcards con algoritmo Leitner (3 cajas) |
 | `src/lib/audio-conversion.ts` | **FFmpeg.wasm** — hook `useAudioConverter`, convierte .aac/.amr/.3gp → MP3/Opus en navegador |
-| `src/app/dashboard/meetings/[id]/upload/page.tsx` | UI subida: drag&drop, split 30s, compresión, **botón "Convertir y comprimir"**, direct-upload .aac |
-| `src/app/api/meetings/[id]/direct-upload/route.ts` | Signed URL upload a Supabase Storage (bypass 4.5MB Vercel) para formatos indecodificables |
+| `src/app/dashboard/meetings/[id]/upload/page.tsx` | UI subida: drag&drop, split 30s, compresion, direct-upload .aac |
+| `src/app/api/meetings/[id]/direct-upload/route.ts` | Signed URL upload a Supabase Storage (bypass 4.5MB Vercel) |
 | `src/app/api/meetings/[id]/process/route.ts` | Pipeline por pasos: `transcribe`, `analyze`, `vectorize`, `emails` |
-| `supabase/functions/process-meeting/index.ts` | Edge Function worker asíncrono (sin límite 60s) |
-| `vercel.json` | Function durations + crons (`retry-stuck` cada 2min, `retention` 3AM) |
-| `supabase/migrations/018_rls_reset_no_recursion.sql` | **Fix crítico RLS** — ejecutar en SQL Editor |
 | `src/lib/email-service.ts` | Emails: `buildMinuteHtml`, `matchItemsToParticipant`, `sendWithRetry` |
 | `src/lib/safe-html.ts` | `escapeHtml` — **XSS fix** (entidades reales) |
+| `vercel.json` | Function durations + crons (`retry-stuck` cada 2min, `retention` 3AM) |
 
 ---
 
-*Actualizado: 2026-07-22 — v1.0.3 desplegado*
+*Actualizado: 2026-10-05 — v1.28.0 en desarrollo (branch develop)*

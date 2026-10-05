@@ -1553,7 +1553,8 @@ function createChunks(minute: any, transcript: string): Array<{ index: number; s
   }
 
   for (const item of minute.action_items || []) {
-    chunks.push({ index: index++, section: 'action_items', text: `${item.assignee_name}: ${item.description} (${item.priority})${item.due_date ? `, vence ${item.due_date}` : ''}`, speaker: item.assignee_name });
+    const who = item.assignee_name || 'Sin asignar';
+    chunks.push({ index: index++, section: 'action_items', text: `${who}: ${item.description} (${item.priority})${item.due_date ? `, vence ${item.due_date}` : ''}`, speaker: item.assignee_name });
   }
 
   for (const step of minute.next_steps || []) {

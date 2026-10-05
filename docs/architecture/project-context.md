@@ -3,6 +3,49 @@
 
 ---
 
+## 📝 2026-10-05 — Modo Contenido y pendientes sin dueño (v1.28.0, commit `ccd3708`)
+
+**En develop y main.** Build ✅ · TypeScript ✅ · 361 tests ✅ (36 archivos) ·
+`package.json` dice 1.27.0 pero las funcionalidades nuevas ameritan 1.28.0.
+
+### Qué cambió
+
+1. **Modo Contenido** — nuevo estilo de minuta para podcasts, conferencias y
+   videos. Produce capítulos con marcas de tiempo en vez de la estructura
+   ejecutiva. Opt-in desde el perfil del usuario (toggle). Requiere migración
+   035 (`035_content_mode.sql`); sin ella el toggle muestra «Esta opción aún no
+   está disponible» y el estilo degrada a ejecutiva. Archivos nuevos:
+   `chapters.ts`, `chapters.test.ts`, `ChaptersSection.tsx`,
+   `ContentModeToggle.tsx`, `/api/user/preferences/route.ts`.
+
+2. **Pendientes sin dueño** — el prompt ahora captura compromisos aunque nadie
+   los haya reclamado (`assignee_name: null`). Se añadió un «barrido de
+   pendientes» al final del prompt que obliga al modelo a re-escanear buscando
+   «hay que», «tenemos que», «falta», etc.
+
+3. **Resúmenes más directos** — constante `SUMMARY_DIRECTNESS` aplicada a TODOS
+   los estilos: primera oración primero, sin muletillas ni relleno.
+
+4. **Bug fix** — `createChunks` escribía `"null: description"` en los vectores
+   cuando un action item no tenía responsable asignado.
+
+### Archivos modificados
+
+`processing.ts`, `minute-styles.ts`, `minute-copy-format.ts`,
+`email-service.ts`, `NewMeetingForm.tsx`, `meetings/new/page.tsx`,
+`meetings/[id]/page.tsx`, `minuta/[token]/page.tsx`,
+`minuta/[token]/texto/route.ts`, `CopyMinuteButton.tsx`,
+`ShareWhatsApp.tsx`, `dashboard/profile/page.tsx`, `api/meetings/route.ts`.
+
+### Pendiente
+
+1. **Aplicar migración 035** en producción (`qmdcpcwigzebqcoeiebi`). Sin ella
+   el modo Contenido no se activa.
+2. **Migración 032** (rate limit atómico) sigue sin aplicar.
+3. **Rotar `extension.pem`** (pendiente desde la auditoría de septiembre).
+
+---
+
 ## 🛡️ 2026-09-20 — Auditoría de seguridad y reorganización del repo (DESPLEGADO, commit `4234a26`)
 
 En producción y verificado con pruebas de humo (logout por GET → 405, endpoints sin sesión → 401, cabeceras intactas). Detalle en
@@ -84,12 +127,15 @@ Sospechosos por orden de probabilidad:
 Para medirlo: [`supabase/scripts/diagnose-quota.sql`](../../supabase/scripts/diagnose-quota.sql),
 que sólo lee y dice cuál de los tres es.
 
-### Migraciones — todas aplicadas (2026-09-08)
+### Migraciones — 001-034 aplicadas, 035 pendiente (2026-10-05)
 
-`001` a `026` **aplicadas en producción** (proyecto `qmdcpcwigzebqcoeiebi`,
-rama `main`). Las tres últimas se aplicaron juntas el 2026-09-08 y se verificó
-que existen las cinco columnas: `action_items.kind`, `meetings.minute_style`,
-`meetings.style_notes`, `users.default_minute_style`, `minutes.study_aids`.
+`001` a `034` **aplicadas en producción** (proyecto `qmdcpcwigzebqcoeiebi`,
+rama `main`). **`035`** (modo Contenido: preferencias de usuario y columnas de
+capítulos) **pendiente** — sin ella el toggle de contenido muestra un aviso y
+el estilo degrada a ejecutiva. Las migraciones 024-026 se aplicaron juntas el
+2026-09-08 y se verificó que existen las cinco columnas: `action_items.kind`,
+`meetings.minute_style`, `meetings.style_notes`, `users.default_minute_style`,
+`minutes.study_aids`. Las migraciones 027-034 se aplicaron posteriormente.
 
 > ⚠️ **Ojo con el proyecto al que te conectas.** El repo tiene dos vecinos
 > fáciles de confundir en la misma cuenta: `zr-prod` y `zr-mecademy` son la

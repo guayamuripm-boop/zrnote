@@ -6,7 +6,7 @@
 | [`security/`](security) | Qué se protege y cómo | [modelo de seguridad](security/security-model.md) · [auditoría 2026-09-20](security/audit-2026-09-20.md) |
 | [`runbooks/`](runbooks/README.md) | Operar, diagnosticar, retroceder | [índice](runbooks/README.md) |
 | [`adr/`](adr/README.md) | Por qué se decidió así | [índice](adr/README.md) |
-| [`product/`](product) | Hacia dónde va | [roadmap](product/roadmap-status.md) · [backlog](product/backlog.md) |
+| [`product/`](product) | Hacia dónde va | [roadmap](product/roadmap-status.md) · [backlog](product/backlog.md) · [revisión estratégica](product/strategic-review-2026-10.md) |
 | [`setup/`](setup) | Poner ZRNote en marcha | [capa gratuita](setup/free-tier-setup.md) · [sin código](setup/nocode-setup.md) |
 | [`archive/`](archive) | Histórico, sin mantener | — |
 
