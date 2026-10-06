@@ -78,7 +78,7 @@ Agrupados por dominio cuando hay varios: `recorder/`, `minutes/`, `study/`, `leg
 
 ## Base de datos
 
-35 migraciones (001–035). RLS activo en todas las tablas, con funciones `SECURITY DEFINER` para evitar la recursión de políticas (historia en las migraciones 007, 017 y 018). Las migraciones llevan su reversión comentada al final. El SQL que **no** es una migración vive en [`supabase/scripts`](../../supabase/scripts).
+36 migraciones (001–036). RLS activo en todas las tablas, con funciones `SECURITY DEFINER` para evitar la recursión de políticas (historia en las migraciones 007, 017 y 018). La migración 036 cierra los hallazgos del Security Advisor (políticas `USING(true)` abiertas, search_path mutable, funciones huérfanas, permisos laxos). Las migraciones llevan su reversión comentada al final. El SQL que **no** es una migración vive en [`supabase/scripts`](../../supabase/scripts).
 
 ## Deuda conocida
 
