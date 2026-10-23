@@ -46,10 +46,10 @@ export default function NewMeetingForm({
   const [isIOS, setIsIOS] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  // El shortcut "Subir audio" del manifest.json apunta a
-  // /dashboard/meetings/new?action=upload — al llegar por ahí arrancamos el
-  // flujo de subida directamente en vez de obligar al usuario a tocar el
-  // botón. Un ref para no reentrar si el efecto se dispara dos veces.
+  // `?action=upload` (atajo "Subir audio" del manifest y del inicio) y
+  // `?action=record` (atajo "Grabar ahora" del inicio) arrancan el flujo
+  // directamente en vez de obligar a tocar el botón otra vez. Un ref para no
+  // reentrar si el efecto se dispara dos veces.
   const autoTriggeredRef = useRef(false);
 
   // Quick record: create a meeting instantly with an auto title and jump straight
@@ -153,12 +153,15 @@ export default function NewMeetingForm({
 
   useEffect(() => {
     if (autoTriggeredRef.current) return;
-    if (searchParams?.get('action') !== 'upload') return;
+    const action = searchParams?.get('action');
+    if (action !== 'upload' && action !== 'record') return;
     autoTriggeredRef.current = true;
-    void handleUploadInstead();
-    // handleUploadInstead cambia estilo/nivel actuales — al arrancar automático,
-    // simplemente reusa las últimas preferencias del usuario ya cargadas como
-    // initialStyle / initialSummaryLength.
+    // Quitar el `?action=` ANTES de arrancar: si no, volver atrás desde la
+    // grabadora o la subida reabría esta misma URL y creaba OTRA reunión vacía.
+    window.history.replaceState(null, '', '/dashboard/meetings/new');
+    // Ambos reusan las últimas preferencias del usuario (estilo y nivel de
+    // detalle) ya cargadas como initialStyle / initialSummaryLength.
+    void (action === 'record' ? handleQuickRecord() : handleUploadInstead());
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

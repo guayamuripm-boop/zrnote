@@ -3,6 +3,7 @@ const statusStyles: Record<string, string> = {
   processing: 'bg-amber-50 text-amber-700 border border-amber-200/60',
   failed: 'bg-rose-50 text-rose-700 border border-rose-200/60',
   scheduled: 'bg-blue-50 text-blue-700 border border-blue-200/60',
+  recording: 'bg-violet-50 text-violet-700 border border-violet-200/60',
 };
 
 const darkStatusStyles: Record<string, string> = {
@@ -10,6 +11,7 @@ const darkStatusStyles: Record<string, string> = {
   processing: 'dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800/40',
   failed: 'dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800/40',
   scheduled: 'dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800/40',
+  recording: 'dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-800/40',
 };
 
 const statusLabels: Record<string, string> = {
@@ -17,6 +19,7 @@ const statusLabels: Record<string, string> = {
   processing: 'procesando',
   failed: 'fallido',
   scheduled: 'programado',
+  recording: 'grabando',
 };
 
 const statusDots: Record<string, string> = {
@@ -24,6 +27,7 @@ const statusDots: Record<string, string> = {
   processing: 'bg-amber-500 animate-pulse',
   failed: 'bg-rose-500',
   scheduled: 'bg-blue-500',
+  recording: 'bg-violet-500 animate-pulse',
 };
 
 const darkStatusDots: Record<string, string> = {
@@ -31,6 +35,7 @@ const darkStatusDots: Record<string, string> = {
   processing: 'dark:bg-amber-400',
   failed: 'dark:bg-rose-400',
   scheduled: 'dark:bg-blue-400',
+  recording: 'dark:bg-violet-400',
 };
 
 export function StatusBadge({ status }: { status: string }) {

@@ -50,7 +50,7 @@ export default function NotificationToggle() {
     <button
       onClick={toggle}
       disabled={loading || permission === 'denied'}
-      className="flex items-center gap-3 w-full p-4 glass-strong rounded-2xl text-left transition hover:shadow-elevated disabled:opacity-50"
+      className="flex items-center gap-3 w-full p-4 surface text-left transition hover:shadow-elevated disabled:opacity-50"
     >
       <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
         enabled ? 'bg-gradient-to-br from-blue-500 to-indigo-500' : 'bg-slate-200 dark:bg-slate-700'

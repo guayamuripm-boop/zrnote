@@ -209,15 +209,18 @@ export default async function MeetingDetailPage({
             />
           )}
           <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
-              <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3 flex flex-wrap items-center gap-2">
+              <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center shrink-0">
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
               Minuta
               {meeting.status === 'completed' && (
-                <span className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+                // En móvil, en su propia fila bajo el título (son siete botones);
+                // desde tablet, a la derecha del título como antes.
+                <span className="w-full sm:w-auto sm:ml-auto flex items-center gap-2 flex-wrap sm:justify-end">
+
                   {/* Both get the NORMALISED sections, never the raw row:
                       they build plain text from the same fields the page
                       renders, so the same wrong shapes would land as

@@ -40,7 +40,7 @@ export default function ContentModeToggle({ initialEnabled }: { initialEnabled: 
         disabled={saving}
         role="switch"
         aria-checked={enabled}
-        className="flex items-center gap-3 w-full p-4 glass-strong rounded-2xl text-left transition hover:shadow-elevated disabled:opacity-50"
+        className="flex items-center gap-3 w-full p-4 surface text-left transition hover:shadow-elevated disabled:opacity-50"
       >
         <div
           className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl ${

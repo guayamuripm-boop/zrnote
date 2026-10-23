@@ -12,7 +12,7 @@ import { clearMinuteCache } from '@/lib/minute-cache';
  * `<form action="/api/auth/signout">` had no way to run this first, so
  * signing out is now a click handler instead of a bare form submit.
  */
-export default function SignOutButton({ className }: { className?: string }) {
+export default function SignOutButton({ className, label = 'Salir' }: { className?: string; label?: string }) {
   const handleSignOut = async () => {
     try {
       const supabase = createClient();
@@ -36,7 +36,7 @@ export default function SignOutButton({ className }: { className?: string }) {
 
   return (
     <button type="button" onClick={handleSignOut} className={className}>
-      Salir
+      {label}
     </button>
   );
 }
