@@ -28,6 +28,17 @@
       ]
     },
     {
+      "name": "Subir audio grabado",
+      "short_name": "Subir audio",
+      "url": "/dashboard/meetings/new?action=upload",
+      "icons": [
+        {
+          "src": "https://zrnote.vercel.app/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
       "name": "Mis compromisos",
       "short_name": "Compromisos",
       "url": "/dashboard/action-items",
@@ -39,6 +50,35 @@
       ]
     }
   ],
+  "shareTarget": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "audio",
+          "accept": [
+            "audio/*",
+            "video/mp4",
+            "video/quicktime",
+            ".mp3",
+            ".m4a",
+            ".wav",
+            ".mp4",
+            ".aac",
+            ".ogg",
+            ".webm",
+            ".opus",
+            ".flac"
+          ]
+        }
+      ]
+    }
+  },
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://zrnote.vercel.app/manifest.json",
   "fallbackType": "customtabs",

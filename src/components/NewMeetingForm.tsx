@@ -41,6 +41,9 @@ export default function NewMeetingForm({
   const [summaryLength, setSummaryLength] = useState(initialSummaryLength);
   const [styleNotes, setStyleNotes] = useState('');
   const [showNotes, setShowNotes] = useState(false);
+  // iOS no permite recibir «Compartir» en una PWA; ahí el camino honesto es
+  // grabar con Notas de Voz y traer el archivo con «Subir audio».
+  const [isIOS, setIsIOS] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   // El shortcut "Subir audio" del manifest.json apunta a
@@ -157,6 +160,15 @@ export default function NewMeetingForm({
     // simplemente reusa las últimas preferencias del usuario ya cargadas como
     // initialStyle / initialSummaryLength.
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    setIsIOS(
+      /iPad|iPhone|iPod/.test(ua) ||
+        // iPadOS 13+ se hace pasar por Mac; los puntos táctiles lo delatan.
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
+    );
+  }, []);
 
   /** El nombre es opcional: si falta, se usa la parte local del correo. */
   const pendingParticipant = (): Participant | null => {
@@ -301,6 +313,14 @@ export default function NewMeetingForm({
           </svg>
         )}
       </button>
+
+      {isIOS && (
+        <div className="-mt-2 text-xs text-slate-600 dark:text-slate-300 bg-blue-50/60 dark:bg-blue-900/15 border border-blue-100 dark:border-blue-900/30 rounded-xl px-3 py-2.5 leading-relaxed">
+          <strong className="text-slate-800 dark:text-slate-100">En iPhone:</strong> para clases largas, graba con{' '}
+          <strong>Notas de Voz</strong> y tráela aquí con <strong>«Subir audio»</strong> (compártela a «Archivos» y
+          elígela). iOS no permite compartir directo a la app, y Safari corta la grabación al bloquear la pantalla.
+        </div>
+      )}
 
       {/* Estilo del acta — colapsable para no estorbar la acción rápida */}
       <button
