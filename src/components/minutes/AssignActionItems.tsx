@@ -121,7 +121,7 @@ export default function AssignActionItems({
   const busy = saving || sending;
 
   return (
-    <div className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated space-y-4">
+    <div className="surface p-5 sm:p-6 space-y-4">
       <div>
         <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
@@ -143,7 +143,9 @@ export default function AssignActionItems({
               <p className="font-medium text-sm text-slate-900 dark:text-slate-100">{item.description}</p>
               <p className="text-xs text-slate-400 dark:text-slate-500">
                 {item.priority}
-                {item.due_date && ` · ${new Date(item.due_date).toLocaleDateString('es-ES')}`}
+                {/* A mediodía local: `new Date('2026-10-24')` es medianoche UTC y en
+                    América se veía el día anterior. */}
+                {item.due_date && ` · ${new Date(`${item.due_date.slice(0, 10)}T12:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`}
               </p>
             </div>
             <select

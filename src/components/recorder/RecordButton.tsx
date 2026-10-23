@@ -1123,7 +1123,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           los participantes remotos como un rebote lejano del altavoz, si es que
           los capta. */}
       {state === 'idle' && canShareSystem && (
-        <div className="w-full max-w-md glass rounded-2xl p-4 space-y-2">
+        <div className="w-full max-w-md surface p-4 space-y-2">
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
             Qué vas a grabar
           </p>
@@ -1177,10 +1177,10 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           out by losing a meeting. */}
       {state === 'idle' && background && background.message && (
         <div
-          className={`w-full max-w-md rounded-xl p-4 flex items-start gap-3 ${
+          className={`order-last w-full max-w-md rounded-2xl p-4 flex items-start gap-3 ${
             background.level === 'unsupported'
               ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40'
-              : 'glass'
+              : 'surface'
           }`}
         >
           <span className="text-base leading-none">
@@ -1201,7 +1201,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       {/* Batería: dejar que la pantalla se apague (ahorra pila) o mantenerla
           encendida. La grabación sigue en segundo plano gracias al keep-alive. */}
       {state === 'idle' && (
-        <div className="w-full max-w-md glass rounded-xl p-3 flex items-center justify-between gap-3">
+        <div className="order-last w-full max-w-md surface !rounded-2xl p-3 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
               Mantener la pantalla encendida

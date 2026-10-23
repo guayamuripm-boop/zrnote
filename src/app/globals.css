@@ -262,6 +262,15 @@ h1, h2, h3, h4, h5, h6 {
   .bottom-safe {
     bottom: calc(0.75rem + env(safe-area-inset-bottom));
   }
+
+  /* Filas que se deslizan con el dedo (pestañas, botones de compartir): sin la
+     barra de desplazamiento, que en una fila corta sólo ensucia. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Foco visible para quien navega con teclado, sin afectar al clic. */

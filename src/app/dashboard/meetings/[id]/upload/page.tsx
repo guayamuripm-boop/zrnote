@@ -13,6 +13,7 @@ import RecordingConsentGate from '@/components/legal/RecordingConsentGate';
 import { MAX_UPLOAD_ATTEMPTS, backoffMs, isPermanentHttpFailure } from '@/lib/retry-backoff';
 import { readSharedAudio, clearSharedAudio } from '@/lib/share-stash';
 import PushPrompt from '@/components/PushPrompt';
+import { UploadDropzone, UploadProgressCard } from '@/components/upload/UploadParts';
 
 interface UploadedFile {
   _id: string;
@@ -71,7 +72,6 @@ export default function UploadAudioPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const meetingId = params.id as string;
-  const inputRef = useRef<HTMLInputElement>(null);
   // Se puso a true tras haber ingerido el fichero del share-stash, para no
   // reintentarlo con cada re-render mientras el efecto sigue vivo.
   const sharedConsumedRef = useRef(false);
@@ -92,7 +92,6 @@ export default function UploadAudioPage() {
   const [pipelineWarning, setPipelineWarning] = useState<string | null>(null);
   const [prepareNote, setPrepareNote] = useState<string | null>(null);
   const [convertPercent, setConvertPercent] = useState(0);
-  const [dragActive, setDragActive] = useState(false);
   const [consentGiven, setConsentGiven] = useState(false);
 
   // FFmpeg.wasm — used to stream-copy long files and to transcode exotic ones.
@@ -566,21 +565,20 @@ export default function UploadAudioPage() {
   const showFlowCard = consentGiven && (files.length > 0 || processing);
 
   return (
-    <div className="max-w-lg mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6">
       <div>
         <Link
           href={`/dashboard/meetings/${meetingId}`}
-          className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition mb-4"
+          className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition mb-3"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-          Volver
+          Volver a la reunión
         </Link>
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Subir Audio</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 font-sora">Subir audio</h1>
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-          MP3, M4A, WAV, OGG, WebM, AAC — incluso grabaciones de varias horas. Se sube y
-          se convierte en minuta solo; no tienes que hacer nada más.
+          Se sube y se convierte en minuta solo: no tienes que hacer nada más.
         </p>
       </div>
 
@@ -592,119 +590,22 @@ export default function UploadAudioPage() {
 
       {/* El selector de archivo sólo mientras no haya nada en marcha: en cuanto
           empieza el flujo, la pantalla es UNA sola tarjeta de progreso. */}
-      {consentGiven && files.length === 0 && !processing && (
-        <div
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-          onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
-          onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragActive(false);
-            addFiles(e.dataTransfer.files);
-          }}
-          className={`glass-strong rounded-2xl p-8 sm:p-12 text-center cursor-pointer hover:shadow-elevated transition-all duration-300 border-2 border-dashed group ${
-            dragActive
-              ? 'border-blue-500 dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/20 scale-[1.02]'
-              : 'border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500'
-          }`}
-        >
-          <div className={`w-14 h-14 gradient-primary rounded-2xl flex items-center justify-center mx-auto mb-4 transition-transform ${dragActive ? 'scale-110' : 'group-hover:scale-110'}`}>
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-              />
-            </svg>
-          </div>
-          {dragActive ? (
-            <>
-              <p className="font-semibold text-blue-600 dark:text-blue-400">Suelta el audio aquí</p>
-              <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">La minuta se genera sola</p>
-            </>
-          ) : (
-            <>
-              <p className="font-semibold text-slate-900 dark:text-slate-100">Toca para elegir el audio</p>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">o arrástralo aquí</p>
-              <p className="text-[10px] text-slate-300 dark:text-slate-600 mt-3">MP3, M4A, WAV, OGG, WebM, AAC, MP4, 3GP, AMR</p>
-            </>
-          )}
-          <input
-            ref={inputRef}
-            type="file"
-            accept="audio/*,.aac,.m4a,.mp3,.wav,.ogg,.oga,.webm,.3gp,.amr,.mp4,.flac,.opus"
-            multiple
-            onChange={(e) => { addFiles(e.target.files); if (inputRef.current) inputRef.current.value = ''; }}
-            className="hidden"
-          />
-        </div>
-      )}
+      {consentGiven && files.length === 0 && !processing && <UploadDropzone onFiles={addFiles} />}
 
-      {/* La pantalla de trabajo: una tarjeta, una barra, una historia. */}
       {showFlowCard && (
-        <div className="glass-strong rounded-2xl p-6 sm:p-8 shadow-elevated space-y-5">
-          <div className="flex items-center gap-4">
-            <div className="shrink-0">
-              {flowPhase === 'retry' ? (
-                <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-xl">
-                  ⚠️
-                </div>
-              ) : (
-                <div className="w-12 h-12 rounded-2xl gradient-primary flex items-center justify-center">
-                  <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                </div>
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold text-slate-900 dark:text-slate-100">{flowHeadline}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">{flowSub}</p>
-            </div>
-            {flowPhase !== 'retry' && (
-              <span className="text-sm font-semibold text-blue-600 dark:text-blue-400 tabular-nums shrink-0">
-                {flowPercent}%
-              </span>
-            )}
-          </div>
-
-          {flowPhase !== 'retry' && (
-            <>
-              <div className="h-2.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full rounded-full gradient-primary transition-all duration-700 ease-out relative overflow-hidden"
-                  style={{ width: `${flowPercent}%` }}
-                >
-                  <div className="absolute inset-0 bg-white/25 animate-pulse" />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                {flowSteps.map((s) => {
-                  const reached = flowPercent >= s.at;
-                  return (
-                    <span
-                      key={s.label}
-                      className={`text-[11px] font-medium transition-colors ${
-                        reached
-                          ? 'text-blue-600 dark:text-blue-400'
-                          : 'text-slate-300 dark:text-slate-600'
-                      }`}
-                    >
-                      {reached ? '●' : '○'} {s.label}
-                    </span>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
+        <UploadProgressCard
+          phase={flowPhase}
+          percent={flowPercent}
+          headline={flowHeadline}
+          sub={flowSub}
+          steps={flowSteps}
+        >
           {/* Pedir el permiso de notificación mientras hay tiempo, para que el
               aviso «minuta lista» pueda llegar aunque el usuario cambie de app. */}
           {(flowPhase === 'uploading' || flowPhase === 'processing') && <PushPrompt />}
 
           {flowPhase === 'retry' && (
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 onClick={handleUpload}
                 className="w-full gradient-primary text-white py-3 rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300"
@@ -714,7 +615,7 @@ export default function UploadAudioPage() {
               {doneCount > 0 && (
                 <button
                   onClick={() => { autoProcessedRef.current = true; void startProcessing(); }}
-                  className="w-full glass border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-3 rounded-xl text-sm font-medium hover:bg-white/80 dark:hover:bg-white/5 transition"
+                  className="w-full border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-3 rounded-xl text-sm font-medium hover:bg-slate-900/5 dark:hover:bg-white/5 transition"
                 >
                   Continuar con lo que ya subió
                 </button>
@@ -730,7 +631,7 @@ export default function UploadAudioPage() {
               Cancelar
             </button>
           )}
-        </div>
+        </UploadProgressCard>
       )}
 
       {pipelineWarning && !processing && (

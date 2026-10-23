@@ -6,7 +6,7 @@ export default function ChaptersSection({ chapters }: { chapters: Chapter[] }) {
   if (chapters.length === 0) return null;
 
   return (
-    <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated">
+    <section className="surface p-5 sm:p-6">
       <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4 flex items-center gap-2">
         <span aria-hidden="true">🎙️</span> Capítulos
         <span className="text-sm font-normal text-slate-400 dark:text-slate-500">({chapters.length})</span>
