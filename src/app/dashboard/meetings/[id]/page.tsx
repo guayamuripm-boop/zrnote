@@ -224,7 +224,11 @@ export default async function MeetingDetailPage({
                       "[object Object]" in a WhatsApp message or a pasted acta. */}
                   {/* WhatsApp lleva el acta ENTERA, apuntes de clase incluidos:
                       sólo el resumen es corto de por sí; lo demás no se recorta. */}
+                  {/* Dos formas claras de compartir por WhatsApp: un resumen
+                      corto con enlace al acta completa, o el acta entera. */}
                   <ShareWhatsApp
+                    meetingId={meeting.id}
+                    mode="summary"
                     title={meeting.title}
                     createdAt={meeting.created_at}
                     coordination={meeting.coordination}
@@ -241,7 +245,25 @@ export default async function MeetingDetailPage({
                     chapters={chapters}
                     actionItems={(actionItems as any[]) || []}
                   />
-                  <ShareLinkButton meetingId={meeting.id} title={meeting.title} />
+                  <ShareWhatsApp
+                    meetingId={meeting.id}
+                    mode="full"
+                    title={meeting.title}
+                    createdAt={meeting.created_at}
+                    coordination={meeting.coordination}
+                    minute={{
+                      summary: sections.summary,
+                      decisions: sections.decisions,
+                      blockers: sections.blockers,
+                      project_statuses: sections.projectStatuses,
+                      next_steps: sections.nextSteps,
+                      discussion: sections.discussion,
+                      ideas: sections.ideas,
+                    }}
+                    studyAids={isStudyAidsEmpty(studyAids) ? null : studyAids}
+                    chapters={chapters}
+                    actionItems={(actionItems as any[]) || []}
+                  />
                   <ShareLinkButton meetingId={meeting.id} title={meeting.title} mode="notebook" />
                   <CopyMinuteButton
                     title={meeting.title}
