@@ -36,6 +36,12 @@ const STEPS: PipelineStep[] = ['transcribe', 'analyze', 'emails'];
 /** Server function limit is 60s; give each individual call room plus margin. */
 const CALL_TIMEOUT_MS = 90_000;
 const MAX_NETWORK_RETRIES = 3;
+// Gateway timeouts (504) y errores transitorios de aguas arriba. Un paso que
+// pasa del límite de 60s de la función de Vercel vuelve como 504; el trabajo del
+// servidor es idempotente (la transcripción avanza un marcador guardado; el
+// análisis y los correos se repiten sin daño), así que se esperan y se reintentan
+// como un 429, en vez de mostrarle al usuario «error 504».
+const MAX_GATEWAY_RETRIES = 6;
 /** Hard stop so a pathological loop can never spin forever. */
 const MAX_CALLS_PER_STEP = 120;
 
@@ -70,6 +76,7 @@ export async function runMeetingPipeline(
     onProgress?.({ step, label: STEP_LABELS[step] });
 
     let networkRetries = 0;
+    let gatewayRetries = 0;
     let calls = 0;
     let more = true;
 
@@ -99,6 +106,23 @@ export async function runMeetingPipeline(
         await sleep(Math.min(60, Number(data.retryAfterSec) || 20) * 1000);
         continue;
       }
+
+      // Gateway timeout / error transitorio: esperar y volver a llamar en vez de
+      // tumbar toda la ejecución. Cada reintento retoma desde el progreso que el
+      // servidor ya guardó, así que una minuta lenta (una reunión larga que roza
+      // el tope de 60s) termina en un par de llamadas en lugar de morir en
+      // «error 504».
+      if (res.status === 408 || res.status === 502 || res.status === 503 || res.status === 504) {
+        if (++gatewayRetries > MAX_GATEWAY_RETRIES) {
+          return {
+            ok: false,
+            error: `El paso "${STEP_LABELS[step]}" está tardando más de lo normal. Vuelve a la reunión y pulsa "Reintentar".`,
+          };
+        }
+        await sleep(Math.min(20000, 2000 * gatewayRetries));
+        continue;
+      }
+      gatewayRetries = 0;
 
       const data = await res.json().catch(() => ({} as any));
 

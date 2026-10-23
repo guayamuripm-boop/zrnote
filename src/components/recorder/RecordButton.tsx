@@ -5,6 +5,8 @@ import { runMeetingPipeline, PipelineStep, STEP_LABELS } from '@/lib/pipeline-cl
 import {
   backgroundRecordingSupport,
   startBackgroundKeepAlive,
+  notifyRecordingProblem,
+  ensureNotificationPermission,
   type BackgroundCapability,
 } from '@/lib/background-audio';
 import {
@@ -103,6 +105,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
    *  segmento cerrado. Es el numero que el usuario necesita ver: "ya tengo
    *  esto asegurado, si todo falla ahora, no lo pierdo". */
   const [savedSeconds, setSavedSeconds] = useState(0);
+  // Batería: por defecto NO forzamos la pantalla encendida (es el gran gasto de
+  // pila). El usuario puede activarlo si prefiere máxima fiabilidad con la app
+  // delante. La grabación con la pantalla bloqueada se sostiene con el
+  // keep-alive, no con el wake lock.
+  const [keepScreenOn, setKeepScreenOn] = useState(false);
+  /** Si podemos avisar con una notificación del sistema cuando algo falla. */
+  const [alertsOn, setAlertsOn] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   /** The mixed capture being recorded, plus the sources that feed it. */
@@ -134,6 +143,8 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   // must not have its existing segments overwritten by a fresh 0,1,2…
   const baseSegmentIndexRef = useRef(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const keepScreenOnRef = useRef(false);
+  keepScreenOnRef.current = keepScreenOn;
   const isRecordingRef = useRef(false);
   const rotateSegmentRef = useRef<(() => void) | null>(null);
   const recoverRef = useRef<(() => void) | null>(null);
@@ -297,6 +308,10 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   rotateSegmentRef.current = rotateSegment;
 
   const requestWakeLock = async () => {
+    // Batería: sólo mantenemos la pantalla encendida si el usuario lo pidió.
+    // Por defecto la dejamos apagarse y confiamos en el keep-alive, que es lo
+    // que sostiene la grabación con la pantalla bloqueada.
+    if (!keepScreenOnRef.current) return;
     try {
       if ('wakeLock' in navigator) {
         wakeLockRef.current = await navigator.wakeLock.request('screen');
@@ -311,6 +326,22 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       await wakeLockRef.current.release().catch(() => {});
       wakeLockRef.current = null;
     }
+  };
+
+  const toggleKeepScreenOn = () => {
+    setKeepScreenOn((prev) => {
+      const next = !prev;
+      keepScreenOnRef.current = next;
+      try {
+        localStorage.setItem('zrnote:keepScreenOn', next ? '1' : '0');
+      } catch {
+        /* localStorage no disponible */
+      }
+      // Aplica el cambio al vuelo si ya se está grabando.
+      if (next) void requestWakeLock();
+      else void releaseWakeLock();
+      return next;
+    });
   };
 
   const buildMicStream = async () =>
@@ -402,9 +433,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
       // close the recording cleanly and process what we have — not to keep a
       // dead recorder on screen pretending to record.
       isRecordingRef.current = false;
-      setError(
-        'No se pudo recuperar el micrófono (puede que otra app lo esté usando). Se guardó todo lo grabado hasta ahora: pulsa «Finalizar» para generar la minuta con ese audio.',
-      );
+      const failMessage =
+        'La grabación se cortó y no se pudo recuperar el micrófono (quizá otra app lo tomó). Lo grabado hasta ahora está a salvo: abre ZR Note y pulsa «Finalizar» para generar la minuta.';
+      setError(failMessage);
+      // Avisa aunque la pantalla esté bloqueada o estés en otra app: ahí el
+      // mensaje en pantalla no se ve, y ése era justo el momento en que la
+      // grabación «se caía sin avisar».
+      void notifyRecordingProblem(failMessage);
       setState('paused');
     } finally {
       recoveringRef.current = false;
@@ -541,6 +576,12 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
     }
 
     try {
+      // Pide permiso de notificación (mejor-esfuerzo) para poder avisar si la
+      // grabación se corta con la pantalla bloqueada. No bloquea el inicio.
+      void ensureNotificationPermission().then(() => {
+        setAlertsOn(typeof Notification !== 'undefined' && Notification.permission === 'granted');
+      });
+
       // Ask the browser to stop treating our buffered audio as disposable
       // cache. Without it Android may evict IndexedDB mid-meeting — precisely
       // when a long recording is what filled it.
@@ -935,6 +976,14 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
   useEffect(() => {
     setBackground(backgroundRecordingSupport());
     setCanShareSystem(systemAudioSupported());
+    try {
+      const saved = localStorage.getItem('zrnote:keepScreenOn') === '1';
+      setKeepScreenOn(saved);
+      keepScreenOnRef.current = saved;
+    } catch {
+      /* localStorage no disponible */
+    }
+    setAlertsOn(typeof Notification !== 'undefined' && Notification.permission === 'granted');
   }, []);
 
   // Audio left on the device by a recording that never finished. Finding it and
@@ -1074,7 +1123,7 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           los participantes remotos como un rebote lejano del altavoz, si es que
           los capta. */}
       {state === 'idle' && canShareSystem && (
-        <div className="w-full max-w-md glass rounded-2xl p-4 space-y-2">
+        <div className="w-full max-w-md surface p-4 space-y-2">
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
             Qué vas a grabar
           </p>
@@ -1128,10 +1177,10 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           out by losing a meeting. */}
       {state === 'idle' && background && background.message && (
         <div
-          className={`w-full max-w-md rounded-xl p-4 flex items-start gap-3 ${
+          className={`order-last w-full max-w-md rounded-2xl p-4 flex items-start gap-3 ${
             background.level === 'unsupported'
               ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40'
-              : 'glass'
+              : 'surface'
           }`}
         >
           <span className="text-base leading-none">
@@ -1146,6 +1195,38 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
           >
             {background.message}
           </p>
+        </div>
+      )}
+
+      {/* Batería: dejar que la pantalla se apague (ahorra pila) o mantenerla
+          encendida. La grabación sigue en segundo plano gracias al keep-alive. */}
+      {state === 'idle' && (
+        <div className="order-last w-full max-w-md surface !rounded-2xl p-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              Mantener la pantalla encendida
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              {keepScreenOn
+                ? 'La pantalla no se apagará: gasta más batería.'
+                : 'Puedes bloquear la pantalla para ahorrar batería; la grabación sigue.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={keepScreenOn}
+            onClick={toggleKeepScreenOn}
+            className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${
+              keepScreenOn ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform mt-0.5 ${
+                keepScreenOn ? 'translate-x-[22px]' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
         </div>
       )}
 
@@ -1232,6 +1313,13 @@ export default function RecordButton({ meetingId, meetingTitle, onFinalized }: R
                 {background.level === 'unsupported'
                   ? 'No bloquees la pantalla ni cambies de app'
                   : 'Puedes bloquear la pantalla o cambiar de app'}
+              </p>
+            )}
+
+            {(state === 'recording' || state === 'recovering') && alertsOn && (
+              <p className="text-xs flex items-center justify-center gap-1 text-slate-500 dark:text-slate-400">
+                <span>🔔</span>
+                Te avisamos si la grabación se corta
               </p>
             )}
           </div>

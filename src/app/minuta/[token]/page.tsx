@@ -299,6 +299,32 @@ export default async function MinutaPublicaPage({
           </section>
         )}
 
+        {/* Invitación clara a entrar o crear cuenta: quien recibe esta minuta
+            compartida puede abrir la suya con un toque, inicie sesión o se
+            registre. Antes sólo había un enlace diminuto al pie. */}
+        <section className="glass-strong rounded-2xl p-6 text-center shadow-elevated space-y-3">
+          <p className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            ¿Quieres convertir tus reuniones en actas como esta?
+          </p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+            ZR Note graba o recibe tu audio y te genera la minuta con los compromisos, automáticamente.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+            <Link
+              href="/signup"
+              className="w-full sm:w-auto gradient-primary text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all"
+            >
+              Crear cuenta gratis
+            </Link>
+            <Link
+              href="/login"
+              className="w-full sm:w-auto glass border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-white/80 dark:hover:bg-white/5 transition"
+            >
+              Ya tengo cuenta · Entrar
+            </Link>
+          </div>
+        </section>
+
         <footer className="text-center space-y-3 pt-4">
           <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-relaxed max-w-lg mx-auto">
             Minuta generada automáticamente con inteligencia artificial a partir del audio de la reunión.

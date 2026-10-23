@@ -41,12 +41,15 @@ export default function NewMeetingForm({
   const [summaryLength, setSummaryLength] = useState(initialSummaryLength);
   const [styleNotes, setStyleNotes] = useState('');
   const [showNotes, setShowNotes] = useState(false);
+  // iOS no permite recibir «Compartir» en una PWA; ahí el camino honesto es
+  // grabar con Notas de Voz y traer el archivo con «Subir audio».
+  const [isIOS, setIsIOS] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  // El shortcut "Subir audio" del manifest.json apunta a
-  // /dashboard/meetings/new?action=upload — al llegar por ahí arrancamos el
-  // flujo de subida directamente en vez de obligar al usuario a tocar el
-  // botón. Un ref para no reentrar si el efecto se dispara dos veces.
+  // `?action=upload` (atajo "Subir audio" del manifest y del inicio) y
+  // `?action=record` (atajo "Grabar ahora" del inicio) arrancan el flujo
+  // directamente en vez de obligar a tocar el botón otra vez. Un ref para no
+  // reentrar si el efecto se dispara dos veces.
   const autoTriggeredRef = useRef(false);
 
   // Quick record: create a meeting instantly with an auto title and jump straight
@@ -150,29 +153,67 @@ export default function NewMeetingForm({
 
   useEffect(() => {
     if (autoTriggeredRef.current) return;
-    if (searchParams?.get('action') !== 'upload') return;
+    const action = searchParams?.get('action');
+    if (action !== 'upload' && action !== 'record') return;
     autoTriggeredRef.current = true;
-    void handleUploadInstead();
-    // handleUploadInstead cambia estilo/nivel actuales — al arrancar automático,
-    // simplemente reusa las últimas preferencias del usuario ya cargadas como
-    // initialStyle / initialSummaryLength.
+    // Quitar el `?action=` ANTES de arrancar: si no, volver atrás desde la
+    // grabadora o la subida reabría esta misma URL y creaba OTRA reunión vacía.
+    window.history.replaceState(null, '', '/dashboard/meetings/new');
+    // Ambos reusan las últimas preferencias del usuario (estilo y nivel de
+    // detalle) ya cargadas como initialStyle / initialSummaryLength.
+    void (action === 'record' ? handleQuickRecord() : handleUploadInstead());
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** El nombre es opcional: si falta, se usa la parte local del correo. */
-  const pendingParticipant = (): Participant | null => {
-    const email = emailInput.trim();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
-    const name = nameInput.trim() || email.split('@')[0];
-    if (participants.some((p) => p.email.toLowerCase() === email.toLowerCase())) return null;
-    return { name, email };
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    setIsIOS(
+      /iPad|iPhone|iPod/.test(ua) ||
+        // iPadOS 13+ se hace pasar por Mac; los puntos táctiles lo delatan.
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
+    );
+  }, []);
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  /** Correos de un texto pegado: separados por comas, espacios, «;» o saltos de
+   *  línea. Así invitar a diez personas es pegar la lista, no repetir el gesto
+   *  diez veces. */
+  const parseEmails = (raw: string): string[] =>
+    raw
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => EMAIL_RE.test(s));
+
+  /** Añade uno o varios correos a la vez, sin duplicar. El nombre sólo se usa si
+   *  se escribió UN único correo; en una lista pegada, cada nombre sale de la
+   *  parte local del correo. Devuelve true si añadió al menos uno. */
+  const addEmails = (raw: string, name?: string): boolean => {
+    const emails = parseEmails(raw);
+    if (emails.length === 0) return false;
+    let added = false;
+    setParticipants((prev) => {
+      const seen = new Set(prev.map((p) => p.email.toLowerCase()));
+      const additions: Participant[] = [];
+      for (const email of emails) {
+        const key = email.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        additions.push({
+          name: emails.length === 1 && name?.trim() ? name.trim() : email.split('@')[0],
+          email,
+        });
+        added = true;
+      }
+      return additions.length ? [...prev, ...additions] : prev;
+    });
+    return added;
   };
 
   const addParticipant = () => {
-    const p = pendingParticipant();
-    if (!p) return;
-    setParticipants([...participants, p]);
-    setNameInput('');
-    setEmailInput('');
+    if (addEmails(emailInput, nameInput)) {
+      setNameInput('');
+      setEmailInput('');
+    }
   };
 
   const removeParticipant = (email: string) => {
@@ -184,10 +225,20 @@ export default function NewMeetingForm({
     setLoading(true);
     setError(null);
 
-    // Si dejó un correo escrito sin pulsar «Agregar», cuenta igualmente: antes
-    // se descartaba en silencio y esa persona nunca recibía la minuta.
-    const pending = pendingParticipant();
-    const allParticipants = pending ? [...participants, pending] : participants;
+    // Si dejó correos escritos sin pulsar «Agregar», cuentan igualmente: antes
+    // se descartaban en silencio y esas personas nunca recibían la minuta.
+    const leftoverEmails = parseEmails(emailInput);
+    const seen = new Set(participants.map((p) => p.email.toLowerCase()));
+    const leftover: Participant[] = [];
+    for (const email of leftoverEmails) {
+      if (seen.has(email.toLowerCase())) continue;
+      seen.add(email.toLowerCase());
+      leftover.push({
+        name: leftoverEmails.length === 1 && nameInput.trim() ? nameInput.trim() : email.split('@')[0],
+        email,
+      });
+    }
+    const allParticipants = [...participants, ...leftover];
 
     const response = await fetch('/api/meetings', {
       method: 'POST',
@@ -214,6 +265,7 @@ export default function NewMeetingForm({
   };
 
   const [showStylePicker, setShowStylePicker] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   return (
     <div className="max-w-lg mx-auto space-y-5">
@@ -301,6 +353,14 @@ export default function NewMeetingForm({
           </svg>
         )}
       </button>
+
+      {isIOS && (
+        <div className="-mt-2 text-xs text-slate-600 dark:text-slate-300 bg-blue-50/60 dark:bg-blue-900/15 border border-blue-100 dark:border-blue-900/30 rounded-xl px-3 py-2.5 leading-relaxed">
+          <strong className="text-slate-800 dark:text-slate-100">En iPhone:</strong> para clases largas, graba con{' '}
+          <strong>Notas de Voz</strong> y tráela aquí con <strong>«Subir audio»</strong> (compártela a «Archivos» y
+          elígela). iOS no permite compartir directo a la app, y Safari corta la grabación al bloquear la pantalla.
+        </div>
+      )}
 
       {/* Estilo del acta — colapsable para no estorbar la acción rápida */}
       <button
@@ -426,30 +486,39 @@ export default function NewMeetingForm({
               className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-base min-w-0"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-1.5">Coordinación</label>
-              <input
-                type="text"
-                value={coordination}
-                onChange={(e) => setCoordination(e.target.value)}
-                placeholder="Dirección Académica"
-                className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-base min-w-0"
-              />
+          <button
+            type="button"
+            onClick={() => setShowDetails((v) => !v)}
+            className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            {showDetails ? '− Ocultar coordinación y tipo' : '+ Coordinación y tipo (opcional)'}
+          </button>
+          {showDetails && (
+            <div className="grid grid-cols-2 gap-4 animate-in">
+              <div>
+                <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-1.5">Coordinación</label>
+                <input
+                  type="text"
+                  value={coordination}
+                  onChange={(e) => setCoordination(e.target.value)}
+                  placeholder="Dirección Académica"
+                  className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-base min-w-0"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-1.5">Tipo</label>
+                <select
+                  value={type}
+                  onChange={(e) => setType(e.target.value as typeof type)}
+                  className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-base min-w-0"
+                >
+                  <option value="presencial">Presencial</option>
+                  <option value="virtual">Virtual</option>
+                  <option value="llamada">Llamada</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-1.5">Tipo</label>
-              <select
-                value={type}
-                onChange={(e) => setType(e.target.value as typeof type)}
-                className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-base min-w-0"
-              >
-                <option value="presencial">Presencial</option>
-                <option value="virtual">Virtual</option>
-                <option value="llamada">Llamada</option>
-              </select>
-            </div>
-          </div>
+          )}
         </div>
 
         <div className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated space-y-4">
@@ -465,10 +534,22 @@ export default function NewMeetingForm({
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
             />
             <input
-              type="email"
+              type="text"
+              inputMode="email"
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
-              placeholder="correo@ejemplo.com"
+              onPaste={(e) => {
+                const text = e.clipboardData.getData('text');
+                // Si pegaron una LISTA, se añade entera y se vacía el campo.
+                if (/[\s,;]/.test(text) && parseEmails(text).length > 0) {
+                  e.preventDefault();
+                  if (addEmails(text)) {
+                    setNameInput('');
+                    setEmailInput('');
+                  }
+                }
+              }}
+              placeholder="correo@ejemplo.com (o pega varios)"
               className="flex-1 sm:flex-[2] border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 bg-white/80 dark:bg-white/5 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition text-base min-w-0"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
             />
@@ -480,6 +561,10 @@ export default function NewMeetingForm({
               + Agregar
             </button>
           </div>
+
+          <p className="text-xs text-slate-400 dark:text-slate-500 -mt-1">
+            Puedes pegar varios correos de golpe, separados por comas, espacios o saltos de línea.
+          </p>
 
           {participants.length > 0 ? (
             <div className="space-y-2">

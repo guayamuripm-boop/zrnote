@@ -28,7 +28,8 @@ export default function ThemeToggle() {
     <button
       onClick={toggle}
       className="w-9 h-9 rounded-xl glass flex items-center justify-center text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-all"
-      aria-label="Toggle dark mode"
+      aria-label={dark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+      title={dark ? "Modo claro" : "Modo oscuro"}
     >
       {dark ? (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

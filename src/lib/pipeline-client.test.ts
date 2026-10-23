@@ -72,6 +72,21 @@ describe('runMeetingPipeline', () => {
     expect(calls.filter((c) => c === 'transcribe')).toHaveLength(2);
   });
 
+  it('waits and retries on a 504 gateway timeout instead of surfacing "error 504"', async () => {
+    const calls = mockFetch((step, n) => {
+      // El análisis de una reunión larga roza el tope de 60s de Vercel y vuelve
+      // como 504 (cuerpo HTML, sin JSON) la primera vez; la segunda termina.
+      if (step === 'analyze' && n === 1) {
+        return new Response('<html>Gateway Timeout</html>', { status: 504 });
+      }
+      return OK();
+    });
+
+    const result = await runMeetingPipeline('m1');
+    expect(result.ok).toBe(true);
+    expect(calls.filter((c) => c === 'analyze')).toHaveLength(2);
+  });
+
   it('retries a dropped connection before giving up', async () => {
     let attempts = 0;
     vi.stubGlobal('fetch', vi.fn(async (_url: any, init: any) => {

@@ -1,6 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { StatusBadge } from '@/components/StatusBadge';
+import MeetingRow from '@/components/dashboard/MeetingRow';
 import PendingMeetingsBanner from '@/components/PendingMeetingsBanner';
 import TagFilter from '@/components/TagFilter';
 import TagPill from '@/components/TagPill';
@@ -65,8 +65,8 @@ export default async function MeetingsPage({
     <div className="space-y-6">
       <PendingMeetingsBanner />
 
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Reuniones</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">
             {meetings?.length || 0} reuniones ·{' '}
@@ -92,29 +92,16 @@ export default async function MeetingsPage({
       {tags.length > 0 && <TagFilter tags={tags} />}
 
       {filteredMeetings && filteredMeetings.length > 0 ? (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {filteredMeetings.map((meeting) => (
-            <Link
+            <MeetingRow
               key={meeting.id}
-              href={`/dashboard/meetings/${meeting.id}`}
-              className="glass-strong block rounded-2xl p-4 sm:p-5 hover:shadow-elevated transition-all duration-300 hover:-translate-y-0.5 group"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">{meeting.title}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    {meeting.coordination && (
-                      <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full">{meeting.coordination}</span>
-                    )}
-                    {(meetingTagMap.get(meeting.id) || []).map((tag) => (
-                      <TagPill key={tag.id} tag={tag} />
-                    ))}
-                    <span className="text-xs text-slate-400 dark:text-slate-500">
-                      {new Date(meeting.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
+              meeting={meeting}
+              meta={
+                <>
+                  {(meetingTagMap.get(meeting.id) || []).map((tag) => (
+                    <TagPill key={tag.id} tag={tag} />
+                  ))}
                   {/* `kept` is undefined before migration 029, treated as
                       saved so an older deployment never shows a countdown it
                       cannot act on. */}
@@ -122,27 +109,42 @@ export default async function MeetingsPage({
                     30 - (Date.now() - new Date(meeting.created_at).getTime()) / 86_400_000 <= 3 && (
                       <span
                         title="Se eliminará pronto si no la guardas"
-                        className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full"
+                        className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full whitespace-nowrap"
                       >
                         ⏳ sin guardar
                       </span>
                     )}
-                  <span className="text-xs text-slate-400 dark:text-slate-500 hidden sm:inline">{meeting.type}</span>
-                  <StatusBadge status={meeting.status} />
-                </div>
-              </div>
-            </Link>
+                  {meeting.type && <span className="hidden sm:inline capitalize">{meeting.type}</span>}
+                </>
+              }
+            />
           ))}
         </div>
+      ) : activeTagId ? (
+        <div className="surface p-10 text-center">
+          <p className="text-3xl" aria-hidden>🏷️</p>
+          <p className="text-slate-600 dark:text-slate-300 font-medium mt-2">Ninguna reunión con esta etiqueta</p>
+          <Link href="/dashboard/meetings" className="inline-block mt-3 text-sm text-blue-600 dark:text-blue-400 hover:underline underline-offset-4">
+            Ver todas las reuniones
+          </Link>
+        </div>
       ) : (
-        <div className="glass-strong rounded-2xl p-12 text-center">
-          <div className="w-16 h-16 gradient-primary rounded-2xl flex items-center justify-center mx-auto mb-4 opacity-50">
+        <div className="surface p-10 sm:p-12 text-center">
+          <div className="w-16 h-16 aurora rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-500/20">
             <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </div>
-          <p className="text-slate-500 dark:text-slate-400 text-lg">No hay reuniones</p>
-          <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">Crea una para empezar</p>
+          <p className="text-slate-700 dark:text-slate-200 text-lg font-semibold">Aún no hay reuniones</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Graba o sube la primera y aquí aparecerá su acta.</p>
+          <div className="flex flex-wrap justify-center gap-2 mt-5">
+            <Link href="/dashboard/meetings/new?action=record" className="gradient-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-md shadow-blue-500/25">
+              Grabar ahora
+            </Link>
+            <Link href="/dashboard/meetings/new?action=upload" className="surface px-4 py-2.5 !rounded-xl text-sm font-medium text-slate-700 dark:text-slate-200">
+              Subir audio
+            </Link>
+          </div>
         </div>
       )}
     </div>

@@ -242,6 +242,78 @@ async function checkEmail(): Promise<Check> {
   }
 }
 
+/**
+ * Las migraciones posteriores a la 020. Cada una se comprueba leyendo la
+ * columna o tabla que crea: si la lectura falla, la migración no se aplicó.
+ * Todas son ADITIVAS y la app las tolera ausentes, por eso nunca bloquean —
+ * pero cada una que falta apaga una función en silencio (las etiquetas, el
+ * aviso «minuta lista», el modo Contenido…), así que hay que decir cuál.
+ */
+const MIGRATION_PROBES: { id: string; table: string; column: string; feature: string }[] = [
+  { id: '025', table: 'meetings', column: 'minute_style', feature: 'estilo del acta' },
+  { id: '026', table: 'minutes', column: 'study_aids', feature: 'apuntes de estudio' },
+  { id: '029', table: 'meetings', column: 'kept', feature: 'guardar reuniones / retención' },
+  { id: '031', table: 'meetings', column: 'summary_length', feature: 'nivel de detalle' },
+  { id: '033', table: 'push_subscriptions', column: 'id', feature: 'notificaciones push' },
+  { id: '034', table: 'tags', column: 'id', feature: 'etiquetas' },
+  { id: '035', table: 'users', column: 'content_mode_enabled', feature: 'modo Contenido' },
+];
+
+async function checkMigrations(): Promise<Check> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !serviceKey) {
+    return { id: 'migrations', label: 'Migraciones recientes', status: 'error', critical: false, detail: 'Faltan credenciales.' };
+  }
+
+  try {
+    const admin = createClient(url, serviceKey);
+    const results = await Promise.all(
+      MIGRATION_PROBES.map(async (p) => {
+        const { error } = await admin.from(p.table).select(p.column).limit(1);
+        return error ? p : null;
+      }),
+    );
+    const missing = results.filter((p): p is (typeof MIGRATION_PROBES)[number] => p !== null);
+
+    if (missing.length === 0) {
+      return {
+        id: 'migrations', label: 'Migraciones recientes', status: 'ok', critical: false,
+        detail: `Aplicadas (${MIGRATION_PROBES.map((p) => p.id).join(', ')})`,
+      };
+    }
+    return {
+      id: 'migrations', label: 'Migraciones recientes', status: 'warn', critical: false,
+      detail: `Faltan: ${missing.map((p) => `${p.id} (${p.feature})`).join(', ')}. Ejecútalas en Supabase → SQL Editor, en orden.`,
+    };
+  } catch (err: any) {
+    return { id: 'migrations', label: 'Migraciones recientes', status: 'error', critical: false, detail: err?.message };
+  }
+}
+
+function checkPush(): Check {
+  const configured = !!(
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY &&
+    process.env.VAPID_PRIVATE_KEY &&
+    process.env.VAPID_SUBJECT
+  );
+  return configured
+    ? { id: 'push', label: 'Notificaciones push', status: 'ok', critical: false, detail: 'Claves VAPID configuradas: el aviso «Tu minuta está lista» puede llegar.' }
+    : {
+        id: 'push', label: 'Notificaciones push', status: 'warn', critical: false,
+        detail: 'Faltan NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY o VAPID_SUBJECT: no llega ningún aviso al móvil. Genera las claves con «npx web-push generate-vapid-keys».',
+      };
+}
+
+function checkLinkSecret(): Check {
+  return process.env.MINUTE_LINK_SECRET
+    ? { id: 'links', label: 'Enlaces públicos de minutas', status: 'ok', critical: false, detail: 'MINUTE_LINK_SECRET configurado' }
+    : {
+        id: 'links', label: 'Enlaces públicos de minutas', status: 'warn', critical: false,
+        detail: 'Falta MINUTE_LINK_SECRET: los enlaces se firman con la clave de servicio. Funciona, pero rotar una rota la otra.',
+      };
+}
+
 function checkCron(): Check {
   return process.env.CRON_SECRET
     ? { id: 'cron', label: 'Tareas programadas', status: 'ok', critical: false, detail: 'CRON_SECRET configurado (limpieza y recordatorios activos)' }
@@ -255,15 +327,26 @@ export async function GET(request: Request) {
   const auth = await getAuthedUser(request);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const [groq, gemini, storage, db, email] = await Promise.all([
+  const [groq, gemini, storage, db, migrations, email] = await Promise.all([
     checkGroq(),
     checkGemini(),
     checkStorage(),
     checkDatabase(),
+    checkMigrations(),
     checkEmail(),
   ]);
 
-  const checks: Check[] = [...groq, gemini, storage, db, email, checkCron()];
+  const checks: Check[] = [
+    ...groq,
+    gemini,
+    storage,
+    db,
+    migrations,
+    email,
+    checkPush(),
+    checkLinkSecret(),
+    checkCron(),
+  ];
 
   const blocking = checks.filter((c) => c.critical && c.status === 'error');
   const warnings = checks.filter((c) => c.status === 'warn' || (!c.critical && c.status === 'error'));

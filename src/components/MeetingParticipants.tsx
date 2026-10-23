@@ -96,7 +96,7 @@ export default function MeetingParticipants({
   };
 
   return (
-    <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated space-y-4">
+    <section className="surface p-5 sm:p-6 space-y-4">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between gap-3 text-left"

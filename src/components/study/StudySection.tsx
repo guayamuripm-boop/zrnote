@@ -454,7 +454,7 @@ function Tarjetas({ aids, storageKey }: { aids: StudyAids; storageKey: string })
       </div>
 
       {allMastered ? (
-        <div className="glass rounded-2xl p-8 text-center space-y-3">
+        <div className="surface p-8 text-center space-y-3">
           <p className="text-3xl" aria-hidden="true">🎉</p>
           <p className="font-medium text-slate-800 dark:text-slate-100">Todas dominadas</p>
           <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -584,7 +584,7 @@ export default function StudySection({
   if (tabs.length === 0) return null;
 
   return (
-    <section className="glass-strong rounded-2xl p-5 sm:p-6 shadow-elevated ring-1 ring-violet-200/50 dark:ring-violet-800/30">
+    <section className="surface p-5 sm:p-6 ring-1 ring-violet-200/50 dark:ring-violet-800/30">
       <div className="flex items-center gap-2 mb-4">
         <div className="w-8 h-8 rounded-lg bg-violet-500 flex items-center justify-center shrink-0">
           <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

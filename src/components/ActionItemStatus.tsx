@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-type Status = 'pendiente' | 'en_progreso' | 'completado';
+export type Status = 'pendiente' | 'en_progreso' | 'completado';
 
 const NEXT: Record<Status, Status> = {
   pendiente: 'en_progreso',
@@ -28,9 +28,12 @@ const STYLE: Record<Status, string> = {
 export default function ActionItemStatus({
   itemId,
   initialStatus,
+  onChange,
 }: {
   itemId: string;
   initialStatus?: string | null;
+  /** Para que una lista con filtros se entere del cambio sin recargar. */
+  onChange?: (status: Status) => void;
 }) {
   const [status, setStatus] = useState<Status>((initialStatus as Status) || 'pendiente');
   const [saving, setSaving] = useState(false);
@@ -40,6 +43,7 @@ export default function ActionItemStatus({
     const next = NEXT[status];
     const prev = status;
     setStatus(next); // optimistic
+    onChange?.(next);
     setSaving(true);
     try {
       const res = await fetch(`/api/action-items/${itemId}`, {
@@ -47,9 +51,13 @@ export default function ActionItemStatus({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: next }),
       });
-      if (!res.ok) setStatus(prev); // revert on failure
+      if (!res.ok) {
+        setStatus(prev); // revert on failure
+        onChange?.(prev);
+      }
     } catch {
       setStatus(prev);
+      onChange?.(prev);
     } finally {
       setSaving(false);
     }

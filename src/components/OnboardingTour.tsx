@@ -59,8 +59,15 @@ export default function OnboardingTour({ userId }: { userId: string }) {
     return () => clearTimeout(timer);
   }, [userId, pathname]);
 
+  // El primer elemento VISIBLE que coincida, no el primero del DOM: en el móvil
+  // la barra de escritorio sigue en la página (oculta), y el tour acababa
+  // señalando un rectángulo vacío en la esquina en vez del botón de verdad.
   const findTarget = useCallback((s: Step): Element | null => {
-    return document.querySelector(s.selector) || (s.fallbackSelector ? document.querySelector(s.fallbackSelector) : null);
+    const visible = (selector?: string) =>
+      selector
+        ? Array.from(document.querySelectorAll(selector)).find((el) => el.getClientRects().length > 0) || null
+        : null;
+    return visible(s.selector) || visible(s.fallbackSelector);
   }, []);
 
   useEffect(() => {

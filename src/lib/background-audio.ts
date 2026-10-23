@@ -187,3 +187,57 @@ export function startBackgroundKeepAlive(options: {
     }
   };
 }
+
+/**
+ * Avisa de un problema con la grabación con una notificación del sistema y
+ * vibración. Es para el caso exacto que antes fallaba en silencio: la pantalla
+ * bloqueada o el usuario en otra app, donde el mensaje en pantalla de ZRNote no
+ * se ve. Mejor-esfuerzo: si no hay permiso, service worker o soporte, no hace
+ * nada (el aviso en pantalla sigue como respaldo cuando la app está delante).
+ */
+export async function notifyRecordingProblem(message: string): Promise<void> {
+  try {
+    // La vibración directa sólo llega si la página aún no está congelada; la
+    // notificación lleva además su propio patrón de vibración, que es el que
+    // funciona con la pantalla apagada.
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate?.([300, 150, 300, 150, 300]);
+    }
+    if (
+      typeof window === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      !('Notification' in window) ||
+      Notification.permission !== 'granted'
+    ) {
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    // `vibrate`/`requireInteraction` no están en el tipo estándar de
+    // NotificationOptions, de ahí el `any`.
+    const options: any = {
+      body: message,
+      tag: 'zrnote-recording-problem',
+      requireInteraction: true,
+      vibrate: [300, 150, 300, 150, 300],
+      data: { url: typeof location !== 'undefined' ? location.pathname : '/dashboard' },
+    };
+    await reg.showNotification('⚠️ Revisa tu grabación', options);
+  } catch {
+    /* best effort: el aviso en pantalla es el respaldo */
+  }
+}
+
+/**
+ * Pide el permiso de notificación si aún no se ha decidido, para poder avisar
+ * si la grabación se corta. Mejor-esfuerzo y silenciosa si ya está decidido.
+ */
+export async function ensureNotificationPermission(): Promise<void> {
+  try {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      await Notification.requestPermission();
+    }
+  } catch {
+    /* best effort */
+  }
+}
