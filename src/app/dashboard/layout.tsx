@@ -7,6 +7,8 @@ import DashboardNav from '@/components/DashboardNav';
 import MobileNav from '@/components/MobileNav';
 import OnboardingTour from '@/components/OnboardingTour';
 import PushSync from '@/components/PushSync';
+import OfflineIndicator from '@/components/OfflineIndicator';
+import PrecacheRecentMinutes from '@/components/PrecacheRecentMinutes';
 
 export default async function DashboardLayout({
   children,
@@ -22,10 +24,13 @@ export default async function DashboardLayout({
       <TermsGate />
       <PushSync />
       {user && <OnboardingTour userId={user.id} />}
+      {/* Invisible: pre-guarda las últimas minutas para leerlas sin conexión. */}
+      {user && <PrecacheRecentMinutes userId={user.id} />}
       <DashboardNav userInitial={user?.email?.charAt(0).toUpperCase() || '?'} version={VERSION} />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <OfflineIndicator />
         {children}
       </main>
 
