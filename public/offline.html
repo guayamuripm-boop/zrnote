@@ -21,54 +21,85 @@
         body { background: #0f172a; color: #f1f5f9; }
         .card { background: #1e293b; border-color: #334155; }
         .muted { color: #94a3b8; }
+        .secondary { color: #94a3b8; }
       }
       .card {
-        max-width: 380px;
+        max-width: 400px;
         width: 100%;
         background: #fff;
         border: 1px solid #e2e8f0;
-        border-radius: 16px;
+        border-radius: 20px;
         padding: 32px 28px;
         text-align: center;
         box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
       }
       .logo {
-        width: 44px;
-        height: 44px;
+        width: 48px;
+        height: 48px;
         margin: 0 auto 20px;
-        border-radius: 12px;
+        border-radius: 14px;
         background: linear-gradient(135deg, #2563eb, #3b82f6);
         color: #fff;
         font-weight: 700;
+        font-size: 1.1rem;
         display: flex;
         align-items: center;
         justify-content: center;
       }
-      h1 { font-size: 1.15rem; margin: 0 0 8px; }
-      p { margin: 0 0 20px; line-height: 1.6; font-size: 0.9rem; }
+      h1 { font-size: 1.2rem; margin: 0 0 8px; }
+      p { margin: 0 0 22px; line-height: 1.6; font-size: 0.9rem; }
       .muted { color: #64748b; }
-      button {
+      .btn {
+        display: block;
         width: 100%;
-        padding: 12px;
+        box-sizing: border-box;
+        padding: 13px;
         border: 0;
-        border-radius: 10px;
+        border-radius: 12px;
         background: linear-gradient(135deg, #2563eb, #3b82f6);
         color: #fff;
-        font-size: 0.9rem;
-        font-weight: 500;
+        font-size: 0.95rem;
+        font-weight: 600;
         cursor: pointer;
+        text-decoration: none;
       }
+      .secondary {
+        display: inline-block;
+        margin-top: 16px;
+        background: none;
+        border: 0;
+        color: #64748b;
+        font-size: 0.85rem;
+        cursor: pointer;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .hint {
+        margin: 20px 0 0;
+        padding-top: 16px;
+        border-top: 1px solid #e2e8f0;
+        font-size: 0.8rem;
+        line-height: 1.6;
+      }
+      @media (prefers-color-scheme: dark) { .hint { border-color: #334155; } }
     </style>
   </head>
   <body>
     <div class="card">
       <div class="logo">ZR</div>
-      <h1>Sin conexión</h1>
+      <h1>Estás sin conexión</h1>
       <p class="muted">
-        ZRNote necesita internet para transcribir y generar minutas.
-        Vuelve a intentarlo cuando recuperes la señal.
+        Transcribir y generar minutas necesita internet, pero tus minutas ya
+        guardadas puedes leerlas aquí mismo, sin señal.
       </p>
-      <button onclick="location.reload()">Reintentar</button>
+
+      <a class="btn" href="/notas-sin-conexion">Leer mis minutas guardadas</a>
+      <button class="secondary" onclick="location.reload()">Reintentar la conexión</button>
+
+      <p class="hint muted">
+        ¿Estabas grabando? Tranquila: el audio se guarda en tu teléfono y la
+        minuta se generará sola en cuanto recuperes la señal.
+      </p>
     </div>
   </body>
 </html>

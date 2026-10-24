@@ -27,7 +27,7 @@
 // v6: se intercepta el POST del share sheet a /share-target (Web Share Target)
 // — sin bump de VERSION el sistema operativo seguiría llamando al SW anterior
 // y ese POST no llegaría a ninguna parte.
-const VERSION = 'zrnote-v7';
+const VERSION = 'zrnote-v8';
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = '/offline.html';
 // La única navegación de /dashboard que este SW puede cachear con seguridad.
