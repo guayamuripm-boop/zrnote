@@ -1,20 +1,18 @@
-import { createServerSupabase } from '@/lib/supabase/server';
-import { getSupabaseAdmin } from '@/lib/supabase/admin';
-import { isAdminEmail } from '@/lib/admin';
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { PANEL_COOKIE, isValidPanelCookie, panelPasswordConfigured } from '@/lib/panel-auth';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Panel oculto de diagnóstico — SOLO para nosotros.
+ * Panel oculto de diagnóstico — SOLO para el equipo.
  *
- * No aparece en ningún menú y da 404 a quien no sea admin (ver `isAdminEmail`),
- * así que no existe para el resto del mundo. Sirve para ver, por usuario, qué
- * reunión falló, el mensaje AMABLE que vio la persona y —debajo— el motivo
- * TÉCNICO real que nos dice cómo actuar. El usuario nunca ve esta pantalla ni
- * el detalle técnico; eso es justamente lo que separa lo que ve él de lo que
- * vemos nosotros.
+ * Es público a nivel de ruta (no cuelga de /dashboard, así que no pide iniciar
+ * sesión) pero está escondido y protegido por contraseña (ver `panel-auth`).
+ * Sin cookie válida muestra solo un formulario de clave; con ella, la lista de
+ * reuniones fallidas con el motivo técnico que el usuario nunca ve.
  */
 
 interface FailedMeeting {
@@ -59,18 +57,65 @@ function timeAgo(iso: string | null): string {
   return d.toLocaleString('es-VE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-export default async function AdminPage() {
-  const supabase = await createServerSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
+function PasswordForm({ error }: { error?: string }) {
+  return (
+    <div className="min-h-[70vh] flex items-center justify-center px-4">
+      <form
+        method="post"
+        action="/api/panel/login"
+        className="w-full max-w-sm surface p-6 space-y-4"
+      >
+        <div className="text-center space-y-1">
+          <p className="text-3xl">🔒</p>
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100 font-sora">Panel privado</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Escribe la contraseña para continuar.</p>
+        </div>
+        <input
+          type="password"
+          name="password"
+          autoFocus
+          autoComplete="current-password"
+          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          placeholder="Contraseña"
+        />
+        {error === '1' && (
+          <p className="text-sm text-rose-600 dark:text-rose-400">Contraseña incorrecta.</p>
+        )}
+        {error === 'rate' && (
+          <p className="text-sm text-rose-600 dark:text-rose-400">Demasiados intentos. Espera un minuto.</p>
+        )}
+        <button
+          type="submit"
+          className="w-full gradient-primary text-white rounded-xl py-2.5 text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition"
+        >
+          Entrar
+        </button>
+      </form>
+    </div>
+  );
+}
 
-  // Puerta: si no eres admin, esta página sencillamente no existe.
-  if (!isAdminEmail(user?.email)) notFound();
+export default async function PanelPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  // Fallo cerrado: sin contraseña configurada, el panel no existe para nadie.
+  if (!panelPasswordConfigured()) notFound();
+
+  const { error } = await searchParams;
+  const cookieStore = await cookies();
+  const token = cookieStore.get(PANEL_COOKIE)?.value;
+
+  if (!isValidPanelCookie(token)) {
+    return <PasswordForm error={error} />;
+  }
 
   const admin = getSupabaseAdmin();
 
   // `error_detail` llega con la migración 037. Si aún no está aplicada,
-  // seleccionarla rompería la consulta entera — así que se intenta con ella y,
-  // si falla por columna desconocida, se repite sin ella.
+  // seleccionarla rompería la consulta — se intenta con ella y, si falla por
+  // columna desconocida, se repite sin ella.
   const columnsWithDetail = 'id, title, status, created_at, ended_at, error_message, error_detail, created_by';
   const columnsNoDetail = 'id, title, status, created_at, ended_at, error_message, created_by';
 
@@ -108,7 +153,7 @@ export default async function AdminPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 font-sora">
@@ -118,19 +163,13 @@ export default async function AdminPage() {
             Lo que vieron los usuarios y el motivo técnico real. Solo para el equipo.
           </p>
         </div>
-        <Link
-          href="/dashboard"
-          className="text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition shrink-0"
-        >
-          ← Volver
-        </Link>
       </div>
 
       {detailColumnMissing && (
         <div className="surface p-4 bg-amber-50/60 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/40">
           <p className="text-sm text-amber-800 dark:text-amber-300">
-            La migración <code>037_error_detail</code> aún no está aplicada en esta base: por ahora solo se ve
-            el mensaje del usuario, no el detalle técnico. Aplícala para ver el motivo real.
+            La migración <code>037_error_detail</code> aún no está aplicada: por ahora solo se ve el mensaje del
+            usuario, no el detalle técnico.
           </p>
         </div>
       )}
@@ -147,18 +186,16 @@ export default async function AdminPage() {
           </p>
           {failed.map((m) => (
             <div key={m.id} className="surface p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <Link
-                    href={`/dashboard/meetings/${m.id}`}
-                    className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition break-words"
-                  >
-                    {m.title || 'Reunión sin título'}
-                  </Link>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {emailById.get(m.created_by || '') || m.created_by || 'usuario desconocido'} · {timeAgo(m.ended_at || m.created_at)}
-                  </p>
-                </div>
+              <div className="min-w-0">
+                <Link
+                  href={`/dashboard/meetings/${m.id}`}
+                  className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition break-words"
+                >
+                  {m.title || 'Reunión sin título'}
+                </Link>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {emailById.get(m.created_by || '') || m.created_by || 'usuario desconocido'} · {timeAgo(m.ended_at || m.created_at)}
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -166,9 +203,7 @@ export default async function AdminPage() {
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
                     Lo que vio la persona
                   </p>
-                  <p className="text-slate-700 dark:text-slate-300 break-words">
-                    {m.error_message || '—'}
-                  </p>
+                  <p className="text-slate-700 dark:text-slate-300 break-words">{m.error_message || '—'}</p>
                 </div>
                 <div className="rounded-lg bg-rose-50/60 dark:bg-rose-900/15 p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-rose-400 dark:text-rose-500 mb-1">
@@ -184,9 +219,7 @@ export default async function AdminPage() {
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-500 dark:text-blue-400 mb-1">
                   Qué hacer
                 </p>
-                <p className="text-sm text-slate-700 dark:text-slate-300">
-                  {playbook(m.error_detail, m.error_message)}
-                </p>
+                <p className="text-sm text-slate-700 dark:text-slate-300">{playbook(m.error_detail, m.error_message)}</p>
               </div>
             </div>
           ))}
