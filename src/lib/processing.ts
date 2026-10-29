@@ -22,7 +22,10 @@ export interface ProcessingResult {
 export interface TranscribeResult {
   success: boolean;
   transcript?: string;
+  /** Mensaje AMABLE para el usuario (sin tecnicismos). */
   error?: string;
+  /** Motivo TÉCNICO real (proveedor, código, cuerpo) — solo para el panel admin y los logs, nunca para el usuario. */
+  detail?: string;
   segmentsProcessed: number;
   segmentsTotal: number;
   more: boolean;
@@ -32,7 +35,10 @@ export interface AnalyzeResult {
   success: boolean;
   minuteId?: string;
   actionItemsCount?: number;
+  /** Mensaje AMABLE para el usuario (sin tecnicismos). */
   error?: string;
+  /** Motivo TÉCNICO real — solo para el panel admin y los logs, nunca para el usuario. */
+  detail?: string;
 }
 
 export interface EmailResult {
@@ -414,7 +420,7 @@ export async function transcribeMeeting(
     // El motivo real (falta la clave en el servidor) se queda en el log, para
     // nosotros. La persona solo ve que el servicio no está disponible.
     logger.error('Transcription unavailable: GROQ_API_KEY not configured', { meetingId });
-    return { success: false, error: userFacingProcessingError('transcribe'), segmentsProcessed: 0, segmentsTotal: 0, more: false };
+    return { success: false, error: userFacingProcessingError('transcribe'), detail: 'GROQ_API_KEY no configurada en el servidor', segmentsProcessed: 0, segmentsTotal: 0, more: false };
   }
 
   logger.info('Starting transcription batch', { meetingId, operation: 'transcribe', maxSegments });
@@ -576,6 +582,7 @@ export async function transcribeMeeting(
     return {
       success: false,
       error: userFacingProcessingError('transcribe', reason),
+      detail: reason,
       segmentsProcessed: offset,
       segmentsTotal: segments.length,
       more: false,
@@ -625,7 +632,7 @@ export async function transcribeMeeting(
       };
     }
     logger.warn('Transcription produced no text', { meetingId, reason });
-    return { success: false, error: userFacingProcessingError('transcribe', reason), segmentsProcessed: 0, segmentsTotal: segments.length, more: false };
+    return { success: false, error: userFacingProcessingError('transcribe', reason), detail: reason, segmentsProcessed: 0, segmentsTotal: segments.length, more: false };
   }
 
   // Written ONLY if the marker is still where this pass found it.
@@ -1301,6 +1308,7 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
     return {
       success: false,
       error: userFacingProcessingError('analyze', detail),
+      detail,
     };
   }
 
@@ -1393,7 +1401,7 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
 
   if (minuteError) {
     logger.error('Minute save error', { meetingId, error: minuteError.message });
-    return { success: false, error: userFacingProcessingError('analyze', minuteError.message) };
+    return { success: false, error: userFacingProcessingError('analyze', minuteError.message), detail: minuteError.message };
   }
 
   // The LLM is free-form: `priority` and `due_date` go into columns with a CHECK

@@ -32,11 +32,21 @@ const processSchema = z.object({
  * "falló". This used to be written into `transcript_raw`, which destroyed the
  * transcript and made the retry impossible.
  */
-async function markFailed(supabase: any, meetingId: string, error: string) {
-  await supabase
+async function markFailed(supabase: any, meetingId: string, error: string, detail?: string) {
+  const base = { status: 'failed', error_message: error.slice(0, 1000) };
+  // `error_detail` (migración 037) guarda el motivo técnico para el panel admin,
+  // nunca para el usuario. Si esa migración aún no está aplicada en esta base,
+  // PostgREST rechaza el update por columna desconocida — y marcar la reunión
+  // como fallida no puede depender de una columna informativa. Se reintenta sin
+  // ella: el detalle sigue estando en los logs.
+  const { error: updErr } = await supabase
     .from('meetings')
-    .update({ status: 'failed', error_message: error.slice(0, 1000) })
+    .update(detail ? { ...base, error_detail: detail.slice(0, 2000) } : base)
     .eq('id', meetingId);
+
+  if (updErr && /error_detail/.test(updErr.message || '')) {
+    await supabase.from('meetings').update(base).eq('id', meetingId);
+  }
 }
 
 export async function POST(
@@ -155,7 +165,7 @@ export async function POST(
       if (live) {
         return NextResponse.json({ ok: false, live: true, error: result.error });
       }
-      await markFailed(supabase, meetingId, result.error || 'Error al transcribir');
+      await markFailed(supabase, meetingId, result.error || 'Error al transcribir', result.detail);
       return NextResponse.json({ ok: false, error: result.error, segmentsProcessed: result.segmentsProcessed, segmentsTotal: result.segmentsTotal });
     }
 
@@ -187,7 +197,7 @@ export async function POST(
     const result = await analyzeMeeting(meetingId, meeting.transcript_raw);
 
     if (!result.success) {
-      await markFailed(supabase, meetingId, result.error || 'Error al generar la minuta');
+      await markFailed(supabase, meetingId, result.error || 'Error al generar la minuta', result.detail);
       return NextResponse.json({ ok: false, error: result.error });
     }
 
