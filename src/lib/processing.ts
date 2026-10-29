@@ -9,6 +9,7 @@ import { formatTimestamp, startOffsetsSeconds, readChapters } from '@/lib/chapte
 import { getSummaryLength } from '@/lib/summary-length';
 import { normalizeStudyAids, isStudyAidsEmpty, countStudyAids, readStudyAids } from '@/lib/study-aids';
 import { toText, toTextList, toBlockers, toProjectStatuses, toDiscussion } from '@/lib/minute-text';
+import { userFacingProcessingError } from '@/lib/user-errors';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 
@@ -410,7 +411,10 @@ export async function transcribeMeeting(
   const groqKey = process.env.GROQ_API_KEY;
 
   if (!groqKey) {
-    return { success: false, error: 'GROQ_API_KEY no configurada en el servidor', segmentsProcessed: 0, segmentsTotal: 0, more: false };
+    // El motivo real (falta la clave en el servidor) se queda en el log, para
+    // nosotros. La persona solo ve que el servicio no está disponible.
+    logger.error('Transcription unavailable: GROQ_API_KEY not configured', { meetingId });
+    return { success: false, error: userFacingProcessingError('transcribe'), segmentsProcessed: 0, segmentsTotal: 0, more: false };
   }
 
   logger.info('Starting transcription batch', { meetingId, operation: 'transcribe', maxSegments });
@@ -566,10 +570,12 @@ export async function transcribeMeeting(
   // until it gave up with a meaningless timeout, so say what really happened.
   if (cut === 0) {
     const reason = segErrors[0] || 'el transcriptor no respondio';
+    // El motivo real (incl. el proveedor y el código HTTP) se registra para
+    // nosotros; a la persona le llega un mensaje tranquilo, sin tecnicismos.
     logger.warn('Transcription made no progress', { meetingId, offset, reason });
     return {
       success: false,
-      error: `El transcriptor no pudo procesar el audio en este momento (${reason.slice(0, 120)}). El audio está guardado: vuelve a pulsar «Reintentar» en unos minutos.`,
+      error: userFacingProcessingError('transcribe', reason),
       segmentsProcessed: offset,
       segmentsTotal: segments.length,
       more: false,
@@ -618,7 +624,8 @@ export async function transcribeMeeting(
         more: false,
       };
     }
-    return { success: false, error: `No se pudo transcribir el audio: ${reason}`, segmentsProcessed: 0, segmentsTotal: segments.length, more: false };
+    logger.warn('Transcription produced no text', { meetingId, reason });
+    return { success: false, error: userFacingProcessingError('transcribe', reason), segmentsProcessed: 0, segmentsTotal: segments.length, more: false };
   }
 
   // Written ONLY if the marker is still where this pass found it.
@@ -802,9 +809,14 @@ Es lo único que hace que alguien vuelva a abrir esta minuta, y lo que más se p
 - Seguimientos y fechas: "lo vemos el jueves", "para la próxima revisamos X", "quedamos en retomar esto" → pendiente (o evento si tiene hora y lugar).
 - NO es un pendiente: una sugerencia opcional — "estaría bueno…", "podríamos…", "en algún momento…", "habría que pensar si…". Eso es una idea. La prueba: ¿se dijo como algo que HAY que hacer, o como algo que SERÍA BUENO hacer? Lo primero va en action_items; lo segundo, en ideas.
 - Ante la duda por el tono de necesidad (lo dijeron como obligación, como bloqueo, como algo que falta) → pendiente. Ante la duda porque nadie lo dijo en serio → idea.
-- Redacta cada tarea empezando por un verbo, y que se entienda sola: "Enviar la cotización de tuberías al cliente", no "lo de la cotización".
+- ESPECÍFICO, NUNCA GENÉRICO. Cada pendiente tiene que nombrar la cosa CONCRETA de la que se habló: el documento, la cifra, el cliente, el proveedor, el lugar, la pieza, el número exacto. Mete en la descripción cada dato que se dijo (nombre, cantidad, fecha, documento, herramienta, sitio), con las palabras con que se dijo. NO lo resumas a una etiqueta vaga.
+    SÍ: "Enviar la cotización de las 50 tuberías de 2 pulgadas a Ferretería López antes del viernes".
+    NO: "enviar la cotización", "hacer seguimiento al cliente", "revisar lo pendiente" — eso es tan general que no le sirve a nadie.
+  Si de verdad no se dijo ningún detalle concreto, pon lo que se dijo tal cual; pero antes relee: casi siempre el detalle estaba ahí y se perdió al resumir.
+- Redacta cada tarea empezando por un verbo y que se entienda sola, sin haber estado en la reunión.
+- EXTRÁELOS TODOS, sin tope. No hay número mínimo ni máximo: si se dijeron 3 pendientes son 3, si se dijeron 15 son 15. Vale más un pendiente de más (el responsable lo descarta en un segundo) que uno de menos (se pierde para siempre). Recorre la transcripción entera buscándolos; no te quedes con los 3 o 4 más obvios.
 - Si una tarea la asumen dos personas, escribe un compromiso por cada una.
-- Si alguien asumió varias cosas distintas, sepáralas. Una tarea = una acción.
+- Si alguien asumió varias cosas distintas, sepáralas. Una tarea = una acción. No juntes dos pendientes en uno para acortar la lista.
 - Clasifica cada compromiso en "kind": "evento" sólo si tiene hora y lugar propios —una reunión, una llamada, una visita— porque eso se agenda como un bloque de tiempo. Todo lo demás es "tarea": algo que se completa ANTES de una fecha, no que ocurre EN una fecha. La inmensa mayoría son tareas. Ante la duda, tarea.
 
 ${attributionRules}
@@ -832,7 +844,7 @@ RESPONDE ÚNICAMENTE CON ESTE JSON (sin markdown, sin texto antes ni después):
   "action_items": [
     {
       "assignee_name": "Nombre del responsable, o null",
-      "description": "Acción concreta que empieza por verbo y se entiende sin contexto",
+      "description": "Acción concreta que empieza por verbo, con los datos exactos que se dijeron (qué, cuánto, para quién, cuándo) y que se entiende sin contexto. Nada de etiquetas vagas.",
       "due_date": "YYYY-MM-DD o null",
       "priority": "alta | media | baja",
       "kind": "tarea | evento — 'evento' SOLO si ocurre en un momento concreto (una reunión, una llamada, una visita, una presentación); 'tarea' para todo lo demás, que es casi siempre: enviar, revisar, preparar, contactar, corregir..."
@@ -847,7 +859,8 @@ RESPONDE ÚNICAMENTE CON ESTE JSON (sin markdown, sin texto antes ni después):
 }
 
 ANTES DE RESPONDER, REVISA
-- BARRIDO DE PENDIENTES: vuelve a recorrer la transcripción buscando "hay que", "tenemos que", "falta", "queda pendiente", "todavía no", "me mandas", "necesito que", "quedamos en", "para el…", "la próxima", "recuérdame", "seguimiento". ¿Cada uno que se dijo en serio está en action_items? Si falta alguno, añádelo (con assignee_name null si nadie lo tomó).
+- BARRIDO DE PENDIENTES: vuelve a recorrer la transcripción ENTERA buscando "hay que", "tenemos que", "falta", "queda pendiente", "todavía no", "me mandas", "necesito que", "quedamos en", "para el…", "la próxima", "recuérdame", "seguimiento", "voy a", "me encargo", "yo hago". ¿Cada uno que se dijo en serio está en action_items? Si falta alguno, añádelo (con assignee_name null si nadie lo tomó). Ante la duda entre ponerlo o no, ponlo.
+- ¿Alguna tarea quedó genérica ("hacer seguimiento", "revisar lo pendiente", "coordinar con el equipo", "mandar el correo")? Reescríbela con el detalle concreto que se dijo en la reunión (a quién, de qué, cuánto, para cuándo). Solo si de verdad no se dijo ningún detalle, déjala como está.
 - ¿Algún "compromiso" es en realidad una sugerencia opcional que nadie dijo en serio? Muévelo a ideas. Lo contrario también cuenta: ¿hay algo en ideas que se dijo como obligación? Súbelo a action_items.
 - ¿Algún responsable te lo inventaste porque "encajaba"? Ponlo en null.
 - ¿Repetiste en next_steps algo que ya está en action_items? Bórralo de next_steps.
@@ -1281,9 +1294,13 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
 
   if ('error' in result) {
     errors.push(`Groq → ${result.error}`);
+    // El detalle de CADA proveedor (nombre, estado HTTP, cuerpo) se queda en el
+    // log, para nosotros. La persona solo ve que no se pudo y qué hacer.
+    const detail = errors.join(' | ');
+    logger.error('Minute generation failed', { meetingId, detail });
     return {
       success: false,
-      error: `No se pudo generar la minuta. ${errors.join(' | ')}`,
+      error: userFacingProcessingError('analyze', detail),
     };
   }
 
@@ -1375,7 +1392,8 @@ export async function analyzeMeeting(meetingId: string, transcript?: string): Pr
   }
 
   if (minuteError) {
-    return { success: false, error: `Minute save error: ${minuteError.message}` };
+    logger.error('Minute save error', { meetingId, error: minuteError.message });
+    return { success: false, error: userFacingProcessingError('analyze', minuteError.message) };
   }
 
   // The LLM is free-form: `priority` and `due_date` go into columns with a CHECK
