@@ -1534,14 +1534,21 @@ async function withTimeout(p: Promise<unknown>, ms: number): Promise<void> {
   }
 }
 
-export async function markMeetingFailed(meetingId: string, errorMsg: string): Promise<void> {
+export async function markMeetingFailed(meetingId: string, errorMsg: string, detail?: string): Promise<void> {
   const supabase = getSupabaseAdmin();
   // NEVER write the error into transcript_raw: that destroys the transcript and
   // makes the retry impossible. Failures have their own column (migration 020).
-  await supabase
+  // `error_detail` (migración 037) guarda el motivo técnico para el panel; si
+  // esa columna aún no existe, se reintenta sin ella — marcar el fallo no puede
+  // depender de una columna informativa.
+  const base = { status: 'failed', error_message: errorMsg.slice(0, 1000) };
+  const { error } = await supabase
     .from('meetings')
-    .update({ status: 'failed', error_message: errorMsg.slice(0, 1000) })
+    .update(detail ? { ...base, error_detail: detail.slice(0, 2000) } : base)
     .eq('id', meetingId);
+  if (error && /error_detail/.test(error.message || '')) {
+    await supabase.from('meetings').update(base).eq('id', meetingId);
+  }
 }
 
 export interface VectorizeResult {

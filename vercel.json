@@ -14,6 +14,9 @@
     },
     "src/app/api/cron/retention/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/drain/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
