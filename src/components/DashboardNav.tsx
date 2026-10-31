@@ -23,6 +23,7 @@ const LINKS: { href: string; label: string; exact?: boolean; tour?: string }[] =
   { href: '/dashboard', label: 'Inicio', exact: true },
   { href: '/dashboard/meetings', label: 'Reuniones' },
   { href: '/dashboard/action-items', label: 'Tareas', tour: 'action-items' },
+  { href: '/dashboard/responsables', label: 'Responsables' },
 ];
 
 export default function DashboardNav({ userInitial, version }: { userInitial: string; version: string }) {

@@ -178,6 +178,12 @@ export default function ActionItemsView({ items, now }: { items: ActionItemViewD
             {counts.all} en total
           </p>
         </div>
+        <Link
+          href="/dashboard/responsables"
+          className="text-sm text-blue-600 dark:text-blue-400 hover:underline underline-offset-4 shrink-0"
+        >
+          Ver por responsable →
+        </Link>
       </div>
 
       {items.length > 0 && (

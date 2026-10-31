@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { dueBucket } from '@/lib/due-date';
 
 export interface ScopedActionItem {
   id: string;
@@ -96,6 +97,92 @@ export async function getUserActionItems(
   }
 
   return sortActionItems(Array.from(byId.values()));
+}
+
+/**
+ * Accountability: ¿quién tiene qué, cuánto cumplió y qué está vencido?
+ *
+ * Es la pregunta que se trae un ejecutivo: no "mis tareas", sino "de todo lo
+ * que se comprometió el equipo, quién va al día y quién no". Agrupa por
+ * responsable (el nombre que puso la IA; sin responsable cae en su propio
+ * grupo) y resume. Función pura: el "hoy" que decide qué está vencido lo pasa
+ * quien llama, porque debe ser el del dispositivo (ver due-date.ts), no el
+ * servidor en UTC.
+ */
+export interface AssigneeSummary {
+  name: string;
+  total: number;
+  done: number;
+  pending: number;
+  overdue: number;
+  /** % completado sobre el total de esa persona (0-100). */
+  completionPct: number;
+}
+
+export interface AccountabilitySummary {
+  people: AssigneeSummary[];
+  totals: {
+    total: number;
+    done: number;
+    pending: number;
+    overdue: number;
+    completionPct: number;
+    people: number;
+  };
+}
+
+const SIN_RESPONSABLE = 'Sin responsable';
+
+export function summarizeAccountability(
+  items: Array<{ status?: string; due_date?: string | null; assignee_name?: string | null }>,
+  now: Date = new Date(),
+): AccountabilitySummary {
+  const byName = new Map<string, AssigneeSummary>();
+
+  for (const item of items) {
+    const name = item.assignee_name?.trim() || SIN_RESPONSABLE;
+    const done = item.status === 'completado';
+    const overdue = !done && dueBucket(item.due_date, now) === 'overdue';
+
+    const cur = byName.get(name) || { name, total: 0, done: 0, pending: 0, overdue: 0, completionPct: 0 };
+    cur.total += 1;
+    if (done) cur.done += 1;
+    else cur.pending += 1;
+    if (overdue) cur.overdue += 1;
+    byName.set(name, cur);
+  }
+
+  const people = Array.from(byName.values());
+  for (const p of people) {
+    p.completionPct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+  }
+
+  // Quien más debe primero: más vencidos, luego más pendientes, luego nombre.
+  // "Sin responsable" siempre al final: no es una persona a la que exigirle.
+  people.sort((a, b) => {
+    if (a.name === SIN_RESPONSABLE) return 1;
+    if (b.name === SIN_RESPONSABLE) return -1;
+    if (b.overdue !== a.overdue) return b.overdue - a.overdue;
+    if (b.pending !== a.pending) return b.pending - a.pending;
+    return a.name.localeCompare(b.name);
+  });
+
+  const total = items.length;
+  const done = people.reduce((s, p) => s + p.done, 0);
+  const pending = people.reduce((s, p) => s + p.pending, 0);
+  const overdue = people.reduce((s, p) => s + p.overdue, 0);
+
+  return {
+    people,
+    totals: {
+      total,
+      done,
+      pending,
+      overdue,
+      completionPct: total > 0 ? Math.round((done / total) * 100) : 0,
+      people: people.length,
+    },
+  };
 }
 
 /** Meeting ids created by this user — the scope for "tasks from my meetings". */
